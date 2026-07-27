@@ -242,6 +242,8 @@ OnCue uses an LLM only for pain-point confirmation (short transcript fragments, 
 | `openai` | No | Fast | OpenAI Cloud |
 | `ollama` | Yes (local) | Depends on hardware | Fully local |
 
+**Quick pick:** for the lowest latency, use Gemini 2.5 Flash (the default) or Groq. If you want more accuracy on ambiguous fragments and can spare a little latency, `anthropic/claude-haiku-4.5` via OpenRouter is a solid opt-in. Either way the LLM only ever sees a short, PII-redacted transcript fragment.
+
 **Gemini (recommended for beta-testers):**
 ```env
 LLM_PROVIDER=gemini
