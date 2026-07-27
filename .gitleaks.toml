@@ -1,0 +1,103 @@
+# .gitleaks.toml — secret-scan-config voor de pre-commit hook, CI en scripts/export_public.sh
+#
+# Strategie: extend de ingebouwde gitleaks-regelset (useDefault = true) en voeg UITSLUITEND
+# allowlist-uitzonderingen toe voor de known-false-positives uit
+# claudedocs/2026-05-20-git-history-scan.md. Er worden GEEN detectie-regels verwijderd of
+# verzwakt. Minimaal en gemotiveerd per entry.
+
+title = "Live Sales Copilot — gitleaks config"
+
+[extend]
+# Neem alle ingebouwde gitleaks-regels over; hieronder alleen allowlist-uitzonderingen.
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Allowlist 1 — globale known-false-positives (OR-semantiek).
+# Een finding wordt onderdrukt als het PAD, de REGEX of een STOPWORD matcht. De hier
+# opgenomen waarden zijn per definitie geen echt secret: placeholders, textbook-voorbeelden
+# of publieke CA-root-bundels.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Placeholders, textbook-waarden en publieke CA-roots (git-history-scan FP-lijst)"
+matchCondition = "OR"
+regexTarget = "line"
+
+# Pad-uitzonderingen: virtualenv + CA-root-bundels (publieke root-certs, maintainer-emails;
+# geen project-secrets). Komen niet voor in de publieke export, maar de config is gedeeld met
+# de pre-commit hook in de working tree waar .venv wel bestaat.
+paths = [
+    '''(^|/)\.venv/''',
+    '''cacert\.pem$''',
+]
+
+# Waarde-uitzonderingen: exacte placeholders en textbook-voorbeelden.
+regexes = [
+    '''change-me-32-chars-min-placeholder''',   # _FALLBACK_SECRET / _PLACEHOLDER_SECRETS (auth/startup_check.py, auth/email_capture.py)
+    '''<GENERATE_ON_FIRST_RUN>''',               # placeholder-secret, idem
+    '''YOUR-PROJECT-REF''',                       # presentation/landing/config.js — Supabase placeholder
+    '''YOUR-ANON-KEY''',                          # presentation/landing/config.js — Supabase placeholder
+    '''NL91ABNA0417164300''',                     # textbook-IBAN (Wikipedia) in PII-tests + docs/RECRUITMENT_PROFILE.md
+    '''\b0123456789\b''',                         # placeholder-telefoonnummer in tests
+    '''\b0201234567\b''',                         # placeholder-telefoonnummer in tests
+    '''\b0612345678\b''',                         # placeholder-telefoonnummer in tests
+]
+
+# Stopwords: onderdruk findings waarvan de waarde een van deze (case-insensitive) bevat.
+stopwords = [
+    "placeholder",
+    "change-me",
+    "your-project-ref",
+    "your-anon-key",
+]
+
+# ---------------------------------------------------------------------------
+# Allowlist 2 — pad-gescoped: de `sk-ant-` Anthropic-key-detectie-regex in de PII-filter
+# broncode. AND-conditie (pad EN regex moeten beide matchen) zodat een ECHTE
+# `sk-ant-...`-key BUITEN deze bronbestanden gewoon gedetecteerd blijft worden.
+# Bewust niet globaal: een kale `sk-ant-`-allowlist zou echte Anthropic-keys onderdrukken.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "sk-ant- detectie-regex in PII-filter broncode (eigen code, geen secret)"
+matchCondition = "AND"
+regexTarget = "line"
+paths = [
+    '''src/sales_copilot/core/pii_filter\.py$''',
+    '''src/sales_copilot/core/pii_patterns\.py$''',
+]
+regexes = [
+    '''sk-ant-''',
+]
+
+# ---------------------------------------------------------------------------
+# Allowlist 3 — pad-gescoped: de vendored whisper.cpp submodule (upstream MIT). De findings in
+# vendor/whisper.cpp/.github/workflows/build.yml zijn GitHub Actions `${{ secrets.* }}`-
+# referenties (verwijzingen, geen waarden), niet onze secrets. We scannen geen third-party
+# submodule-code op ónze leaks. Pad-gescoped zodat dit niets buiten de submodule onderdrukt.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Vendored whisper.cpp submodule (upstream MIT) — GitHub Actions secrets-referenties, geen project-secret"
+matchCondition = "OR"
+paths = [
+    '''(^|/)vendor/whisper\.cpp/''',
+]
+
+# ---------------------------------------------------------------------------
+# Allowlist 4 — pad-gescoped: het dev-test Ed25519-seed in het gedeelde test-vector.
+# De client-signer is verwijderd: licenties worden uitsluitend server-side door de
+# Cloudflare-Worker getekend, dus er staat geen signing-seed meer in de working tree —
+# het seed overleeft verder alleen in de git-history. AND-conditie (pad EN exacte waarde)
+# houdt de suppressie strak op dit bekende test-keypaar in het test-vector-bestand. Het is
+# geen productie-secret: de bijbehorende public key is de embedded dev-pubkey waarmee de
+# test-suite SCP-keys verifieert; de productie-private-key leeft uitsluitend als
+# Cloudflare-Worker-secret (zie #6 PUBKEY-swap).
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Dev-test Ed25519-seed in gedeeld test-vector + git-history (geen productie-secret)"
+matchCondition = "AND"
+regexTarget = "line"
+paths = [
+    '''tests/fixtures/license_pro_test_vector\.json$''',
+]
+regexes = [
+    '''7861e05493225577e3bb5b25872bc9b7b5c076d343be195c614cc02f657a7092''',
+]

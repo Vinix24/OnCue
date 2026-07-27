@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, feat/cold-call-objections]
+
+jobs:
+  test:
+    runs-on: macos-14  # Apple Silicon for mlx-whisper compatibility
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade "pip>=26.1.2" "setuptools>=78.1.1"
+          pip install -e ".[full,dev]"
+      - name: Lint (ruff)
+        run: |
+          source .venv/bin/activate
+          ruff check src/ tests/ scripts/
+      - name: Dependency audit
+        run: |
+          source .venv/bin/activate
+          pip-audit --skip-editable --ignore-vuln CVE-2025-3000
+      - name: Tests (pytest)
+        run: |
+          source .venv/bin/activate
+          python -m pytest tests/ -v --tb=short
+      - name: Pre-launch auth hardening acceptance
+        run: |
+          source .venv/bin/activate
+          python scripts/ci_auth_hardening_check.py
+      - name: Commit-hash audit
+        run: |
+          bash scripts/audit_commit_hashes.sh --since 30
+      - name: Architecture boundary check
+        run: |
+          source .venv/bin/activate
+          python scripts/check_architecture_boundaries.py
+
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies (windows + dev extras only — no mlx-whisper/whisper.cpp)
+        run: |
+          python -m pip install --upgrade "pip>=26.1.2" "setuptools>=78.1.1"
+          pip install -e ".[windows,dev]"
+      - name: Import smoke
+        run: python -c "import sales_copilot.audio.wasapi; import sales_copilot.audio.capture"
+      # Mocked construct-only coverage: soundcard is monkeypatched, no real
+      # audio device. MicStream and real WASAPI-hardware behavior are NOT
+      # exercised here — real-hardware verification is a deferred open item.
+      - name: WASAPI loopback tests (mocked)
+        run: python -m pytest tests/test_wasapi_loopback.py -v

@@ -1,0 +1,14 @@
+{
+  "description": "Known-good Ed25519-signed SCP v1 Pro development test vector.",
+  "public_key_hex": "38ead2f02420e1fd3f074765ad49c600c8a8ee3d196733832e640f41017a29bd",
+  "key": "SCP-AEAQ-A2KV-XEAP-FJJD-QAAB-CIRT-IRKW-M54I-TGVL-XTG5-5375-7RUN-JKF3-NXIL-GG6C-Y6IM-WWLA-VGL4-WVJO-4OPY-LDQU-VBMC-GVW6-3LRP-6QF5-G35O-ANQX-242X-4DRS-54HQ-3RW7-3YMB-G7OK-HUJX-GLZO-PFDS-AY",
+  "decoded": {
+    "version": 1,
+    "tier": "pro",
+    "tier_code": 1,
+    "rotation_epoch": 0,
+    "issued_at": 1767225600,
+    "expires_at": 4070908800,
+    "license_id_hex": "00112233445566778899aabbccddeeff"
+  }
+}

@@ -1,0 +1,202 @@
+[project]
+name = "live-sales-copilot"
+version = "0.9.0"
+description = "OnCue — open source real-time sales copilot: talk-time tracker, live transcriber, pain point detector, presentation automation"
+readme = "README.md"
+license = { text = "AGPL-3.0-only" }
+requires-python = ">=3.11"
+authors = [
+    { name = "Vincent van Deth" },
+]
+keywords = ["sales", "copilot", "real-time", "transcription", "coaching", "talk-time"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications :: Conferencing",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Core dependencies — enough for Module 1 (Talk Time Tracker)
+dependencies = [
+    # Audio capture
+    "sounddevice>=0.5",
+    "numpy>=2.0",
+
+    # VAD (talk-time tracking)
+    "silero-vad>=5.1",
+
+    # WebSocket hub (shared by all modules)
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+    "websockets>=14.0",
+    "python-multipart>=0.0.27",
+    "starlette>=1.0.1",
+    "aiohttp>=3.14.0",
+
+    # License verification (Ed25519 signature checks in sales_copilot.auth)
+    "cryptography>=43.0",
+
+    # Configuration
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.10",
+
+    # Utilities
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+# === MODULE 2: Live Transcriber ===
+# Apple Silicon: native MLX backend.
+transcriber = [
+    "mlx-whisper>=0.4",
+]
+# Other platforms: use whisper.cpp (built from vendor submodule, no Python dep).
+
+# === MODULE 2 (alt): Parakeet backend (NVIDIA Parakeet on MLX, Apple Silicon) ===
+# Optional. Multilingual TDT model (mlx-community/parakeet-tdt-0.6b-v3, 25 EU
+# languages incl. Dutch) with finer streaming granularity than whisper.cpp.
+# Requires ffmpeg on PATH for audio decoding. Kept out of the base + default
+# bundles to keep the standard install light — opt in with `pip install '.[parakeet]'`.
+parakeet = [
+    "parakeet-mlx>=0.5",
+]
+
+# === MODULE 3: Pain Point Detector ===
+detector = [
+    "semantic-router>=0.1",
+    "sentence-transformers>=3.0",
+    "instructor>=1.7,<2.0",
+    # instructor pulls litellm transitively; on Windows litellm fails from sdist
+    # (Rust/Cargo build). An explicit platform pin tells pip to prefer the wheel.
+    "litellm>=1.83.10 ; sys_platform == 'win32'",
+]
+
+# === MODULE 2b: Speaker Diarization (optional, opt-in) ===
+# Requires HuggingFace token + accepted model card for pyannote/speaker-diarization-3.1
+# pyannote.audio, torch, and torchaudio are pinned to >=3.1/2.1/2.1 respectively.
+# On Apple Silicon: MPS acceleration is used by default (see DIARIZATION.md).
+diarization = [
+    "pyannote.audio>=3.1",
+    "torch>=2.1",
+    "torchaudio>=2.1",
+]
+
+# === MODULE 4: Slide Injector (case database) ===
+slides = [
+    "aiosqlite>=0.20",
+]
+slides-supabase = [
+    "aiosqlite>=0.20",
+    "supabase>=2.12",
+]
+
+# === LLM Providers (for Module 3) ===
+# litellm needs Rust/Cargo to build from source on platforms without a prebuilt
+# wheel for the given Python/OS combo (notably Windows), which turns a plain
+# `pip install .` into a `metadata-generation-failed` error. It is not imported
+# by any module in this codebase today, so it is opt-in via this extra; the
+# macOS/Linux install bundles below (`smart`, `full`) pull it back in.
+llm = [
+    "litellm>=1.83.10",
+]
+gemini = [
+    "google-genai>=1.0,<2.0",
+    # instructor's gemini/vertex provider imports jsonref to dereference JSON
+    # schema $refs. instructor does not declare it, so without this pin the
+    # genai (gemini/vertex) LLM path raises ModuleNotFoundError at the first
+    # structured-output call.
+    "jsonref>=1.1",
+]
+groq = ["groq>=0.15"]
+openai = ["openai>=1.60"]
+ollama = ["ollama>=0.4"]
+
+# === Windows-only WASAPI loopback capture backend ===
+# cffi bindings over native WASAPI, lazily imported inside
+# WasapiLoopbackStream.start() behind sys.platform == "win32". The >=0.4.6
+# floor avoids the numpy>=2.3 fromstring breakage.
+windows = ["soundcard>=0.4.6"]
+
+# === Bundles ===
+# Module 1 only (talk-time tracker) — just core deps, no extras needed
+
+# Module 1+2 (talk-time + transcription)
+live = [
+    "live-sales-copilot[transcriber]",
+]
+
+# Module 1+2+3 (+ pain point detection)
+smart = [
+    "live-sales-copilot[transcriber,detector,gemini,llm]",
+]
+
+# Full copilot (all modules)
+full = [
+    "live-sales-copilot[transcriber,detector,slides,gemini,llm]",
+]
+
+# Development
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "pip-audit>=2.10",
+    # fastapi.testclient.TestClient (used across tests/conftest.py fixtures)
+    # is backed by starlette.testclient, which requires httpx at runtime.
+    "httpx>=0.27",
+]
+
+[project.scripts]
+# Each module has its own CLI entry point
+sales-copilot = "sales_copilot.__main__:main"
+talk-time = "sales_copilot.modules.talk_time.__main__:main"
+live-transcriber = "sales_copilot.modules.transcriber.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/Vinix24/OnCue"
+Documentation = "https://github.com/Vinix24/OnCue/tree/main/docs"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sales_copilot"]
+exclude = [
+    "src/sales_copilot/auth/_dev_keys.py",
+]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "src/sales_copilot/auth/_dev_keys.py",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "audio_fixture: requires local audio fixtures in data/sessions/ (skipped if absent)",
+    "live_llm: uses real Gemini API (skipped without GEMINI_API_KEY)",
+]
+filterwarnings = [
+    # uvicorn 0.44 still imports websockets.legacy and websockets.server internally — upstream issue
+    "ignore:websockets\\.server\\.WebSocketServerProtocol is deprecated:DeprecationWarning",
+    "ignore:websockets\\.legacy is deprecated:DeprecationWarning",
+    "ignore:remove second argument of ws_handler:DeprecationWarning",
+    # semantic_router uses pydantic v1 .dict() — upstream issue
+    "ignore::pydantic.warnings.PydanticDeprecatedSince20",
+    # torch.jit.load deprecation — upstream issue
+    "ignore:.*torch.jit.load.*deprecated:DeprecationWarning",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]

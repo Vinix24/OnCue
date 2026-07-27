@@ -1,0 +1,50 @@
+presets:
+  - name: discovery
+    label: Discovery
+    description: Alleen talk-time coaching, geen slides
+    screen_mode: single
+    transcript:
+      backend: whisper.cpp
+    modules:
+      talk_time: true
+      transcript: true
+      pain_points: false
+      presentation: false
+      post_call_report: true
+  - name: full_demo
+    label: Full Demo
+    description: Complete live copilot met transcript, pain points en slides
+    screen_mode: dual
+    transcript:
+      backend: whisper.cpp
+    modules:
+      talk_time: true
+      transcript: true
+      pain_points: true
+      presentation: true
+      post_call_report: true
+  - name: coaching_only
+    label: Coaching Only
+    description: Alleen live coaching metrics zonder detector of slides
+    screen_mode: single
+    transcript:
+      backend: whisper.cpp
+    modules:
+      talk_time: true
+      transcript: true
+      pain_points: false
+      presentation: false
+      post_call_report: true
+  - name: pitch
+    label: Pitch
+    description: Pitch-focused preset met alle modules ingeschakeld
+    screen_mode: dual
+    transcript:
+      backend: whisper.cpp
+    modules:
+      talk_time: true
+      transcript: true
+      pain_points: true
+      presentation: true
+      post_call_report: true
+    llm_model: anthropic/claude-haiku-4.5

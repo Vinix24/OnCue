@@ -1,0 +1,108 @@
+routes:
+  - name: angebotsprozess
+    label: Angebotsprozess
+    utterances:
+      - "die Angebotserstellung kostet uns sehr viel Zeit"
+      - "in unseren Angeboten passieren regelmaessig Fehler"
+      - "unsere Kunden warten zu lange auf ein Angebot"
+      - "wir erstellen Angebote noch immer manuell"
+      - "unser Angebotsprozess ist sehr aufwendig"
+
+  - name: kapazitaet
+    label: Kapazitaet
+    utterances:
+      - "wir haben nicht genug Kapazitaet fuer alle Aufgaben"
+      - "unser Team ist ueberlastet"
+      - "wir wachsen, finden aber nicht genug Personal"
+      - "alle muessen mehrere Rollen gleichzeitig uebernehmen"
+      - "wir muessen Auftraege ablehnen"
+
+  - name: cross_sell
+    label: Cross-Sell
+    utterances:
+      - "wir verpassen Potenziale bei bestehenden Kunden"
+      - "wir haben keinen klaren Ueberblick ueber Zusatzpotenziale"
+      - "Up-Selling erfolgt bei uns nicht strukturiert"
+      - "wir wissen nicht, welche Kunden noch mehr Bedarf haben"
+      - "Bestandskunden werden nicht aktiv weiterentwickelt"
+
+  - name: lead_generierung
+    label: Lead-Generierung
+    utterances:
+      - "wir haben zu wenige qualifizierte Leads"
+      - "wir sind stark auf Empfehlungen angewiesen"
+      - "wir haben keine stabile Vertriebspipeline"
+      - "neue Kunden kommen fast nur ueber unser Netzwerk"
+      - "unsere Pipeline ist zu leer"
+
+  - name: wissenszugang
+    label: Wissenszugang
+    utterances:
+      - "entscheidendes Wissen liegt nur bei wenigen Personen"
+      - "wenn ein Experte ausfaellt, stehen Prozesse still"
+      - "wir sind zu stark von Einzelpersonen abhaengig"
+      - "es gibt keine saubere Dokumentation"
+      - "neue Mitarbeitende muessen alles nachfragen"
+
+  - name: kundenservice
+    label: Kundenservice
+    utterances:
+      - "Ihre Kunden warten zu lange auf eine Antwort"
+      - "es kommen immer wieder die gleichen Anfragen"
+      - "wir haben keinen Ueberblick ueber offene Servicefaelle"
+      - "unsere Reaktionszeiten sind zu lang"
+      - "Beschwerden gehen teilweise unter"
+
+  - name: manuelle_arbeit
+    label: Manuelle Arbeit
+    utterances:
+      - "wir erledigen noch zu viele Schritte manuell"
+      - "es gibt viel Copy-Paste-Arbeit"
+      - "wir steuern vieles noch ueber Excel"
+      - "wir haben zu viel doppelte Arbeit"
+      - "die gleichen Daten werden mehrfach erfasst"
+
+  - name: datenqualitaet
+    label: Datenqualitaet
+    utterances:
+      - "unsere Daten sind nicht verlaesslich"
+      - "unsere Daten sind inkonsistent"
+      - "es fehlt eine einheitliche Datenquelle"
+      - "in jedem System stehen andere Informationen"
+      - "unsere CRM-Daten sind unvollstaendig"
+
+  - name: reporting
+    label: Reporting
+    utterances:
+      - "wir haben keinen klaren Blick auf unsere Kennzahlen"
+      - "die Berichterstellung dauert bei uns Tage"
+      - "wir haben kein geeignetes Dashboard"
+      - "das Management braucht Zahlen, die wir nicht schnell liefern"
+      - "uns fehlen aktuelle Auswertungen"
+
+  - name: onboarding
+    label: Onboarding
+    utterances:
+      - "neue Mitarbeitende brauchen Monate zur Einarbeitung"
+      - "der Wissenstransfer dauert zu lange"
+      - "die Einarbeitung bindet sehr viel Zeit"
+      - "wir haben keinen strukturierten Onboarding-Prozess"
+      - "neue Kolleginnen und Kollegen werden zu spaet produktiv"
+
+  - name: compliance
+    label: Compliance
+    utterances:
+      - "wir muessen immer mehr regulatorische Vorgaben einhalten"
+      - "Datenschutzvorgaben sind fuer uns schwierig umzusetzen"
+      - "uns fehlen vernuenftige Audit-Trails"
+      - "unsere Compliance-Dokumentation ist nicht vollstaendig"
+      - "wir sind uns bei der Compliance nicht sicher"
+
+  - name: kosten
+    label: Kosten
+    utterances:
+      - "das ist fuer uns zu teuer"
+      - "dafuer haben wir aktuell kein Budget"
+      - "der ROI ist fuer uns nicht klar"
+      - "wir muessen Ausgaben reduzieren"
+      - "wir investieren bereits viel in Tools"

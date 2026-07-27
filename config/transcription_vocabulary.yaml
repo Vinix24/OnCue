@@ -1,0 +1,117 @@
+# Default NL-B2B vocabulary biasing for the local transcription backends.
+#
+# This file feeds domain terms into Whisper's `initial_prompt` (or the closest
+# equivalent that a backend supports). It is NOT a hardcoded list in code:
+# deployments can edit, replace or disable it via WHISPER_VOCABULARY_CONFIG /
+# WHISPER_VOCABULARY_ENABLED in .env.
+#
+# Scope of the default list: generic Dutch sales / B2B vocabulary that Whisper
+# often mis-hears because the terms are rare in generic training data. Keep it
+# compact: very long prompts slow inference and can increase hallucinations.
+# Re-measure WER after edits with scripts/benchmark_transcription.py.
+
+enabled: true
+language: nl
+description: >
+  Default Dutch B2B / sales vocabulary used to bias local Whisper inference
+  without fine-tuning. Terms cover generic vendors, sales jargon, contract
+  language and common operational pain points.
+
+# Whisper's initial_prompt is free text. We render the terms as a short,
+# comma-separated Dutch phrase so the model sees them in context.
+prompt_prefix: "Nederlands zakelijke verkoopgesprek. Belangrijke termen:"
+
+terms:
+  # --- Software / tooling vendors (generic, commonly mentioned in NL B2B) ---
+  - Salesforce
+  - HubSpot
+  - Pipedrive
+  - Exact
+  - AFAS
+  - Visma
+  - Twinfield
+  - Booqable
+  - Simplicate
+  - Teamleader
+  - ClickUp
+  - Asana
+  - Monday
+  - Microsoft Teams
+  - Zoom
+  - Google Workspace
+
+  # --- Sales / commercial jargon ---
+  - offerte
+  - propositie
+  - voorstel
+  - lead
+  - leads
+  - prospect
+  - pipeline
+  - funnel
+  - forecast
+  - CRM
+  - ERP
+  - upsell
+  - cross-sell
+  - deal
+  - deals
+  - closing
+  - contract
+  - overeenkomst
+  - onboarding
+  - implementatie
+  - livegang
+  - proof of concept
+  - pilot
+  - business case
+  - ROI
+  - TCO
+  - MRR
+  - ARR
+  - churn
+  - retentie
+  - upsell
+  - verlenging
+  - licentie
+  - abonnement
+
+  # --- Operational / compliance pain points ---
+  - kasstroom
+  - liquiditeit
+  - voorraad
+  - voorraadbeheer
+  - logistiek
+  - inkoop
+  - inkoopproces
+  - verzuim
+  - ziekteverzuim
+  - productiviteit
+  - efficiëntie
+  - automatisering
+  - compliance
+  - AVG
+  - GDPR
+  - ISO
+  - facturatie
+  - debiteuren
+  - debiteurenbeheer
+  - crediteuren
+  - btw
+  - administratie
+  - accountantskantoor
+  - boekhouder
+
+  # --- Roles / stakeholders ---
+  - decision maker
+  - beslisser
+  - budgethouder
+  - gebruiker
+  - key user
+  - projectleider
+  - directie
+  - management
+  - afdeling
+  - sales
+  - accountmanager
+  - customer success

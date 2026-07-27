@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tester Light — Live transcript + hint feedback</title>
+  <style>
+    :root {
+      --bg: #0d0f14; --panel: #161a22; --line: #242a36;
+      --text: #e7ebf2; --muted: #8b94a7; --green: #34d27b; --red: #ef4146; --amber: #f5b53d;
+      --blue: #3b82f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 15px/1.5 -apple-system, system-ui, sans-serif;
+      min-height: 100vh;
+    }
+    .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+    h1 { font-size: 20px; margin: 0; }
+    .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .controls { display: flex; gap: 12px; align-items: center; }
+    button {
+      border: none; border-radius: 999px; padding: 10px 18px; font-size: 14px;
+      cursor: pointer; background: var(--blue); color: #fff; font-weight: 600;
+      transition: transform .08s ease, opacity .2s ease;
+    }
+    button:hover { transform: scale(1.03); }
+    button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .rec { background: var(--red); }
+    .rec.recording { animation: pulse 1.3s ease-in-out infinite; }
+    @keyframes pulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(239,65,70,.55); }
+      50% { box-shadow: 0 0 0 14px rgba(239,65,70,0); }
+    }
+    .status { color: var(--muted); font-size: 13px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+    .panel {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+      display: flex; flex-direction: column; overflow: hidden; min-height: 420px;
+    }
+    .panel h2 { font-size: 14px; margin: 0; padding: 16px 18px; border-bottom: 1px solid var(--line); color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .panel-body { flex: 1; overflow-y: auto; padding: 14px 18px; }
+    .empty { color: var(--muted); font-size: 13px; text-align: center; margin-top: 40px; }
+    .transcript-row { display: grid; grid-template-columns: 64px 1fr 48px; gap: 10px; align-items: start; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+    .transcript-row:last-child { border-bottom: none; }
+    .speaker { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding-top: 2px; }
+    .speaker.prospect { color: var(--amber); }
+    .speaker.self { color: var(--green); }
+    .text { word-break: break-word; }
+    .time { color: var(--muted); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+    .hint {
+      background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 12px;
+      padding: 14px; margin-bottom: 12px;
+    }
+    .hint-text { margin-bottom: 10px; line-height: 1.45; }
+    .hint-meta { color: var(--muted); font-size: 11px; margin-bottom: 10px; }
+    .hint-actions { display: flex; gap: 10px; }
+    .hint-actions button {
+      flex: 1; background: transparent; border: 1px solid var(--line); color: var(--muted);
+      padding: 8px 12px; font-size: 13px; border-radius: 999px;
+    }
+    .hint-actions button:hover { background: rgba(255,255,255,.05); }
+    .hint-actions button.voted-up { background: rgba(52,210,123,.15); border-color: var(--green); color: var(--green); }
+    .hint-actions button.voted-down { background: rgba(239,65,70,.15); border-color: var(--red); color: var(--red); }
+    .toast {
+      position: fixed; bottom: 20px; right: 20px; background: var(--panel); color: var(--text);
+      border: 1px solid var(--line); border-radius: 12px; padding: 12px 18px; font-size: 13px;
+      opacity: 0; pointer-events: none; transform: translateY(8px); transition: opacity .2s, transform .2s;
+      z-index: 100;
+    }
+    .toast.visible { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>Tester Light</h1>
+        <div class="sub">Neem een gesprek op, bekijk live hints en geef per hint een duimpje.</div>
+      </div>
+      <div class="controls">
+        <button id="startBtn">▶ Start gesprek</button>
+        <button id="stopBtn" class="rec" disabled>■ Stop</button>
+      </div>
+    </header>
+    <div class="status" id="status">Niet verbonden</div>
+
+    <div class="grid">
+      <div class="panel">
+        <h2>Live transcript</h2>
+        <div class="panel-body" id="transcriptPanel">
+          <div class="empty">Wacht op start van het gesprek...</div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Coaching-hints</h2>
+        <div class="panel-body" id="hintsPanel">
+          <div class="empty">Hints verschijnen hier zodra de detector ze genereert.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const WS_BASE_URL = window.WS_BASE_URL || (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const statusEl = document.getElementById("status");
+    const transcriptPanel = document.getElementById("transcriptPanel");
+    const hintsPanel = document.getElementById("hintsPanel");
+    const toastEl = document.getElementById("toast");
+
+    let token = "";
+    let sessionId = localStorage.getItem("tester-session-id") || Math.random().toString(36).slice(2, 10);
+    localStorage.setItem("tester-session-id", sessionId);
+    let active = false;
+    let transcriptSocket = null;
+    let suggestionsSocket = null;
+    const recentProspectLines = [];
+    const MAX_CONTEXT_LINES = 8;
+
+    function showToast(message) {
+      toastEl.textContent = message;
+      toastEl.classList.add("visible");
+      setTimeout(() => toastEl.classList.remove("visible"), 2200);
+    }
+
+    function authHeaders() {
+      return { "X-Sales-Copilot-Token": token };
+    }
+
+    async function ensureToken() {
+      if (token) return;
+      try {
+        const res = await fetch("/api/v1/auth/session-token", { headers: { host: location.host } });
+        const data = await res.json();
+        token = data.token || "";
+      } catch (e) {
+        statusEl.textContent = "Kon geen sessie-token ophalen";
+      }
+    }
+
+    function formatTime(ms) {
+      if (typeof ms !== "number" || Number.isNaN(ms)) return "--:--";
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const ss = s % 60;
+      return String(m).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
+    }
+
+    function clearEmpty(panel) {
+      const empty = panel.querySelector(".empty");
+      if (empty) empty.remove();
+    }
+
+    function addTranscriptEntry(payload) {
+      if (!payload || payload.type !== "transcript" || !payload.text) return;
+      clearEmpty(transcriptPanel);
+
+      const row = document.createElement("div");
+      row.className = "transcript-row";
+      const speaker = payload.speaker === "prospect" ? "prospect" : "self";
+      const label = speaker === "prospect" ? "Prospect" : "Jij";
+
+      row.innerHTML =
+        '<div class="speaker ' + speaker + '">' + label + '</div>' +
+        '<div class="text"></div>' +
+        '<div class="time">' + formatTime(payload.start_ms) + '</div>';
+      row.querySelector(".text").textContent = payload.text;
+      transcriptPanel.appendChild(row);
+      transcriptPanel.scrollTop = transcriptPanel.scrollHeight;
+
+      if (speaker === "prospect") {
+        recentProspectLines.push(payload.text);
+        if (recentProspectLines.length > MAX_CONTEXT_LINES) recentProspectLines.shift();
+      }
+    }
+
+    function contextForHint() {
+      return recentProspectLines.slice();
+    }
+
+    async function submitHintFeedback(hintText, feedback, buttonEl, hintEl) {
+      const context = contextForHint();
+      const payload = {
+        hint: hintText,
+        feedback: feedback,
+        context_utterance: context.length ? context[context.length - 1] : "",
+        context_utterances: context,
+        session_id: sessionId,
+      };
+      try {
+        const res = await fetch("/api/hint-feedback", {
+          method: "POST",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        buttonEl.classList.add(feedback === "up" ? "voted-up" : "voted-down");
+        hintEl.querySelectorAll("button").forEach((b) => b.disabled = true);
+        showToast(feedback === "up" ? "👍 Feedback opgeslagen" : "👎 Feedback opgeslagen");
+      } catch (e) {
+        showToast("Opslaan mislukt: " + e.message);
+      }
+    }
+
+    function addHint(payload) {
+      if (!payload || payload.type !== "suggestion" || !Array.isArray(payload.questions)) return;
+      const questions = payload.questions.filter((q) => typeof q === "string" && q.trim());
+      if (!questions.length) return;
+      clearEmpty(hintsPanel);
+
+      const context = contextForHint();
+      questions.forEach((question) => {
+        const hintEl = document.createElement("div");
+        hintEl.className = "hint";
+        hintEl.innerHTML =
+          '<div class="hint-text"></div>' +
+          '<div class="hint-meta">' + (context.length ? "Gebaseerd op: \"" + context[context.length - 1] + "\"" : "Geen context") + '</div>' +
+          '<div class="hint-actions">' +
+          '  <button type="button" data-dir="up">👍 Goed</button>' +
+          '  <button type="button" data-dir="down">👎 Niet goed</button>' +
+          '</div>';
+        hintEl.querySelector(".hint-text").textContent = question;
+
+        hintEl.querySelectorAll("button").forEach((btn) => {
+          btn.addEventListener("click", () => submitHintFeedback(question, btn.dataset.dir, btn, hintEl));
+        });
+
+        hintsPanel.insertBefore(hintEl, hintsPanel.firstChild);
+      });
+    }
+
+    function connectSocket(path, onMessage) {
+      const ws = new WebSocket(WS_BASE_URL + path);
+      ws.onopen = () => { statusEl.textContent = "Verbonden — luistert naar " + path; };
+      ws.onmessage = (ev) => {
+        try { onMessage(JSON.parse(ev.data)); } catch (e) { console.error("Invalid WS message", e); }
+      };
+      ws.onclose = () => {
+        if (active) statusEl.textContent = "Verbinding verbroken — herverbinden...";
+      };
+      ws.onerror = () => { ws.close(); };
+      return ws;
+    }
+
+    function startListening() {
+      transcriptSocket = connectSocket("/ws/transcript", addTranscriptEntry);
+      suggestionsSocket = connectSocket("/ws/suggestions", addHint);
+    }
+
+    function stopListening() {
+      if (transcriptSocket) { transcriptSocket.close(); transcriptSocket = null; }
+      if (suggestionsSocket) { suggestionsSocket.close(); suggestionsSocket = null; }
+    }
+
+    async function startCall() {
+      await ensureToken();
+      try {
+        const res = await fetch("/api/start-call", {
+          method: "POST",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ config: { preset: "sales", install_code: "" } }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "HTTP " + res.status);
+        }
+        active = true;
+        startListening();
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        stopBtn.classList.add("recording");
+        statusEl.textContent = "Gesprek loopt — luistert naar transcript + hints";
+        transcriptPanel.innerHTML = "";
+        hintsPanel.innerHTML = "";
+        recentProspectLines.length = 0;
+      } catch (e) {
+        showToast("Starten mislukt: " + e.message);
+        statusEl.textContent = "Starten mislukt: " + e.message;
+      }
+    }
+
+    async function stopCall() {
+      try {
+        await fetch("/api/end-call", { method: "POST", headers: authHeaders() });
+      } catch (e) { /* best effort */ }
+      active = false;
+      stopListening();
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      stopBtn.classList.remove("recording");
+      statusEl.textContent = "Gesprek gestopt";
+    }
+
+    startBtn.addEventListener("click", startCall);
+    stopBtn.addEventListener("click", stopCall);
+
+    // Auto-connect when the page loads so a late-opened tester catches an
+    // already-running call and its buffered transcript.
+    (async function init() {
+      await ensureToken();
+      startListening();
+      statusEl.textContent = "Verbonden — wacht op start van het gesprek";
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# User-facing message catalog -- Nederlands.
+#
+# This is the DEFAULT and FALLBACK language for the i18n layer
+# (sales_copilot.core.i18n). Every key that a language-specific catalog
+# (e.g. en.yaml) omits resolves against the values here.
+#
+# Keys are addressed with dotted paths, e.g. "coaching.suggestion_empty_state".
+# Values may contain {name}-style placeholders for simple interpolation via t().
+#
+# Scope of this slice: the coaching/suggestion prompt strings that the
+# lang_router serves. The broader UI-string sweep (dashboard JS/HTML,
+# presentation) is intentionally not migrated here yet.
+
+coaching:
+  # LLM system prompt for the live follow-up-question coach (SuggestionLLMClient).
+  suggestion_system_prompt: "Je bent een salescoach. Op basis van wat de prospect net heeft gezegd, stel je 2 of 3 scherpe vervolgvraag-suggesties voor de verkoper op. Houd vragen concreet, kort en bruikbaar in een lopend gesprek."
+  # LLM user prompt. {transcript} is interpolated with the prospect transcript lines.
+  suggestion_user_prompt: |-
+    Based on what the prospect said, suggest 2-3 follow-up questions for the salesperson.
+    Return only actionable questions in Dutch.
+
+    Prospect transcript:
+    {transcript}
+  # Dashboard placeholder shown before any suggestion context has arrived.
+  suggestion_empty_state: "Wacht op gesprekscontext..."
+  # Label prefixing uploaded context documents inside the system prompt.
+  context_docs_label: "Contextdocumenten:"

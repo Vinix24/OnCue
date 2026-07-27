@@ -1,0 +1,113 @@
+{
+  "title": "Sample Aha — offerteproces & prijsbezwaar",
+  "description": "Korte, fictieve NL B2B sales-call voor de 'Toon me wat het doet'-demo. Bevat een pain point (offerteproces), een bezwaar (prijs/timing) en coaching-momenten. Geen echte PII.",
+  "speed_default": 1.5,
+  "events": [
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Goedemiddag, ik bel van VNX Digital. We helpen salesteams met het automatiseren van offertes. Hebt u even tijd?",
+      "start_ms": 0,
+      "end_ms": 4200,
+      "delay_ms": 300
+    },
+    {
+      "type": "transcript",
+      "speaker": "prospect",
+      "text": "Ja, maar kort. Het maken van offertes kost ons heel veel tijd, dat is wel een pijnpunt bij ons.",
+      "start_ms": 4200,
+      "end_ms": 9200,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Herkenbaar. Hoe loopt dat offerteproces nu precies bij jullie?",
+      "start_ms": 9200,
+      "end_ms": 12300,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "prospect",
+      "text": "We doen alles nog in Word en elke offerte is maatwerk. Soms duurt het dagen voor een offerte de deur uit gaat.",
+      "start_ms": 12300,
+      "end_ms": 18300,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "En als u dat zou kunnen halveren, wat zou dat voor het team betekenen?",
+      "start_ms": 18300,
+      "end_ms": 21500,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "prospect",
+      "text": "Dat zou mooi zijn, maar het is te duur voor ons. We hebben een strak budget dit jaar.",
+      "start_ms": 21500,
+      "end_ms": 27000,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Begrijpelijk. Wat als de investering zich binnen een kwartaal terugverdient?",
+      "start_ms": 27000,
+      "end_ms": 31000,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "prospect",
+      "text": "Mijn manager moet hier nog naar kijken. We willen dit pas volgend kwartaal oppakken.",
+      "start_ms": 31000,
+      "end_ms": 36500,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Geen probleem. Kan ik dan een korte terugbelafspraak inplannen met u en uw manager?",
+      "start_ms": 36500,
+      "end_ms": 41000,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "prospect",
+      "text": "Ja, doe maar. Stuur een kort voorstel naar ons algemene mailbox, dan nemen we contact op.",
+      "start_ms": 41000,
+      "end_ms": 46000,
+      "delay_ms": 1200
+    }
+  ],
+  "suggestions": [
+    {
+      "after_event_index": 1,
+      "questions": [
+        "Wat kost het offerteproces jullie nu per week in uren?",
+        "Wie maakt er nu precies de offertes?",
+        "Wat gebeurt er als een offerte een dag later de deur uit gaat?"
+      ]
+    },
+    {
+      "after_event_index": 5,
+      "questions": [
+        "Wat bedoelt u precies met 'te duur' — de maandelijkse kosten of de opstart?",
+        "Hoe bepaalt u het budget voor dit soort tooling?",
+        "Wat zou het u opleveren als offertes binnen een dag klaar zijn?"
+      ]
+    },
+    {
+      "after_event_index": 7,
+      "questions": [
+        "Wanneer zou uw manager hier tijd voor hebben?",
+        "Wat is het belangrijkste dat uw manager wil weten?",
+        "Kan ik alvast een business case sturen die u kunt doorsturen?"
+      ]
+    }
+  ]
+}

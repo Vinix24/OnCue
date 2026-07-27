@@ -1,0 +1,57 @@
+# Kansen / koopsignaal / readiness route-set. Live gewired in ObjectionRouter
+# wanneer INCLUDE_OPPORTUNITIES=true (default). Gedetecteerde matches worden
+# als buying_signal over /ws/buying-signals gepubliceerd.
+# Zie claudedocs/2026-07-06-kans-taxonomie.md voor de rationale per categorie.
+# Schema mirrort config/objections.yaml 1-op-1 zodat dit drop-in bruikbaar is
+# voor dezelfde semantic-router (PainPointRouter / ObjectionRouter-achtige lader).
+#
+# Categorieen zijn gegrond in de SalesMinds gespreksmethodiek-SSOT
+# (clients/_internal/SalesMinds-BU/.claude/skills/salesminds-context/references/gespreksmethodiek.md)
+# en bewust DISTINCT van de bezwaarcategorieen in objections.yaml: waar een
+# bezwaar een verdedigingsmechanisme is (pushen-triggger), is een kans een moment
+# waarop de prospect zelf een gat, intentie, vraag om bewijs, of DMU-opening blootgeeft.
+routes:
+  - name: gap-behoefte
+    utterances:
+      - dat doen we eigenlijk nog niet
+      - daar hebben we nog niets voor geregeld
+      - dat zou bij ons wel beter kunnen
+      - dat is bij ons nog behoorlijk handmatig
+      - daar hebben we nog geen tijd voor vrijgemaakt
+      - dat mis ik nu eigenlijk wel
+      - we lopen daar zelf nog tegenaan
+      - het ontbreekt ons soms aan tijd om dat bij te houden
+      - we zijn daar zelf nog niet goed genoeg in
+
+  - name: koopsignaal
+    utterances:
+      - ik wil hier wel gevolg aan geven
+      - laten we dat gewoon doen
+      - wanneer zouden we hiermee kunnen beginnen
+      - ik wil hier het liefst zo snel mogelijk mee starten
+      - dat zou ik wel graag verder willen bekijken
+      - dat is voor ons een logische volgende stap
+      - stuur maar een voorstel dan kijken we hoe we dit oppakken
+      - dat sluit precies aan bij wat wij nodig hebben
+      - ik zie hier wel wat in
+
+  - name: interesse-verdieping
+    utterances:
+      - heb je daar een concreet voorbeeld van
+      - hoe zou dat er voor ons dan uitzien
+      - hebben jullie dat al eerder voor een vergelijkbaar bedrijf gedaan
+      - kun je laten zien hoe dat in de praktijk werkt
+      - wat zou ons dat dan opleveren
+      - hoe pakken jullie zoiets normaal gesproken aan
+      - heb je daar een referentie of case van
+      - kun je dat concreet maken met een voorbeeld uit onze sector
+
+  - name: autoriteit-proces
+    utterances:
+      - dat neem ik mee naar mijn directeur en dan kom ik bij je terug
+      - ik wil dit eerst intern bespreken en dan hoor je van me
+      - ik zie hier potentie in, laat me dit met mijn team bespreken
+      - ik denk dat mijn manager dit ook wel ziet zitten
+      - zullen we samen kijken hoe we dit bij de directie neerleggen
+      - laat me de juiste mensen erbij halen zodat we dit kunnen versnellen
+      - ik ga dit voorleggen maar ik verwacht geen probleem

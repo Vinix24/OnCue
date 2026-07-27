@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Real-time coaching tijdens je sales calls. Lokaal eerst, privacy gewaarborgd, geen cloud-dependency. Meld je aan voor de wachtlijst." />
+  <title>OnCue Pro — Real-time coaching voor B2B sales</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="container">
+      <span class="product-name">OnCue Pro</span>
+      <span class="badge">Beta wachtlijst</span>
+    </div>
+  </header>
+
+  <main>
+
+    <section class="hero">
+      <div class="container">
+        <h1>Real-time coaching tijdens je sales calls.</h1>
+        <p class="hero-sub">Lokaal eerst, privacy gewaarborgd, geen cloud-dependency.</p>
+        <ul class="feature-bullets" role="list">
+          <li>
+            <span class="bullet-icon" aria-hidden="true">⚡</span>
+            <span>Real-time pijnpunt-detectie (Vertex AI / Groq / lokaal)</span>
+          </li>
+          <li>
+            <span class="bullet-icon" aria-hidden="true">🇳🇱</span>
+            <span>Nederlands-eerst, getuned op MKB B2B sales-context</span>
+          </li>
+          <li>
+            <span class="bullet-icon" aria-hidden="true">🔒</span>
+            <span>Audio en transcripts blijven lokaal, AVG + AI Act compliant</span>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="proof">
+      <div class="container">
+        <blockquote class="proof-block">
+          <p>
+            18 pijnpunten gedetecteerd + 18 slide-injects in 4m50s live audio op een B2B-salesgesprek.
+          </p>
+          <cite>Gedocumenteerde live test &mdash; 13 mei 2026</cite>
+        </blockquote>
+      </div>
+    </section>
+
+    <section class="capture" id="waitlist">
+      <div class="container">
+        <h2>Zet me op de wachtlijst</h2>
+        <p class="section-sub">Ik stuur je een bericht zodra beta-toegang beschikbaar is. Geen spam, geen marketing-reeks.</p>
+
+        <form
+          id="waitlist-form"
+          class="capture-form"
+          novalidate
+        >
+          <div class="field-group">
+            <label for="email">E-mailadres</label>
+            <input
+              type="email"
+              id="email"
+              name="email"
+              placeholder="jij@bedrijf.nl"
+              required
+              autocomplete="email"
+              aria-required="true"
+              aria-describedby="email-hint"
+            />
+            <span id="email-hint" class="field-hint">Ik gebruik dit alleen voor beta-toegang en release-updates.</span>
+          </div>
+
+          <div class="field-group">
+            <label for="sector">Vakgebied <span class="optional">(optioneel)</span></label>
+            <select id="sector" name="sector" aria-label="Kies je vakgebied">
+              <option value="">Kies je vakgebied...</option>
+              <option value="sales">Sales</option>
+              <option value="coach">Coach</option>
+              <option value="recruitment">Recruitment</option>
+              <option value="other">Anders</option>
+            </select>
+          </div>
+
+          <button
+            type="button"
+            id="extra-toggle"
+            class="btn-extra-toggle"
+            aria-expanded="false"
+            aria-controls="extra-fields"
+          >Vertel me meer (optioneel)</button>
+
+          <div id="extra-fields" style="display:none">
+            <div class="field-group">
+              <label for="company">Bedrijf <span class="optional">(optioneel)</span></label>
+              <input
+                type="text"
+                id="company"
+                name="company"
+                placeholder="Jouw bedrijfsnaam"
+                autocomplete="organization"
+                maxlength="120"
+              />
+            </div>
+
+            <div class="field-group">
+              <label for="use_case">Gebruik-situatie <span class="optional">(optioneel, max 100 tekens)</span></label>
+              <textarea
+                id="use_case"
+                name="use_case"
+                rows="2"
+                maxlength="100"
+                placeholder="Bijv. MKB B2B sales, 10 gesprekken per week"
+              ></textarea>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-primary">Plaats me op de wachtlijst</button>
+
+          <div id="form-status" class="form-status" role="alert" aria-live="polite"></div>
+        </form>
+      </div>
+    </section>
+
+    <section class="pricing">
+      <div class="container">
+        <h2>Prijzen</h2>
+        <div class="pricing-grid">
+          <div class="pricing-card pricing-card--featured">
+            <div class="pricing-label">Sales Pro</div>
+            <div class="pricing-amount">€29 <span class="pricing-range">- €49</span> <span class="pricing-period">/maand</span></div>
+            <p class="pricing-note">Real-time pijnpunt-detectie, slide-injectie, talk-time coaching en post-call rapportage.</p>
+          </div>
+          <div class="pricing-card">
+            <div class="pricing-label">Coach Pack</div>
+            <div class="pricing-amount pricing-amount--contact">Neem contact op</div>
+            <p class="pricing-note">Voor coaches en trainers. Aangepaste configuratie per praktijk.</p>
+          </div>
+          <div class="pricing-card">
+            <div class="pricing-label">Recruitment</div>
+            <div class="pricing-amount pricing-amount--contact">Neem contact op</div>
+            <p class="pricing-note">Getuned op gesprekskwaliteit en kandidaat-matching voor recruiters.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <nav class="footer-links" aria-label="Footer navigatie">
+        <a href="https://vincentvandeth.nl" rel="noopener">vincentvandeth.nl</a>
+        <a href="https://github.com/Vinix24" rel="noopener noreferrer">GitHub</a>
+        <span class="footer-license">AGPL-3.0 License</span>
+      </nav>
+      <p class="footer-copy">Gebouwd door Vincent van Deth. Open source, geen lock-in.</p>
+    </div>
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="capture.js"></script>
+</body>
+</html>

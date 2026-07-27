@@ -1,0 +1,122 @@
+# Changelog
+
+## [0.9.0] — 2026-07-22
+
+- feat(audio): ship AudioTee source as the OSS/Free default, built locally into `bin/audiotee` — whole-system `tap_all` capture (Teams/Zoom/Meet, no BlackHole, no submodule); only the telephony call-tap stays Pro (#96).
+- docs: OSS README rewritten to English, help-wanted section, and local per-job latency benchmarks (`docs/BENCHMARKS.md`) (#97).
+- feat(replay): live replay capture path (`AUDIO_CAPTURE_METHOD=replay` + `REPLAY_SESSION_DIR` + `REPLAY_SPEED`) with the one-command runner `scripts/replay_session.py` (#98).
+- feat(license): Ed25519 SCP- license keys replacing symmetric HMAC — private key only on Cloudflare Worker, offline client verification with embedded public key, legacy SC- HMAC accepted until 2026-09-01, closes self-minting gap. FeaturePolicy entitlement gating with explicit per-tier feature sets (`audio.calltap`, `compliance.central_audit`); `is_pro()` kept as compatibility wrapper. Offline-first 7-day revocation cache with phone-home to `/license/check` (pseudonymous `license_id` only, `SALES_COPILOT_LICENSE_CHECK_URL`).
+- feat(server): Cloudflare Worker license control plane (`server/license-worker/`) — `/license/check`, `/license/issue` (admin-gated), `/webhook/mollie` (server-verified, idempotent, issue-on-paid + revoke-on-refund), `/audit/ingest` (key-gated, client-side hashes, tamper-evident chaining), D1 schema (licenses / payment_events / audit_events). Code complete, deploy pending.
+- feat(compliance): central compliance-audit Pro feature — per-session non-blocking consent flag (`CONSENT_TRACKING_ENABLED`), configurable retention + auto-purge (`DATA_RETENTION_DAYS`, `scripts/retention_purge.py`), tiered audit writer (Pro central hashes-only / Free local SQLite).
+- chore(release): public-export hardening — `scripts/export_public.sh` fail-closed allowlist with 4 gates (gitleaks 0, dependency-audit, pytest+ruff, relative-link check), `.gitleaks.toml`, `generate_secrets.py` no longer mints a license secret, launcher made self-locating.
+
+- chore(release): fresh-repo-prep — .mcp.json secrets uit git-index, publieke file-set vastgelegd, gitleaks pre-commit hook, docs publiek-klaar (README, BETA_TESTER_GUIDE macOS 14.2+, CONTRIBUTING, INSTALL), stale planning-files gearchiveerd
+- feat(release): calltap binary-gating besluit — ADR Accepted (optie C + soft-gate-nudge), bin/audiotee uit git-tracking, README Sales Pro notitie voor telefonie-capture
+
+- feat(dashboard): whisper.cpp als standaard transcript-backend, medium-dropdown (prospect_source per gesprek: Teams/Meet of Telefoon), cache-bust v1.1.0 (PR-V3-UI-MEDIUM)
+- docs(analyse): refactor-kaart (`claudedocs/2026-06-06-REFACTOR-KAART.md`, 9 bevindingen met file:regel + S/M/L + gefaseerde volgorde t.o.v. fresh-repo) + ADR calltap pro-gating (`claudedocs/ADR-CALLTAP-PRO-GATING.md`, drie opties + AGPL-weging, aanbeveling C binary-gating) (PR-V3-DEEPDIVE)
+- docs(roadmap): V3.3 — telefonie-doorbraak, security verified, release-pad herzien (V3.2 gearchiveerd)
+
+- chore(hygiene): .gitignore aangevuld (*.bak-*, excalidraw.log, .env.verify*, data/tmp/) + calltap experiment WAVs verwijderd uit data/tmp/ (PR-V3-DOCS-C)
+
+- docs: actualiseer naar stand 2026-06-05 — ARCHITECTURE.md (calltap drie-routes + security F01-F04), INTEGRATIONS.md (Vertex AI, Groq quota, whisper.cpp recommended, mlx known issue), FAQ.md (calltap, dashboard file://, mlx issue), README.md (status, PROSPECT_SOURCE config, roadmap), INDEX.md (PR-V3-DOCS-A)
+- feat(audio): `PROSPECT_SOURCE=audiotee_call` capture-route voor telefonie (PR-V3-CALLTAP-INT). Nieuwe `CallTapStream` (`src/sales_copilot/audio/calltap.py`) tapt de prospect-audio van een telefoongesprek (iPhone-relay/FaceTime) dat de virtuele audio-devices omzeilt: `pgrep avconferenced` → PID → AudioTee-subprocess `--include-processes <pid> --sample-rate 16000`, stdout-chunks door hetzelfde `AudioStream`-protocol als `BlackHoleStream` (recorder, talk-time VAD en `check_streams_liveness` consumeren het onveranderd). `PROSPECT_SOURCE` (env-default `blackhole`) is de schakelaar, ook per gesprek overschrijfbaar via het start_call-config-veld `prospect_source`; bestaand Teams/Zoom-gedrag via BlackHole verandert niet zonder expliciete keuze. Procesbeheer: supervisor-thread start/stopt de subprocess netjes (geen zombies), stderr → `logger.debug`, crash → één re-resolve + tap-herstart, daarna `audio_warning` (zelfde coaching-kanaal als de liveness-check), nooit de orchestrator omlaag. PID-resolutie-fout (geen `avconferenced`) of ontbrekende binary → `audio_warning` + gedegradeerde stilte, geen crash. Nieuwe env-vars `PROSPECT_SOURCE` + `CALL_PROCESS_NAME`. Docs: `docs/SETUP_EXPECTATIONS.md` sectie "Telefoongesprekken (iPhone-relay)". Bekende grens: een idle `avconferenced` levert stille-maar-lopende chunks, dus de chunk-tellende liveness-check waarschuwt alleen bij volledig ontbrekende audio, niet bij stilte-tijdens-verbinding.
+- feat(experiment): `scripts/experiment_call_tap.py` — standalone meetscript dat tijdens een actief telefoongesprek de AudioTee Core-Audio-tap (macOS 14.2+) op kandidaat-processen richt (`FaceTime`, `Phone`, `avconferenced`, `callservicesd`, `coreaudiod` + system-wide referentie) en per kandidaat 10s opneemt naar `data/tmp/calltap_<proc>.wav` (16kHz mono int16). Meet RMS + peak op int16-schaal (drempels: RMS > 500 = call-audio, < 100 = stilte) en schrijft een tabel-rapport naar `data/tmp/calltap_report.txt` met integrale `audiotee --help`. Beantwoordt nuance #10 uit `claudedocs/2026-06-05-deepresearch-telefonie-audio-capture.md` empirisch: tapt de huidige AudioTee-build telefonie-audio? Non-invasief (read-only taps, geen device-claim) — veilig naast een actieve copilot-server. Per-proces timeout 15s, totale runtime < 2,5 min. Geen wijzigingen aan `src/sales_copilot/`. Dry-run rapporteert correct RMS 0 + diagnostische stderr-note (`error: Failed to translate process IDs to audio objects` voor idle FaceTime/coreaudiod) (PR-V3-CALLTAP-EXP).
+- fix(audio): re-enumerate PortAudio devices at session start + mic/prospect stream sanity check (PR-V3-AUDIO-DEVICE-FIX). `sd._terminate()`/`sd._initialize()` runs once before stream-open when no streams are open (Bluetooth A2DP↔HFP flaps left stale device indices pointing at dead CoreAudio objects, causing `-10851 Invalid Property Value` and segfaults on end-call→start-call). Stream teardown now swallows dead-device exceptions on `stop()`/`close()` so they never escape to the orchestrator. After warmup the transcriber checks each stream for liveness within 2s; a silent stream broadcasts `{"type":"audio_warning","stream":"self|prospect",...}` on the coaching channel instead of hard-failing the call.
+- docs(security): git-history scan rapport `claudedocs/2026-05-20-git-history-scan.md` (PR-V3-SEC-HISTORY) — 5 scan-categorieen op 862 commits, 22 gitleaks-hits geverifieerd, 6 echte secrets gevonden (GitHub PAT, Perplexity, Brave, n8n JWT, License/Audit HMAC + Shutdown Token in commit 080f020 van vandaag, SEOcrawler dev key). Verdict: **REQUIRES_FRESH_REPO**. Kant-en-klare squash + revoke-commands meegeleverd. 996 `.venv/`-files in commit 3293461 bevestigd als bloat (geen extra secrets).
+- test(security): integration tests `tests/integration/test_pii_pre_llm_e2e.py` for F01 PII-pre-LLM redactie — 6 nieuwe tests die met BSN + IBAN payload bewijzen dat `DetectionPipeline.process` én `WindowClassifier._call_model_sync` geredacteerde tekst naar router/LLM sturen. Verificatie-evidence in `claudedocs/2026-05-19-sec-verify-evidence.md` (PR-V3-SEC-VERIFY).
+- feat(testing): replay audio fixture harness (PR-106). Adds `ReplayAudioStream` — a drop-in sync `AudioStream` implementation that replays a 16 kHz mono WAV at test speed. Adds `WebSocketEventCollector` for asserting hub events. Three test categories: synthetic smoke tests (committed, CI-safe), real-call replay tests (`@pytest.mark.audio_fixture`, skipped in CI), and a sliding-window detector e2e test with mocked `WindowClassifier` that fires `pain_point` events from injected Dutch transcripts. Adds `docs/REPLAY_TESTING.md` and registers `audio_fixture` + `live_llm` pytest markers.
+- feat(detector): sliding-window + multi-task LLM classification (PR-105). Replace per-fragment embedding + single-task LLM path with a `SlidingWindowBuffer` (deque of last N prospect chunks, default 5) and a single `WindowClassifier` call that returns all pain_point, objection, buying_signal, and doubt detections in one structured response. Debounces re-classification at 5 s. Phase-aware system prompt (discovery/pitch/closing). 10+ negative examples reduce false positives on backchanneling. Adds `/ws/buying-signals` and `/ws/coaching` (doubt) publish paths. Config: `DETECTOR_WINDOW_SIZE`, `DETECTOR_MIN_CHUNKS`, `DETECTOR_DEBOUNCE_S`.
+
+- feat(transcriber): TRANSCRIBE_SELF_LIVE toggle (default off) — only prospect transcripts live; self appears in post-call report via batch transcription on recorded mic audio. Dashboard setup toggle wired to `transcript.transcribe_self_live` in `start_call` payload. `TranscriptionBackend` Protocol extended with `transcribe_file(path)`. Adds `_run_self_batch_if_needed` to reports module.
+- Refactor transcriber to shared inference queue architecture: a single `InferenceWorker` owns the one `TranscriptionBackend` and WebSocket connection; mic and system audio streams become lightweight `AudioBufferer` instances that push `InferenceQueueItem` values onto a bounded `SharedInferenceQueue` with prospect-first priority ordering (priority 0 = HIGH, 1 = LOW). Eliminates concurrent Metal/MLX backend dispatches (root cause of SIGABRT), reduces WebSocket connections from 2 to 1 per call, and makes the pipeline a structural prerequisite for future streaming partial outputs. Enabled by default (`TRANSCRIBER_SHARED_QUEUE=true`); set `false` to fall back to the legacy dual-engine path without redeployment. New env vars: `TRANSCRIBER_SHARED_QUEUE`, `TRANSCRIBER_QUEUE_MAX_SIZE` (default 32), `TRANSCRIBER_SELF_PRIORITY` (default `low`).
+- Remove dead WhisperLiveKit dependency from `pyproject.toml`. The `wlk` engine code-paths were removed earlier (only `direct` and `whisper.cpp` engines remain), but the `transcriber` extra still pulled in `whisperlivekit[mlx-whisper,diarization-sortformer]>=0.2.20` and a `transcriber-cpu` extra brought `whisperlivekit[faster-whisper,diarization-sortformer]>=0.2.20` — together ~75 MB of transitive deps (sortformer, ctranslate2, faster-whisper) never imported. The `transcriber` extra now requires only `mlx-whisper>=0.4` (Apple Silicon); the cross-platform path is whisper.cpp via the vendored binary. `transcriber-cpu` extra is dropped (PR-101).
+- Switch default Whisper model from `large-v3` to `large-v3-turbo` (mlx-community/whisper-large-v3-turbo). ~50% faster per chunk, warmup 30s→5s, RAM 3 GB→1.6 GB, download 3 GB→800 MB. WER NL +0.5pp (negligible). Override with `WHISPER_MODEL=large-v3` if you need the absolute best accuracy (PR-100).
+- Add per-session audio recording: orchestrator owns one `AudioRecorder` per call that the transcriber pushes captured chunks into, producing `data/sessions/<id>/{mic,system}.wav` plus `metadata.json`. Disable with `RECORD_AUDIO=false`. Dashboard setup view shows a Dutch privacy disclaimer (PR-97).
+- Fix post-call reports silently dropping transcripts when the publisher emitted `speaker=null` (e.g. diarization fallback): session-tracker now defaults null/missing speakers to `"unknown"` instead of rejecting the entry, drops whitespace-only text, and logs every captured transcript so operators can verify the pipeline from runtime.log (PR-98).
+- Add real eager Whisper warmup at orchestrator startup. PR-96.2's `WHISPER_EAGER_WARMUP` only kicked in when the transcriber module spawned at start_call; the orchestrator now pre-loads the model in a background task as soon as the backend boots so the first call is hot. Failures are logged and swallowed so a broken warmup never blocks startup (PR-99).
+- Fix talk-time lifecycle mismatch by accepting orchestrator `call_started`/`call_ended` events in addition to `start_call`/`end_call`, add heartbeat and speech-event diagnostics logging, and reset tracker state per session to avoid stale SELF percentages in single-stream mode (PR-93).
+- Add dashboard warmup `system_status` banner handling, transcript panel smooth autoscroll improvements, and detector pipeline debug/confirmation runtime logs for operator tracing (PR-92).
+- Fix Gemini API key env-name fallback in detector LLM clients by accepting `GOOGLE_API_KEY` or `GEMINI_API_KEY` in pain-point confirmation and phase detection, and document `GEMINI_API_KEY` as preferred in `.env.example` (PR-91a).
+- Flip ENABLE_OBJECTION_DETECTION, ENABLE_SUGGESTIONS, ENABLE_SUMMARY, DYNAMIC_SLIDES to default true so first-time users see AI activity out of the box; set =false in .env to opt out (PR-91b).
+
+## [1.0.0] - 2026-04-20
+- Add talk-time heartbeat snapshots (`TALK_TIME_HEARTBEAT_MS`) tied to start/end call lifecycle so dashboard timer updates every second even in BlackHole single-stream mode (PR-89).
+- Add Dutch self-serve FAQ (`docs/FAQ.md`) with 50+ issue paths, FAQ index, README escalation order, and troubleshooting cross-links.
+- Add zero-touch macOS first-run installer (`scripts/first-run.sh`), start/stop wrappers, and honest Dutch setup/troubleshooting docs.
+- Fix transcriber `start_call` warmup flow (with coaching `system_status` updates), add single-stream default speaker mapping (`SINGLE_STREAM_SPEAKER_DEFAULT`), and wire talk-time call duration to `start_call`.
+- Fix setup-screen Start Call/upload API requests to consistently use resolved API base URL so `file://` dashboard usage hits `http://localhost:8760` instead of relative paths.
+- Add an operator-driven manual end-to-end validation plan with scripted NL/EN/DE call fixtures and expected-event checklist artifacts.
+- Add AGPL-3.0 licensing/governance docs (`LICENSE`, `LICENSE-COMMERCIAL.md`, `CONTRIBUTING.md`, `CLA.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`) and README policy links for public release.
+- Convert whisper.cpp and AudioTee vendor clones to pinned git submodules and add comprehensive OSS attribution in `THIRD_PARTY_LICENSES.md`.
+- Add NL/EN/DE pain-point and objection route packs with per-call `CALL_LANGUAGE` routing and automatic Whisper language propagation.
+- Add Whisper Dutch sales fine-tuning pipeline scripts, evaluation report flow, and optional MLX adapter loading via `WHISPER_FINE_TUNED_MODEL_PATH`.
+- Add optional AI-generated fallback slides (`DYNAMIC_SLIDES`) with slide-control injection when no case match exists.
+- Add opt-in real-time follow-up question suggestions with a new dashboard panel and `/ws/suggestions` feed.
+- Add optional automatic conversation phase detection with LLM phase classification and auto phase-change events.
+- Add objection detection routes, response templates, WebSocket publishing, and dashboard panel support.
+- Add opt-in 60-second conversation summaries with key moments, `/ws/summary`, dashboard Samenvatting panel, and post-call report inclusion.
+- Add structured runtime logging with configurable `LOG_LEVEL`, stdout output, and rotating file logs.
+- Add graceful shutdown hardening: managed audio stream contexts, periodic session checkpoints, async end-call report generation, and hub websocket close-all handling.
+- Remove deprecated WhisperLiveKit bridge/transcriber codepaths and keep transcription engines to `direct` + `whisper.cpp`.
+- Refactor WebSocket hub into split core, API, upload, and static modules behind a thin wrapper.
+- Filter direct-transcriber silence hallucinations (`***`, `...`, subtitle artifacts, symbol-only snippets) before publishing.
+- Add per-call transcript backend selection to setup presets and orchestrator config overrides.
+- Add transcriber backend abstraction (mlx backend factory) and fix DirectWhisperEngine loop cooperativeness for continuous transcription.
+- Add whisper.cpp install/config scaffolding, WAV utilities, chunker, and backend adapter.
+- Keep DirectWhisperEngine hub WebSocket open across publishes with pre-connect and auto-reconnect on send failure.
+- Add direct mlx-whisper transcription mode with VAD-gated buffering and optional WLK fallback mode switch.
+- Switch transcriber startup to a single shared WhisperLiveKit instance with BlackHole-only single-stream fallback.
+- Fix Whisper bridge stability by using a single interleaved send/receive loop and add WLK anti-repetition defaults.
+- Add audio device health preflight and `verify_audio.py` for mic/BlackHole checks.
+- Fix backend start-call flow by normalizing API/WS payloads, preserving orchestrator looping, and reducing detector startup blocking.
+- Add Start Call diagnostics, API E2E coverage, and reset hub state to waiting_for_config on end_call.
+- Fix dashboard Start Call flow by removing global script collisions and using direct HTTP `/api/start-call`.
+- Refactor transcription to dual-stream mic/system Whisper inputs with stream-based speaker tagging.
+- Fix critical demo blockers: blackhole talk-time capture, preset contract, config/upload endpoints, configurable WS URLs, end-call UX, and speaker swap flow.
+- Fix end-to-end audio pipeline by adding WhisperLiveKit audio bridge and removing dashboard transcript placeholders.
+- Apply VNX Digital branding to dashboard and presentation themes.
+- Add config E2E test and configuration documentation for setup screen flow.
+- Add context doc support for LLM confirmation and reports.
+- Add setup screen JS for presets, uploads, and start-call config.
+- Add optional module config parameters for orchestrator-driven startup.
+- Refactor orchestrator to wait for call config before starting modules.
+- Add optional config parameters to module entry points for orchestrator usage.
+- Add hub upload, presets, and config endpoints.
+- Add dashboard pre-call setup screen with configuration controls.
+- Add CallConfig presets and per-call overrides.
+- Add Module 4 certification docs, README full setup, and full-system E2E test.
+- Add reports module runner and full copilot orchestrator.
+- Add dashboard post-call report panel with end-call action and JSON download.
+- Fix report generator test imports for session event helpers.
+- Add session tracker to collect call data for reports.
+- Add post-call report generator with JSON export and summary stats.
+- Add Module 3 certification docs and entry point runner.
+- Add detector module runner for transcript-driven slide injection.
+- Add slide injection orchestrator to emit pain point and slide control events.
+- Add dashboard pain point detection panel with live updates.
+- Add Reveal.js WebSocket slide control client with hidden case slides.
+- Add pain point detection pipeline with debouncer and LLM confirmation flow.
+- Add provider-agnostic LLM confirmation client for pain point detection.
+- Add semantic router pain point classifier with detector tests.
+- Add BlackHole audio capture backend using sounddevice.
+- Add Module 2 certification documentation and evidence summary.
+- Add live transcript panel with WebSocket feed and auto-scroll controls.
+- Add SQLite case database module and seed script updates.
+- Add Module 2 transcriber engine wrapper for WhisperLiveKit.
+- Add Module 2 architecture contract for Live Transcriber.
+- Add Module 1 certification documentation and evidence summary.
+- Fix lint issues in Module 1 config, publisher, and VAD modules.
+- Add Reveal.js presentation shell with hidden case templates.
+- Add responsive dashboard layout with manual dark mode toggle.
+- Add phase toggle highlighting and monologue warning display in dashboard UI.
+- Add dashboard WebSocket client for live coaching updates.
+- Add coaching dashboard HTML skeleton with breathing bar styling.
+- Add Silero VAD wrapper for speech event generation.
+- Add audio capture streams (MicStream, AudioTeeStream) and DualAudioCapture factory.
+- Add talk-time tracker data models, alerting, and rolling window calculations.
+- Add talk-time WebSocket publisher for state updates and coaching alerts.
+- Add talk-time module runner for standalone execution.
+- Update setup script and README quickstart for Module 1 setup.
+- Add CI quality gate script for lint/test/import checks.
+- Add transcriber module runner entry point.

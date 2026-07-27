@@ -1,0 +1,120 @@
+# Pain Point Route Definitions
+# Each route has a name, label, and example utterances for embedding-based classification.
+# Add 5-10 utterances per route for best accuracy. Use the language your prospects speak.
+#
+# The semantic router uses these utterances to build an embedding space.
+# When a transcript chunk is similar to these utterances, the route triggers.
+
+routes:
+  - name: offerteproces
+    label: Offerteproces
+    utterances:
+      - "het maken van offertes kost ons heel veel tijd"
+      - "er sluipen regelmatig fouten in onze offertes"
+      - "klanten moeten te lang wachten op een offerte"
+      - "we doen offertes nog steeds in Word"
+      - "elke offerte is maatwerk, dat kost uren"
+      - "het offerteproces is echt een drama bij ons"
+      - "we vergeten soms dingen in de offerte op te nemen"
+
+  - name: capaciteit
+    label: Capaciteit
+    utterances:
+      - "we hebben niet genoeg mensen om alles bij te houden"
+      - "het team is overbelast"
+      - "we groeien maar kunnen geen personeel vinden"
+      - "iedereen doet drie banen tegelijk"
+      - "we moeten werk weigeren omdat we het niet aankunnen"
+      - "de werkdruk is te hoog"
+
+  - name: cross_sell
+    label: Cross-sell
+    utterances:
+      - "we missen kansen bij bestaande klanten"
+      - "we hebben geen overzicht van wat klanten nog meer kunnen afnemen"
+      - "upsell doen we eigenlijk niet structureel"
+      - "we weten niet welke klanten nog potentieel hebben"
+      - "bestaande klanten worden niet actief benaderd"
+
+  - name: lead_generation
+    label: Lead generation
+    utterances:
+      - "we hebben te weinig leads"
+      - "we zijn afhankelijk van mond-tot-mond"
+      - "we hebben geen echte pipeline"
+      - "nieuwe klanten komen vooral via ons netwerk"
+      - "we doen eigenlijk niks aan acquisitie"
+      - "de pipeline is leeg"
+
+  - name: kennisontsluiting
+    label: Kennisontsluiting
+    utterances:
+      - "kennis zit in de hoofden van een paar mensen"
+      - "als die collega weg is weten we niks meer"
+      - "we zijn te afhankelijk van individuele mensen"
+      - "er is geen documentatie van hoe dingen werken"
+      - "nieuwe mensen moeten alles vragen aan de senior collega's"
+
+  - name: klantenservice
+    label: Klantenservice
+    utterances:
+      - "klanten moeten te lang wachten op een antwoord"
+      - "we krijgen steeds dezelfde vragen"
+      - "we hebben geen overzicht van openstaande klantvragen"
+      - "de responstijd is te hoog"
+      - "klachten vallen soms tussen wal en schip"
+
+  - name: handmatig_werk
+    label: Handmatig werk
+    utterances:
+      - "we doen nog heel veel handmatig"
+      - "het is veel copy-paste werk"
+      - "we werken nog veel in Excel"
+      - "er is veel dubbel werk"
+      - "dezelfde gegevens moeten in drie systemen worden ingevoerd"
+      - "we typen alles over"
+
+  - name: data_kwaliteit
+    label: Data kwaliteit
+    utterances:
+      - "onze data is niet betrouwbaar"
+      - "er zit geen lijn in de data"
+      - "we hebben geen single source of truth"
+      - "in elk systeem staan andere gegevens"
+      - "de CRM data is vervuild"
+
+  - name: rapportage
+    label: Rapportage
+    utterances:
+      - "we hebben geen goed inzicht in de cijfers"
+      - "rapportages maken kost dagen"
+      - "we hebben geen dashboard"
+      - "het management vraagt om cijfers die we niet snel kunnen leveren"
+      - "we weten eigenlijk niet precies hoe we ervoor staan"
+
+  - name: onboarding
+    label: Onboarding
+    utterances:
+      - "nieuwe medewerkers zijn maanden bezig met inwerken"
+      - "de kennisoverdracht duurt te lang"
+      - "het kost veel tijd om iemand op te leiden"
+      - "we hebben geen gestructureerd inwerkprogramma"
+
+  - name: compliance
+    label: Compliance
+    utterances:
+      - "we moeten aan steeds meer regelgeving voldoen"
+      - "AVG is een uitdaging voor ons"
+      - "we missen audit trails"
+      - "de documentatie voor compliance is niet op orde"
+      - "we weten niet of we compliant zijn"
+
+  - name: kosten
+    label: Kosten
+    utterances:
+      - "het is te duur"
+      - "we hebben het budget niet"
+      - "de ROI is onduidelijk"
+      - "we moeten bezuinigen"
+      - "wat levert het concreet op"
+      - "we geven al veel uit aan tooling"

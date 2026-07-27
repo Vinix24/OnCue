@@ -1,0 +1,133 @@
+# Near-miss / true-positive eval set for the ScriptRouter fast-track matcher.
+#
+# Purpose: measure ScriptRouter precision before live tick-off is advertised
+# (design doc claudedocs/2026-07-22-salesprep-pro-design.md, section 7 finding
+# #5, section 9 Phase 0). Mirrors the role config/negatives.yaml already plays
+# for the ObjectionRouter (scripts/eval_objection_precision.py,
+# compute_precision_with_extra_class / simulate_extra_route) but scoped to the
+# 9 script points in config/scripts/default.yaml.
+#
+# Schema, per script point (id must match config/scripts/default.yaml:1-127):
+#   - id: the script point id
+#     true_positives: realistic Dutch utterances that SHOULD be classified as
+#       this point. These are paraphrases distinct from example_phrases (not
+#       verbatim copies) so the eval measures generalization, not literal
+#       substring recall.
+#     false_positive_traps: realistic Dutch utterances that mention the same
+#       or nearby vocabulary as this point's example_phrases (>=2 overlapping
+#       tokens, per ScriptRouter._keyword_match) but are NOT actually a
+#       discussion of this point. Gold label for every trap is "negative".
+#
+# generic_negatives: small-talk / logistics utterances with no topical overlap
+# with any of the 9 points at all — a baseline false-positive check unrelated
+# to any specific trap. Gold label "negative".
+points:
+  - id: introductie
+    true_positives:
+      - "zullen we eerst kort schetsen wat de bedoeling van vandaag is"
+      - "voordat we beginnen, wat hoopt u vandaag uit dit gesprek te halen"
+      - "laat ik mezelf even voorstellen en vertellen waarom ik hier ben"
+      - "wat zou voor u een geslaagde uitkomst van dit telefoontje zijn"
+    false_positive_traps:
+      - "we kunnen elkaar denk ik prima helpen als de planning wat opschuift"
+      - "wat is precies het doel van dit interne gesprek volgende week"
+      - "ik had eigenlijk een heel ander gesprek verwacht toen ik hier binnenkwam"
+
+  - id: budget
+    true_positives:
+      - "welk bedrag heeft u hiervoor gereserveerd dit jaar"
+      - "is er al een investeringsbudget vrijgemaakt voor dit type oplossing"
+      - "hoeveel ruimte is er financieel om dit op te pakken"
+      - "past een investering in deze orde van grootte binnen jullie begroting"
+    false_positive_traps:
+      - "we hebben voor dit project al een andere leverancier gecontracteerd"
+      - "hoeveel tijd is er nog beschikbaar deze week voor een vervolgcall"
+      - "hebben jullie nog vragen die ik verder kan toelichten"
+
+  - id: tijdlijn
+    true_positives:
+      - "voor wanneer moet dit probleem eigenlijk opgelost zijn"
+      - "op welke termijn wilt u hiermee live gaan"
+      - "is er een harde deadline waar we rekening mee moeten houden"
+      - "hoe snel moet dit traject afgerond zijn van uw kant"
+    false_positive_traps:
+      - "wanneer moet ik de factuur precies indienen bij de administratie"
+      - "hoe snel wilt u een reactie hebben op de offerte die ik net gestuurd heb"
+      - "wanneer wilt u dat ik de vervolgmail ga versturen"
+
+  - id: beslisser
+    true_positives:
+      - "wie tekent er uiteindelijk voor dit soort aankopen"
+      - "zit iedereen die moet meebeslissen vandaag aan tafel"
+      - "moet dit nog langs de directie voordat er groen licht komt"
+      - "wie heeft binnen jullie organisatie het laatste woord hierover"
+    false_positive_traps:
+      - "de resultaten van vorig kwartaal zijn nog niet helemaal betrokken in dit overzicht"
+      - "moeten we deze week nog anderen inplannen voor de projectkick-off, los van het budget"
+      - "de klant neemt uiteindelijk altijd een tijdje de tijd om na te denken voordat ze reageren"
+
+  - id: huidige_situatie
+    true_positives:
+      - "hoe pakken jullie dit vandaag de dag precies aan"
+      - "wat is op dit moment het grootste knelpunt in het proces"
+      - "welke problemen loopt u nu tegenaan met de huidige aanpak"
+      - "wat gaat er nu mis waardoor u hiernaar op zoek bent"
+    false_positive_traps:
+      - "we hadden vorige week ineens een enorm druk moment en overal frustratie op de werkvloer, los van dit project"
+      - "de planning loopt gelukkig weer helemaal lekker sinds de vakantie"
+
+  - id: oplossing
+    true_positives:
+      - "concreet pakken wij dit als volgt aan voor uw situatie"
+      - "dit is het stappenplan dat wij voor u zouden volgen"
+      - "wij lossen dit typisch op door eerst te starten met"
+      - "even schetsen hoe onze aanpak er in de praktijk uitziet"
+    false_positive_traps:
+      - "onze vorige oplossing bestaat inmiddels niet meer, die leverancier is gestopt"
+      - "daarvoor hebben we vorige week al met de collega's overlegd, los van dit traject"
+      - "laten we straks nog even een nieuwe collega voorstellen aan het team"
+
+  - id: meerwaarde
+    true_positives:
+      - "wat ons onderscheidt van vergelijkbare aanbieders is"
+      - "klanten kiezen voor ons vooral vanwege"
+      - "de winst die dit u oplevert zit vooral in"
+      - "waar wij net dat beetje meer bieden dan concurrenten is"
+    false_positive_traps:
+      - "waarom werken de support klanten van het andere team altijd op vrijdag, gek eigenlijk"
+      - "het voordeel is vooral duidelijk voor de IT afdeling, maar daar gaan we het straks apart over hebben"
+      - "wat die bug precies uniek maakt snappen onze developers nog niet helemaal"
+
+  - id: bezwaren
+    true_positives:
+      - "ik snap dat u hier nog niet honderd procent gerust op bent"
+      - "dat is een goed punt, laat me dat zorgpunt wegnemen"
+      - "wat houdt u op dit moment nog tegen om verder te gaan"
+      - "als ik dat bezwaar kan wegnemen, zou u dan verder willen"
+    false_positive_traps:
+      - "ik begrijp uw punt, maar laten we het over twee weken nog eens bekijken, dan hebben we het er nogmaals over"
+      - "dat is een terecht punt over de planning, maar geen bezwaar van onze kant hoor"
+      - "we moeten het hek nog over de sloot trekken voordat de aannemer verder kan, heel andere discussie"
+
+  - id: vervolgstap
+    true_positives:
+      - "zullen we een moment prikken om dit verder te bespreken"
+      - "wat spreken we af als concrete vervolgactie"
+      - "ik stuur u een agenda uitnodiging voor de volgende stap"
+      - "ik regel de opvolging van dit gesprek, u hoort snel van mij"
+    false_positive_traps:
+      - "kunnen we voor de zekerheid ook een test inplannen voor de nieuwe functionaliteit"
+      - "wanneer krijg ik de update van de developers over de bug die ze aan het fixen zijn"
+      - "wie regelt eigenlijk de opvolging van het personeel na het ontslag van hun manager"
+
+generic_negatives:
+  - "wat een verkeer was dat trouwens onderweg hierheen"
+  - "hoe was uw weekend, lekker weer gehad"
+  - "geen probleem, ik hoor het wel"
+  - "zullen we deze week nog een keer bellen, gewoon om bij te praten"
+  - "leuk kantoor trouwens, mooi uitzicht hier"
+  - "sorry, kunt u dat even herhalen, de verbinding haperde"
+  - "ik moet zo helaas naar een ander overleg"
+  - "dank u wel voor uw tijd vandaag"
+  - "wat voor koffie wilt u, ik haal het even"
+  - "we spreken elkaar sowieso nog wel een keer bij de volgende beurs"

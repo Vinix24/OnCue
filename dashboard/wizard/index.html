@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OnCue — First-run Wizard</title>
+    <link rel="stylesheet" href="../css/dashboard.css?v=1.2.0" />
+    <link rel="stylesheet" href="../css/wizard.css?v=1.1.0" />
+  </head>
+  <body>
+    <div class="ambient-mesh" aria-hidden="true">
+      <span class="mesh-blob mesh-blob-1"></span>
+      <span class="mesh-blob mesh-blob-2"></span>
+      <span class="mesh-blob mesh-blob-3"></span>
+    </div>
+
+    <main class="wizard-layout">
+      <header class="wizard-header">
+        <div>
+          <div class="brand brand-with-logo">
+            <img src="../assets/vnx-logo.svg" alt="VNX Digital" />
+            <span>OnCue</span>
+          </div>
+          <h1>First-run wizard</h1>
+          <p>Automatically check that your microphone, audio routing, and Pro settings are ready.</p>
+        </div>
+        <span id="tier-badge" class="wizard-tier-badge hidden" aria-live="polite">Free</span>
+      </header>
+
+      <div class="wizard-actions">
+        <button id="restart-btn" class="wizard-btn wizard-btn-secondary" type="button">Start over</button>
+      </div>
+
+      <section id="wizard-config" class="card wizard-config hidden" aria-label="Keys">
+        <div class="wizard-step-header">
+          <div class="wizard-step-number">🔑</div>
+          <h2 class="wizard-step-title">Keys</h2>
+        </div>
+        <div class="wizard-config-body">
+          <div id="provider-key-row" class="wizard-field hidden">
+            <label class="wizard-field-label" id="provider-key-label" for="provider-key-input">API key</label>
+            <div class="wizard-field-row">
+              <input
+                id="provider-key-input"
+                class="wizard-input"
+                type="password"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+                placeholder="Paste your API key"
+              />
+              <button id="provider-key-save" class="wizard-btn wizard-btn-primary" type="button">Save</button>
+            </div>
+            <p class="wizard-message" id="provider-key-message">Not set yet.</p>
+          </div>
+
+          <div id="license-row" class="wizard-field">
+            <label class="wizard-field-label" for="license-input">Pro license key (SALES_COPILOT_LICENSE)</label>
+            <div class="wizard-field-row">
+              <input
+                id="license-input"
+                class="wizard-input"
+                type="password"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+                placeholder="Paste your Pro license key"
+              />
+              <button id="license-save" class="wizard-btn wizard-btn-primary" type="button">Save</button>
+            </div>
+            <p class="wizard-message" id="license-message">Not set yet.</p>
+          </div>
+        </div>
+      </section>
+
+      <div id="wizard-steps" class="wizard-steps" role="list" aria-label="Wizard steps">
+        <p class="wizard-message" id="loading-text">Loading wizard…</p>
+      </div>
+
+      <div id="wizard-summary" class="wizard-summary hidden" aria-live="polite"></div>
+    </main>
+
+    <script>
+      (function () {
+        "use strict";
+
+        const stepsContainer = document.getElementById("wizard-steps");
+        const loadingText = document.getElementById("loading-text");
+        const tierBadge = document.getElementById("tier-badge");
+        const restartBtn = document.getElementById("restart-btn");
+        const summaryEl = document.getElementById("wizard-summary");
+        const configEl = document.getElementById("wizard-config");
+        const providerKeyRow = document.getElementById("provider-key-row");
+        const providerKeyLabel = document.getElementById("provider-key-label");
+        const providerKeyInput = document.getElementById("provider-key-input");
+        const providerKeySave = document.getElementById("provider-key-save");
+        const providerKeyMessage = document.getElementById("provider-key-message");
+        const licenseInput = document.getElementById("license-input");
+        const licenseSave = document.getElementById("license-save");
+        const licenseMessage = document.getElementById("license-message");
+
+        let stepsData = [];
+        let stateData = { completed: [], results: {} };
+        let token = null;
+        let ws = null;
+        let runningStepId = null;
+
+        function apiHeaders() {
+          const headers = { "Content-Type": "application/json" };
+          if (token) headers["X-Sales-Copilot-Token"] = token;
+          return headers;
+        }
+
+        async function getToken() {
+          if (token) return token;
+          try {
+            const res = await fetch("/api/v1/auth/session-token");
+            if (!res.ok) throw new Error("session-token " + res.status);
+            const data = await res.json();
+            token = data.token;
+          } catch (err) {
+            console.warn("Could not fetch a token; mutating actions will fail.", err);
+          }
+          return token;
+        }
+
+        function wsUrl(channel) {
+          const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+          return proto + "//" + window.location.host + "/ws/" + channel;
+        }
+
+        function ensureWizardWs() {
+          if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
+          ws = new WebSocket(wsUrl("wizard"));
+          ws.addEventListener("message", (event) => {
+            let payload;
+            try {
+              payload = JSON.parse(event.data);
+            } catch {
+              return;
+            }
+            if (payload.type === "meter" && runningStepId) {
+              updateMeter(runningStepId, payload.dbfs);
+            }
+          });
+          ws.addEventListener("error", (err) => console.error("Wizard WS error", err));
+        }
+
+        function closeWizardWs() {
+          if (ws) {
+            ws.close();
+            ws = null;
+          }
+        }
+
+        function dbfsToPercent(dbfs) {
+          const floor = -60;
+          const ceil = 0;
+          if (dbfs <= floor) return 0;
+          if (dbfs >= ceil) return 100;
+          return Math.round(((dbfs - floor) / (ceil - floor)) * 100);
+        }
+
+        function updateMeter(stepId, dbfs) {
+          const bar = document.getElementById("meter-bar-" + stepId);
+          if (!bar) return;
+          bar.style.width = dbfsToPercent(dbfs) + "%";
+        }
+
+        function stepStatus(stepId) {
+          if (runningStepId === stepId) return "running";
+          if (!stateData.completed.includes(stepId)) return "pending";
+          const result = stateData.results[stepId];
+          if (!result) return "incomplete";
+          return result.ok ? "ok" : "fail";
+        }
+
+        function renderSteps() {
+          stepsContainer.innerHTML = "";
+          let completedOk = 0;
+          let activeCount = 0;
+
+          stepsData.forEach((step, index) => {
+            activeCount += step.active ? 1 : 0;
+            const status = step.active ? stepStatus(step.step_id) : "locked";
+            const result = stateData.results[step.step_id];
+            const isCompleted = stateData.completed.includes(step.step_id);
+            if (isCompleted && result && result.ok) completedOk += 1;
+
+            const card = document.createElement("section");
+            card.className = "card wizard-step" + (status === "running" ? " running" : "") + (status === "locked" ? " locked" : "");
+            card.setAttribute("role", "listitem");
+            card.setAttribute("data-step-id", step.step_id);
+
+            const iconClass = status === "ok" || status === "running" ? "ok" : status === "fail" || status === "incomplete" ? "fail" : "";
+            const iconText = status === "ok" ? "✓" : status === "fail" || status === "incomplete" ? "✗" : index + 1;
+
+            const lockedBadge = step.locked
+              ? '<span class="wizard-badge pro locked">🔒 Pro</span>'
+              : step.feature_id
+                ? '<span class="wizard-badge pro">Pro</span>'
+                : "";
+            const meterHtml = step.needs_meter
+              ? '<div class="wizard-meter" aria-hidden="true"><div id="meter-bar-' + step.step_id + '" class="wizard-meter-bar"></div></div>'
+              : "";
+
+            const messageClass = status === "ok" ? "ok" : status === "fail" || status === "incomplete" ? "fail" : "";
+            const messageText = result ? result.message : status === "locked" ? "Upgrade to Pro to enable this step." : "Not checked yet.";
+
+            const canRun = step.active && status !== "running" && (status === "pending" || status === "fail" || status === "incomplete");
+            const buttonHtml = status === "running"
+              ? '<span class="wizard-spinner" aria-label="Busy"></span>'
+              : '<button class="wizard-btn wizard-btn-primary" type="button" data-run="' + step.step_id + '"' + (canRun ? "" : " disabled") + ">Check</button>";
+
+            card.innerHTML =
+              '<div class="wizard-step-header">' +
+                '<div class="wizard-step-number ' + iconClass + '">' + iconText + "</div>" +
+                '<h2 class="wizard-step-title">' + escapeHtml(step.title) + "</h2>" +
+                '<div class="wizard-step-badges">' + lockedBadge + "</div>" +
+              "</div>" +
+              '<div class="wizard-step-body">' +
+                meterHtml +
+                '<p class="wizard-message ' + messageClass + '" id="message-' + step.step_id + '">' + escapeHtml(messageText) + "</p>" +
+              "</div>" +
+              '<div class="wizard-step-footer">' + buttonHtml + "</div>";
+
+            stepsContainer.appendChild(card);
+          });
+
+          const runButtons = stepsContainer.querySelectorAll("button[data-run]");
+          runButtons.forEach((btn) => {
+            btn.addEventListener("click", () => runStep(btn.getAttribute("data-run")));
+          });
+
+          renderSummary(activeCount, completedOk);
+        }
+
+        function renderSummary(activeCount, completedOk) {
+          if (activeCount === 0) {
+            summaryEl.classList.add("hidden");
+            return;
+          }
+          summaryEl.classList.remove("hidden");
+          if (completedOk >= activeCount) {
+            summaryEl.className = "wizard-summary ok";
+            summaryEl.textContent = "All checks passed. You can start OnCue.";
+          } else {
+            summaryEl.className = "wizard-summary fail";
+            summaryEl.textContent = completedOk + " of " + activeCount + " steps are ready. Fix the rest and check again.";
+          }
+        }
+
+        function escapeHtml(text) {
+          const div = document.createElement("div");
+          div.textContent = text;
+          return div.innerHTML;
+        }
+
+        async function loadData() {
+          try {
+            const [licenseRes, stepsRes, stateRes] = await Promise.all([
+              fetch("/api/v1/license/features"),
+              fetch("/api/v1/wizard/steps"),
+              fetch("/api/v1/wizard/state"),
+            ]);
+            if (!licenseRes.ok || !stepsRes.ok || !stateRes.ok) {
+              throw new Error("One or more wizard endpoints returned an error.");
+            }
+            const license = await licenseRes.json();
+            const stepsPayload = await stepsRes.json();
+            stateData = await stateRes.json();
+            stepsData = stepsPayload.steps || [];
+
+            tierBadge.textContent = license.tier || "Free";
+            tierBadge.classList.remove("hidden");
+            if (license.tier === "pro" || license.tier === "enterprise") {
+              tierBadge.classList.add("pro");
+            }
+
+            renderSteps();
+          } catch (err) {
+            console.error(err);
+            stepsContainer.innerHTML = '<p class="wizard-message fail">Could not load the wizard. Check that the hub is running on localhost:8760.</p>';
+          }
+        }
+
+        async function runStep(stepId) {
+          await getToken();
+          if (!token) {
+            alert("Could not fetch a session token. Reload the page.");
+            return;
+          }
+          runningStepId = stepId;
+          if (stepsData.find((s) => s.step_id === stepId)?.needs_meter) {
+            ensureWizardWs();
+          }
+          renderSteps();
+
+          try {
+            const res = await fetch("/api/v1/wizard/run/" + encodeURIComponent(stepId), {
+              method: "POST",
+              headers: apiHeaders(),
+            });
+            const result = await res.json();
+            if (!res.ok) {
+              throw new Error(result.detail || "Error while running step");
+            }
+            stateData.results[stepId] = { ok: result.ok, message: result.message, details: result.details };
+            if (result.ok && !stateData.completed.includes(stepId)) {
+              stateData.completed.push(stepId);
+            }
+          } catch (err) {
+            console.error(err);
+            stateData.results[stepId] = { ok: false, message: String(err), details: { error: "request_failed" } };
+          } finally {
+            runningStepId = null;
+            closeWizardWs();
+            renderSteps();
+          }
+        }
+
+        async function restartWizard() {
+          if (!confirm("This clears all saved wizard progress. Continue?")) return;
+          await getToken();
+          if (!token) {
+            alert("Could not fetch a session token.");
+            return;
+          }
+          try {
+            const res = await fetch("/api/v1/wizard/restart", {
+              method: "POST",
+              headers: apiHeaders(),
+            });
+            stateData = await res.json();
+            renderSteps();
+          } catch (err) {
+            console.error(err);
+          }
+        }
+
+        function setFieldMessage(el, text, ok) {
+          el.textContent = text;
+          el.className = "wizard-message" + (ok === true ? " ok" : ok === false ? " fail" : "");
+        }
+
+        async function loadConfig() {
+          try {
+            const res = await fetch("/api/v1/wizard/config");
+            if (!res.ok) throw new Error("config " + res.status);
+            const cfg = await res.json();
+            configEl.classList.remove("hidden");
+
+            if (cfg.provider_needs_key) {
+              providerKeyRow.classList.remove("hidden");
+              const providerName = cfg.provider
+                ? cfg.provider.charAt(0).toUpperCase() + cfg.provider.slice(1)
+                : "LLM";
+              providerKeyLabel.textContent =
+                providerName + " API key (" + (cfg.provider_key_env || "") + ")";
+              if (cfg.provider_key_present) {
+                setFieldMessage(providerKeyMessage, "Set ✓. Paste a new key to replace.", true);
+                providerKeyInput.placeholder = "Already set, paste to replace";
+              } else {
+                setFieldMessage(providerKeyMessage, "Not set yet.", false);
+              }
+            } else {
+              providerKeyRow.classList.add("hidden");
+            }
+
+            if (cfg.license_present) {
+              setFieldMessage(licenseMessage, "Set ✓. Paste a new key to replace.", true);
+              licenseInput.placeholder = "Already set, paste to replace";
+            } else {
+              setFieldMessage(licenseMessage, "Not set yet (empty = free tier, 14 days).", null);
+            }
+          } catch (err) {
+            console.error("Could not load wizard config.", err);
+          }
+        }
+
+        async function saveKey(url, input, messageEl) {
+          const value = input.value.trim();
+          if (!value) {
+            setFieldMessage(messageEl, "Paste a key first.", false);
+            return;
+          }
+          await getToken();
+          if (!token) {
+            setFieldMessage(messageEl, "Could not fetch a session token. Reload the page.", false);
+            return;
+          }
+          setFieldMessage(messageEl, "Saving…", null);
+          try {
+            const res = await fetch(url, {
+              method: "POST",
+              headers: apiHeaders(),
+              body: JSON.stringify({ value: value }),
+            });
+            const result = await res.json();
+            if (!res.ok || !result.ok) {
+              throw new Error(result.message || "Save failed");
+            }
+            input.value = "";
+            setFieldMessage(messageEl, result.message || "Saved.", true);
+            await loadConfig();
+            await loadData();
+          } catch (err) {
+            console.error(err);
+            setFieldMessage(messageEl, String(err.message || err), false);
+          }
+        }
+
+        providerKeySave.addEventListener("click", () =>
+          saveKey("/api/v1/wizard/set-provider-key", providerKeyInput, providerKeyMessage)
+        );
+        licenseSave.addEventListener("click", () =>
+          saveKey("/api/v1/wizard/set-license", licenseInput, licenseMessage)
+        );
+
+        restartBtn.addEventListener("click", restartWizard);
+        loadData();
+        loadConfig();
+      })();
+    </script>
+  </body>
+</html>

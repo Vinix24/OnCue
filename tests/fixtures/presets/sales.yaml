@@ -1,0 +1,37 @@
+# Test-only fixture preset — NOT the real sales pack.
+# Minimal valid shape so loader/consent LOGIC tests run without the vertical
+# Pro packs (coach/recruitment/acquisitie), which are Pro content and absent
+# from the OSS export.
+default_consent_tier: audit
+pain_points:
+  routes:
+    - name: fixture-pijn
+      utterances:
+        - "fixture pijnzin een"
+        - "fixture pijnzin twee"
+        - "fixture pijnzin drie"
+objections:
+  routes:
+    - name: fixture-bezwaar
+      utterances:
+        - "fixture bezwaar een"
+        - "fixture bezwaar twee"
+        - "fixture bezwaar drie"
+buying_signals:
+  routes:
+    - name: fixture-signaal
+      utterances:
+        - "fixture signaal een"
+        - "fixture signaal twee"
+        - "fixture signaal drie"
+doubts:
+  routes:
+    - name: fixture-twijfel
+      utterances:
+        - "fixture twijfel een"
+        - "fixture twijfel twee"
+        - "fixture twijfel drie"
+ui_labels:
+  prospect: fixture-prospect
+  self: fixture-self
+system_prompt_addendum: "fixture addendum"

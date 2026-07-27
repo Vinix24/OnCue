@@ -1,0 +1,102 @@
+[
+  {
+    "id": "case-001",
+    "title": "Manufacturing Co — 70% snellere offertes",
+    "industry": "manufacturing",
+    "pain_point": "offerteproces",
+    "description": "Van 4 uur naar 45 minuten per offerte door AI-gestuurde templates en automatische productconfiguratie.",
+    "slide_html": "<section id=\"case-001\" class=\"case-slide\"><h2>Manufacturing Co</h2><h3>70% snellere offertes</h3></section>",
+    "metrics": "70% tijdsbesparing",
+    "priority": 10
+  },
+  {
+    "id": "case-002",
+    "title": "IT Services — Van 3 naar 12 leads per maand",
+    "industry": "services",
+    "pain_point": "lead_generation",
+    "description": "Geautomatiseerde lead scoring en outreach pipeline verhoogde het aantal gekwalificeerde leads met 300%.",
+    "slide_html": "<section id=\"case-002\" class=\"case-slide\"><h2>IT Services</h2><h3>Van 3 naar 12 leads per maand</h3></section>",
+    "metrics": "300% meer leads",
+    "priority": 10
+  },
+  {
+    "id": "case-003",
+    "title": "Retail Group — Team van 8 doet werk van 12",
+    "industry": "retail",
+    "pain_point": "capaciteit",
+    "description": "AI-automatisering van repetitieve taken gaf het team 50% meer capaciteit zonder extra personeel.",
+    "slide_html": "<section id=\"case-003\" class=\"case-slide\"><h2>Retail Group</h2><h3>Team van 8 doet werk van 12</h3></section>",
+    "metrics": "50% meer capaciteit",
+    "priority": 10
+  },
+  {
+    "id": "case-004",
+    "title": "Consultancy Firm — Kennis geborgd in 6 weken",
+    "industry": "services",
+    "pain_point": "kennisontsluiting",
+    "description": "AI-kennisbank die automatisch leert van documenten, mails en tickets. Nieuwe medewerkers vinden antwoorden in seconden.",
+    "slide_html": "<section id=\"case-004\" class=\"case-slide\"><h2>Consultancy Firm</h2><h3>Kennis geborgd in 6 weken</h3></section>",
+    "metrics": "80% sneller antwoorden",
+    "priority": 10
+  },
+  {
+    "id": "case-005",
+    "title": "Logistiek Bedrijf — 20 uur per week bespaard",
+    "industry": "manufacturing",
+    "pain_point": "handmatig_werk",
+    "description": "Automatisering van data-invoer tussen 4 systemen elimineerde copy-paste werk volledig.",
+    "slide_html": "<section id=\"case-005\" class=\"case-slide\"><h2>Logistiek Bedrijf</h2><h3>20 uur per week bespaard</h3></section>",
+    "metrics": "20 uur/week bespaard",
+    "priority": 10
+  },
+  {
+    "id": "case-006",
+    "title": "Industrieel Bedrijf — 99% foutloze offertes",
+    "industry": "manufacturing",
+    "pain_point": "offerteproces",
+    "description": "Validatie en automatische controles zorgden dat offertes vrijwel altijd correct de deur uit gaan.",
+    "slide_html": "<section id=\"case-006\" class=\"case-slide\"><h2>Industrieel Bedrijf</h2><h3>99% foutloze offertes</h3></section>",
+    "metrics": "99% foutloos",
+    "priority": 5
+  },
+  {
+    "id": "case-007",
+    "title": "Admin Dienstverlener — 15 uur admin per week weg",
+    "industry": "services",
+    "pain_point": "handmatig_werk",
+    "description": "RPA-koppelingen tussen CRM, boekhouding en planning maakten handmatig overtypen overbodig.",
+    "slide_html": "<section id=\"case-007\" class=\"case-slide\"><h2>Admin Dienstverlener</h2><h3>15 uur admin per week weg</h3></section>",
+    "metrics": "15 uur/week bespaard",
+    "priority": 5
+  },
+  {
+    "id": "case-008",
+    "title": "Productiebedrijf — 30% meer machinecapaciteit",
+    "industry": "manufacturing",
+    "pain_point": "capaciteit",
+    "description": "Slimme planning en voorspellend onderhoud opende ruimte in de productie zonder nieuwe machines.",
+    "slide_html": "<section id=\"case-008\" class=\"case-slide\"><h2>Productiebedrijf</h2><h3>30% meer machinecapaciteit</h3></section>",
+    "metrics": "30% meer capaciteit",
+    "priority": 5
+  },
+  {
+    "id": "case-009",
+    "title": "Bouwbedrijf — 40% sneller leads opvolgen",
+    "industry": "manufacturing",
+    "pain_point": "lead_generation",
+    "description": "Automatische lead-routering en follow-up reminders zorgden dat aanvragen niet meer blijven liggen.",
+    "slide_html": "<section id=\"case-009\" class=\"case-slide\"><h2>Bouwbedrijf</h2><h3>40% sneller leads opvolgen</h3></section>",
+    "metrics": "40% snellere opvolging",
+    "priority": 5
+  },
+  {
+    "id": "case-010",
+    "title": "Tech Scale-up — Kennis van seniors beschikbaar 24/7",
+    "industry": "services",
+    "pain_point": "kennisontsluiting",
+    "description": "Een interne AI-assistent maakte documentatie en beslissingsregels direct vindbaar voor iedereen.",
+    "slide_html": "<section id=\"case-010\" class=\"case-slide\"><h2>Tech Scale-up</h2><h3>Kennis van seniors beschikbaar 24/7</h3></section>",
+    "metrics": "24/7 kennisbeschikbaarheid",
+    "priority": 5
+  }
+]

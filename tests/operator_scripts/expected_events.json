@@ -1,0 +1,152 @@
+[
+  {
+    "timestamp": "00:20",
+    "event_type": "pain_point",
+    "expected_category": "capaciteit",
+    "notes": "Prospect noemt overbelasting en te weinig capaciteit."
+  },
+  {
+    "timestamp": "00:40",
+    "event_type": "pain_point",
+    "expected_category": "offerteproces",
+    "notes": "Prospect noemt trage offerteflow en fouten."
+  },
+  {
+    "timestamp": "01:05",
+    "event_type": "pain_point",
+    "expected_category": "handmatig_werk",
+    "notes": "Copy-paste en handmatige stappen."
+  },
+  {
+    "timestamp": "01:20",
+    "event_type": "pain_point",
+    "expected_category": "data_kwaliteit",
+    "notes": "CRM en andere systemen inconsistent."
+  },
+  {
+    "timestamp": "01:50",
+    "event_type": "pain_point",
+    "expected_category": "lead_generation",
+    "notes": "Te weinig leads/pipeline."
+  },
+  {
+    "timestamp": "02:15",
+    "event_type": "pain_point",
+    "expected_category": "cross_sell",
+    "notes": "Gemiste groei bij bestaande klanten."
+  },
+  {
+    "timestamp": "02:45",
+    "event_type": "pain_point",
+    "expected_category": "onboarding",
+    "notes": "Inwerken kost maanden."
+  },
+  {
+    "timestamp": "03:00",
+    "event_type": "pain_point",
+    "expected_category": "kennisontsluiting",
+    "notes": "Kennis zit bij enkele seniors."
+  },
+  {
+    "timestamp": "03:40",
+    "event_type": "pain_point",
+    "expected_category": "klantenservice",
+    "notes": "Lange reactietijden op klantvragen."
+  },
+  {
+    "timestamp": "04:05",
+    "event_type": "pain_point",
+    "expected_category": "rapportage",
+    "notes": "Rapportages kosten dagen."
+  },
+  {
+    "timestamp": "04:30",
+    "event_type": "pain_point",
+    "expected_category": "compliance",
+    "notes": "AVG en audit-trail druk."
+  },
+  {
+    "timestamp": "05:05",
+    "event_type": "pain_point",
+    "expected_category": "kosten",
+    "notes": "Budgetdruk en ROI-vraag."
+  },
+  {
+    "timestamp": "05:40",
+    "event_type": "objection",
+    "expected_category": "prijs",
+    "notes": "Expliete prijsbezwaren."
+  },
+  {
+    "timestamp": "06:10",
+    "event_type": "objection",
+    "expected_category": "timing",
+    "notes": "Niet nu / volgend kwartaal."
+  },
+  {
+    "timestamp": "07:35",
+    "event_type": "phase_transition",
+    "expected_category": "pitch",
+    "notes": "Verkoper schakelt naar case-presentatie."
+  },
+  {
+    "timestamp": "08:20",
+    "event_type": "slide_control",
+    "expected_category": "navigate_to_case",
+    "notes": "Case-slide injectie op pain-point match."
+  },
+  {
+    "timestamp": "09:15",
+    "event_type": "objection",
+    "expected_category": "scope",
+    "notes": "Prospect wil kleiner starten."
+  },
+  {
+    "timestamp": "10:00",
+    "event_type": "objection",
+    "expected_category": "autoriteit",
+    "notes": "Manager/finance moeten meewegen."
+  },
+  {
+    "timestamp": "11:20",
+    "event_type": "coaching_alert",
+    "expected_category": "monologue_warning",
+    "notes": "Monologue langer dan 76 seconden."
+  },
+  {
+    "timestamp": "12:40",
+    "event_type": "transcript_quality",
+    "expected_category": "silence_no_hallucination",
+    "notes": "Geen verzonnen transcript tijdens stilte."
+  },
+  {
+    "timestamp": "13:05",
+    "event_type": "transcript_quality",
+    "expected_category": "overlap_tolerated",
+    "notes": "Overlap verwerkt zonder crash."
+  },
+  {
+    "timestamp": "14:10",
+    "event_type": "phase_transition",
+    "expected_category": "closing",
+    "notes": "Volgende stappen en commitment."
+  },
+  {
+    "timestamp": "01:00",
+    "event_type": "summary",
+    "expected_category": "first_summary",
+    "notes": "Eerste samenvatting rond 60s."
+  },
+  {
+    "timestamp": "02:00+",
+    "event_type": "summary",
+    "expected_category": "recurring_summaries",
+    "notes": "Vervolgupdates elke ~60s."
+  },
+  {
+    "timestamp": "end_call+10s",
+    "event_type": "report_ready",
+    "expected_category": "post_call_report",
+    "notes": "Report beschikbaar na call-end."
+  }
+]

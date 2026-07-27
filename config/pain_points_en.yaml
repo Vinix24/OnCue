@@ -1,0 +1,108 @@
+routes:
+  - name: quote_process
+    label: Quote process
+    utterances:
+      - "creating quotes takes us too much time"
+      - "mistakes keep slipping into our proposals"
+      - "clients wait too long for a quote"
+      - "we still build every quote manually"
+      - "our quote workflow is chaotic"
+
+  - name: capacity
+    label: Capacity
+    utterances:
+      - "we do not have enough people to keep up"
+      - "the team is overloaded"
+      - "we are growing but cannot hire fast enough"
+      - "everyone is covering multiple roles"
+      - "we have to turn down work"
+
+  - name: cross_sell
+    label: Cross-sell
+    utterances:
+      - "we miss opportunities with existing clients"
+      - "we do not have visibility on cross-sell potential"
+      - "upsell is not handled consistently"
+      - "we cannot see which accounts could buy more"
+      - "existing clients are not approached proactively"
+
+  - name: lead_generation
+    label: Lead generation
+    utterances:
+      - "we do not generate enough leads"
+      - "we rely too heavily on referrals"
+      - "we do not have a real pipeline"
+      - "new business mostly comes from our network"
+      - "our pipeline is almost empty"
+
+  - name: knowledge_transfer
+    label: Knowledge transfer
+    utterances:
+      - "critical knowledge sits with a few people"
+      - "when a senior is away we get blocked"
+      - "we are too dependent on individual experts"
+      - "there is no clear documentation"
+      - "new hires must ask around for everything"
+
+  - name: customer_service
+    label: Customer service
+    utterances:
+      - "customers wait too long for a response"
+      - "we keep getting the same questions"
+      - "we lack visibility on open support requests"
+      - "response times are too slow"
+      - "complaints sometimes fall through the cracks"
+
+  - name: manual_work
+    label: Manual work
+    utterances:
+      - "we still do too much manually"
+      - "there is a lot of copy and paste work"
+      - "we still run key processes in spreadsheets"
+      - "there is too much duplicate work"
+      - "the same data is entered into multiple systems"
+
+  - name: data_quality
+    label: Data quality
+    utterances:
+      - "our data is not reliable"
+      - "there is no consistency in our data"
+      - "we do not have a single source of truth"
+      - "every system shows different information"
+      - "our CRM data is messy"
+
+  - name: reporting
+    label: Reporting
+    utterances:
+      - "we do not have clear visibility on performance"
+      - "building reports takes days"
+      - "we do not have a proper dashboard"
+      - "management asks for numbers we cannot deliver quickly"
+      - "we do not have real-time insight"
+
+  - name: onboarding
+    label: Onboarding
+    utterances:
+      - "new employees need months to ramp up"
+      - "knowledge transfer takes too long"
+      - "training new hires is very time consuming"
+      - "we do not have a structured onboarding process"
+      - "new starters are not productive quickly enough"
+
+  - name: compliance
+    label: Compliance
+    utterances:
+      - "we need to meet more and more regulations"
+      - "privacy compliance is a major challenge"
+      - "we are missing proper audit trails"
+      - "our compliance documentation is incomplete"
+      - "we are not sure if we are fully compliant"
+
+  - name: costs
+    label: Costs
+    utterances:
+      - "this feels too expensive"
+      - "we do not have budget available"
+      - "the ROI is unclear"
+      - "we have to reduce spending"
+      - "we already spend a lot on tools"

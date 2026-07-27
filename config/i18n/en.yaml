@@ -1,0 +1,22 @@
+# User-facing message catalog -- English.
+#
+# Language-specific overrides for the i18n layer (sales_copilot.core.i18n).
+# Any key omitted here falls back to the Dutch default catalog (nl.yaml).
+#
+# Keys are addressed with dotted paths, e.g. "coaching.suggestion_empty_state".
+# Values may contain {name}-style placeholders for simple interpolation via t().
+
+coaching:
+  # LLM system prompt for the live follow-up-question coach (SuggestionLLMClient).
+  suggestion_system_prompt: "You are a sales coach. Based on what the prospect just said, propose 2 or 3 sharp follow-up questions for the salesperson. Keep the questions concrete, short and usable in a live conversation."
+  # LLM user prompt. {transcript} is interpolated with the prospect transcript lines.
+  suggestion_user_prompt: |-
+    Based on what the prospect said, suggest 2-3 follow-up questions for the salesperson.
+    Return only actionable questions in English.
+
+    Prospect transcript:
+    {transcript}
+  # Dashboard placeholder shown before any suggestion context has arrived.
+  suggestion_empty_state: "Waiting for conversation context..."
+  # Label prefixing uploaded context documents inside the system prompt.
+  context_docs_label: "Context documents:"

@@ -1,0 +1,63 @@
+# Trigger-based auto-transition phases for the phase state machine.
+# TriggerBasedPhaseDetector advances through these phases based on event counts.
+# Phases are strictly ordered: open → discovery → demo → close (no backwards).
+
+phases:
+  open:
+    label: "Open"
+    description: "Begin van gesprek, kennismaking"
+    transition_triggers:
+      - to: discovery
+        condition: vraag_count >= 3
+        note: "Na 3 open vragen → discovery"
+
+  discovery:
+    label: "Discovery"
+    description: "Pijnpunten en behoeften ophalen"
+    transition_triggers:
+      - to: demo
+        condition: buying_signal_detected
+        note: "Eerste koopsignaal → demo-fase"
+
+  demo:
+    label: "Demo / Pitch"
+    description: "Oplossing presenteren"
+    transition_triggers:
+      - to: close
+        condition: objection_resolved
+        note: "Bezwaar + resolutie → close-fase"
+
+  close:
+    label: "Close"
+    description: "Volgende stap concreet maken"
+    transition_triggers: []
+
+# Talk-time coaching targets (Demodesk n=328, Gong, ExecVision research).
+# Used by TalkTimeConfig — values also configurable via env vars.
+talk_time_phases:
+  discovery:
+    label: Discovery
+    target_self: 0.35
+    description: "Let the prospect talk. Ask open questions. Listen."
+
+  pitch:
+    label: Pitch / Demo
+    target_self: 0.65
+    description: "Present your solution. Do mini-checks every 60-90 seconds."
+
+  closing:
+    label: Closing
+    target_self: 0.45
+    description: "Discuss next steps. Confirm understanding. Get commitment."
+
+# Monologue threshold (seconds of uninterrupted speaking before warning)
+# Research: <=76s monologues correlate with 31% higher deal progression (Demodesk)
+monologue_warning_seconds: 76
+
+# How far off-target before status changes
+thresholds:
+  amber: 0.05
+  red: 0.10
+
+# Phase stall detection: emit phase_stalled after this many seconds in same phase
+stall_seconds: 300

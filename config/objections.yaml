@@ -1,0 +1,41 @@
+routes:
+  - name: prijs
+    utterances:
+      - het is te duur voor ons
+      - we hebben het budget niet
+      - dit past nu niet in onze begroting
+      - de investering is te hoog
+      - daar hebben we nu geen geld voor
+      - jullie zitten boven ons budget
+  - name: timing
+    utterances:
+      - niet nu
+      - we zijn er nog niet klaar voor
+      - kom hier later op terug
+      - dit is niet het goede moment
+      - we willen dit pas volgend kwartaal oppakken
+      - nu heeft het geen prioriteit
+  - name: concurrent
+    utterances:
+      - we werken al met een andere partij
+      - onze huidige leverancier doet dit al
+      - we zitten al bij een concurrent
+      - we hebben hiervoor al een oplossing
+      - we zijn tevreden met onze huidige leverancier
+      - we gebruiken al een ander systeem
+  - name: scope
+    utterances:
+      - we willen eerst klein beginnen
+      - dat is te groot voor ons
+      - we zoeken iets simpeler
+      - dit voelt als te veel tegelijk
+      - we willen eerst een kleinere pilot
+      - zo breed willen we niet starten
+  - name: autoriteit
+    utterances:
+      - ik moet dit eerst overleggen
+      - dat beslis ik niet alleen
+      - mijn manager moet hier nog naar kijken
+      - finance moet dit eerst goedkeuren
+      - ik ben niet de enige beslisser
+      - hier moet directie eerst akkoord op geven

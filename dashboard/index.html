@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OnCue Dashboard</title>
+    <link rel="stylesheet" href="css/dashboard.css?v=2.0.0" />
+  </head>
+  <body>
+    <div class="app">
+
+      <!-- License banner — hidden by default, shown on license_grace / license_expired WS event -->
+      <div
+        id="license-banner"
+        class="license-banner hidden"
+        role="alert"
+        aria-live="polite"
+      >
+        <span class="license-banner-text" data-i18n="license.banner_text">Je gebruikt de gratis versie. Vraag een license-key aan voor extra features.</span>
+        <div class="license-banner-actions">
+          <button id="open-license-modal" class="license-banner-cta" type="button" data-i18n="license.get_free_key">Krijg gratis key</button>
+          <button id="dismiss-license-banner" class="license-banner-dismiss" type="button" aria-label="Sluit melding" data-i18n-attr="aria-label:common.close_dialog">&#x2715;</button>
+        </div>
+      </div>
+
+      <!-- Degrade banner — shown when a Pro entitlement has permanently degraded to Free -->
+      <div
+        id="degrade-banner"
+        class="degrade-banner hidden"
+        role="alert"
+        aria-live="polite"
+      >
+        <span class="degrade-banner-text">
+          <span data-i18n="degrade.banner_intro">Je Pro-licentie is niet meer actief. De app blijft gratis werken:</span>
+          <strong data-i18n="degrade.banner_active_features">live transcript, samenvatting en post-call diagnose</strong> <span data-i18n="degrade.banner_active_suffix">blijven actief.</span>
+          <span data-i18n="degrade.banner_disabled_features">Live coaching, slide-injectie, autostart en centrale audit zijn uitgeschakeld.</span>
+        </span>
+        <div class="degrade-banner-actions">
+          <a
+            id="degrade-upgrade-cta"
+            class="degrade-banner-cta"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-i18n="degrade.upgrade_cta"
+          >Upgrade naar Sales Pro</a>
+          <button id="dismiss-degrade-banner" class="degrade-banner-dismiss" type="button" aria-label="Sluit melding" data-i18n-attr="aria-label:common.close_dialog">&#x2715;</button>
+        </div>
+      </div>
+
+      <!-- Audio warning banners — shown when a stream has no audio during a call -->
+      <div id="audio-warnings-container" class="audio-warnings-container">
+        <div id="audio-warning-self" class="audio-warning hidden" role="alert" aria-live="assertive"></div>
+        <div id="audio-warning-prospect" class="audio-warning hidden" role="alert" aria-live="assertive"></div>
+      </div>
+
+      <!-- License modal — hidden by default -->
+      <div
+        id="license-modal"
+        class="license-modal hidden"
+        role="dialog"
+        aria-labelledby="license-modal-title"
+      >
+        <div class="license-modal-content">
+          <button class="license-modal-close" type="button" id="close-license-modal" aria-label="Sluit venster" data-i18n-attr="aria-label:common.close_window">&#x2715;</button>
+          <h2 id="license-modal-title" class="license-modal-title" data-i18n="license.modal_title">Gratis bonus + license-key</h2>
+          <p class="license-modal-desc" data-i18n="license.modal_desc">Vul je e-mailadres in en ontvang direct een gratis license-key.</p>
+          <form id="license-form" novalidate>
+            <div class="input-section">
+              <label class="license-modal-label" for="license-email" data-i18n="license.email_label">E-mailadres</label>
+              <input
+                id="license-email"
+                class="license-modal-input"
+                type="email"
+                name="email"
+                placeholder="jouw@email.nl"
+                data-i18n-attr="placeholder:license.email_placeholder"
+                autocomplete="email"
+                required
+                aria-required="true"
+              />
+              <button class="license-modal-submit" type="submit" data-i18n="license.submit_button">Stuur mij de key</button>
+            </div>
+            <div class="success-state hidden" role="status" aria-live="polite">
+              <p class="license-modal-success" data-i18n="license.success_message">License-key verstuurd. Check je inbox.</p>
+            </div>
+            <div class="error-state hidden" role="alert" aria-live="assertive">
+              <p class="license-modal-error" data-i18n="license.error_message">Er ging iets mis. Probeer het opnieuw.</p>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Pro upgrade modal — shown when a Free user clicks a Pro-gated option -->
+      <div
+        id="pro-upgrade-modal"
+        class="pro-upgrade-modal hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pro-upgrade-modal-title"
+      >
+        <div class="pro-upgrade-modal-content">
+          <button class="pro-upgrade-modal-close" type="button" id="close-pro-upgrade-modal" aria-label="Sluit venster" data-i18n-attr="aria-label:common.close_window">&#x2715;</button>
+          <div class="pro-upgrade-modal-icon" aria-hidden="true">&#x1F512;</div>
+          <h2 id="pro-upgrade-modal-title" class="pro-upgrade-modal-title" data-i18n="pro_upgrade.modal_title">Sales Pro feature</h2>
+          <p class="pro-upgrade-modal-desc">
+            <span data-i18n="pro_upgrade.desc_intro">Telefonie-capture (FaceTime / iPhone-relay via AudioTee) zit in</span> <strong>Sales Pro</strong>.
+            <span data-i18n="pro_upgrade.desc_outro">Upgrade om tijdens echte telefoongesprekken live te coachen.</span>
+          </p>
+          <a
+            id="pro-upgrade-cta"
+            class="pro-upgrade-cta"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-i18n="pro_upgrade.cta"
+          >Bekijk Sales Pro</a>
+          <button class="pro-upgrade-later" type="button" id="pro-upgrade-later" data-i18n="pro_upgrade.later">Misschien later</button>
+        </div>
+      </div>
+
+      <div class="shell">
+
+        <!-- ============ LEFT SIDEBAR — settings + start/stop ============ -->
+        <aside class="sidebar" id="sidebar">
+          <div class="sidebar-brand">
+            <div class="brand brand-with-logo">
+              <img src="assets/vnx-logo.svg" alt="VNX Digital" />
+              <span>OnCue</span>
+            </div>
+            <p class="setup-subtitle" id="setup-subtitle" data-i18n="setup.subtitle">Instellingen voor realtime coaching en slides.</p>
+          </div>
+
+          <div class="sidebar-scroll">
+
+            <section class="s-card">
+              <h3 class="s-title" data-i18n="setup.screen_mode_title">Screen mode</h3>
+              <div class="toggle-group" id="screen-mode-toggle" role="group" aria-label="Schermmodus" data-i18n-attr="aria-label:setup.screen_mode_group_aria">
+                <button class="toggle-button active" type="button" data-mode="single" data-i18n="setup.screen_mode_single">1 Screen</button>
+                <button class="toggle-button" type="button" data-mode="dual" data-i18n="setup.screen_mode_dual">2 Screens</button>
+              </div>
+              <p class="s-help" data-i18n="setup.screen_mode_help">1-screen schakelt de presentatie-module uit.</p>
+            </section>
+
+            <section class="s-card">
+              <h3 class="s-title" data-i18n="setup.presets_title">Presets</h3>
+              <div id="preset-bar" class="preset-bar"></div>
+              <label class="s-field">
+                <span data-i18n="setup.conversation_type_label">Gesprekstype</span>
+                <select id="domain-preset">
+                  <option value="sales" data-i18n="setup.preset_sales">Sales</option>
+                  <option value="coach" data-i18n="setup.preset_coach">Coach</option>
+                  <option value="recruitment" data-i18n="setup.preset_recruitment">Recruitment</option>
+                </select>
+              </label>
+            </section>
+
+            <section class="s-card">
+              <h3 class="s-title" data-i18n="setup.modules_title">Modules</h3>
+              <div class="module-grid">
+                <label class="module-toggle">
+                  <input type="checkbox" data-module="talk_time" checked />
+                  <span class="switch"></span>
+                  <span class="module-label" data-i18n="setup.module_talk_time">Talk Time</span>
+                </label>
+                <label class="module-toggle">
+                  <input type="checkbox" data-module="transcript" checked />
+                  <span class="switch"></span>
+                  <span class="module-label" data-i18n="setup.module_transcript">Live Transcript</span>
+                </label>
+                <label class="module-toggle">
+                  <input type="checkbox" data-module="pain_points" checked />
+                  <span class="switch"></span>
+                  <span class="module-label" data-i18n="setup.module_pain_points">AI detectie</span>
+                </label>
+                <label class="module-toggle">
+                  <input type="checkbox" data-module="presentation" checked />
+                  <span class="switch"></span>
+                  <span class="module-label" data-i18n="setup.module_presentation">Slide Injector</span>
+                </label>
+                <label class="module-toggle">
+                  <input type="checkbox" data-module="post_call_report" checked />
+                  <span class="switch"></span>
+                  <span class="module-label" data-i18n="setup.module_post_call_report">Post-call Report</span>
+                </label>
+              </div>
+            </section>
+
+            <section class="s-card">
+              <h3 class="s-title" data-i18n="setup.llm_prospect_title">LLM &amp; Prospect</h3>
+              <div class="setup-form">
+                <label class="field">
+                  <span data-i18n="setup.llm_provider_label">LLM provider &amp; model</span>
+                  <select id="llm-model-option">
+                    <option value="" data-i18n="setup.loading_option">Laden...</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span><span data-i18n="setup.transcript_backend_label">Transcript backend</span>
+                    <span class="info-icon" title="whisper.cpp en MLX Whisper draaien lokaal — audio verlaat de machine nooit. Groq Whisper is CLOUD: elk audiofragment gaat naar Groq's API. Niet gebruiken bij gevoelige of vertrouwelijke gesprekken." data-i18n-attr="title:setup.transcript_backend_info">&#9432;</span>
+                  </span>
+                  <select id="transcript-backend">
+                    <option value="whisper.cpp" data-i18n="setup.transcript_whispercpp">whisper.cpp (standaard)</option>
+                    <option value="mlx-whisper" data-i18n="setup.transcript_mlx">MLX Whisper (experimenteel)</option>
+                    <option value="groq" data-i18n="setup.transcript_groq">Groq Whisper (cloud, snel)</option>
+                  </select>
+                </label>
+                <div class="field">
+                  <span data-i18n="setup.call_medium_label">Gespreksmedium</span>
+                  <!-- Hidden select keeps existing setup.js wiring (collectConfig / restoreConfig) intact -->
+                  <select id="call-medium" style="display:none" aria-hidden="true" tabindex="-1">
+                    <option value="blackhole">Teams / Meet / videocall</option>
+                    <option value="audiotee_call">Telefoon (FaceTime / iPhone-relay)</option>
+                  </select>
+                  <!-- Visible custom control rendered by pro-upgrade.js -->
+                  <div id="call-medium-ui" class="call-medium-ui" role="group" aria-label="Gespreksmedium" data-i18n-attr="aria-label:setup.call_medium_label"></div>
+                </div>
+                <div class="field">
+                  <span><span data-i18n="setup.own_transcript_label">Eigen transcript live</span>
+                    <span class="info-icon" title="Standaard zie je tijdens de call alleen de prospect (sneller en stabieler). Schakel dit in om je eigen tekst live te zien. whisper.cpp is de standaard-backend en ondersteunt dit het meest stabiel; MLX Whisper is experimenteel." data-i18n-attr="title:setup.own_transcript_info">&#9432;</span>
+                  </span>
+                  <label class="field-toggle">
+                    <input type="checkbox" id="transcribe-self-live" />
+                    <span class="field-toggle-text" data-i18n="setup.show_toggle">Tonen</span>
+                  </label>
+                </div>
+                <label class="field">
+                  <span data-i18n="setup.prospect_company_label">Prospect bedrijf</span>
+                  <input id="prospect-company" type="text" placeholder="Klantnaam" data-i18n-attr="placeholder:setup.prospect_company_placeholder" />
+                </label>
+                <label class="field">
+                  <span data-i18n="setup.prospect_industry_label">Industry</span>
+                  <input id="prospect-industry" type="text" placeholder="Manufacturing" data-i18n-attr="placeholder:setup.prospect_industry_placeholder" />
+                </label>
+              </div>
+            </section>
+
+            <section class="s-card">
+              <h3 class="s-title" data-i18n="setup.documents_title">Documenten</h3>
+              <div id="document-dropzone" class="dropzone" role="button" tabindex="0">
+                <p data-i18n="setup.dropzone_text">Drop offertedocs of cases hier</p>
+                <span data-i18n="setup.dropzone_filetypes">PDF, DOCX, of TXT</span>
+              </div>
+              <input id="document-input" type="file" multiple hidden />
+              <div id="document-list" class="document-list"></div>
+            </section>
+
+            <section id="consent-card" class="s-card consent-card hidden">
+              <h3 class="s-title" data-i18n="consent.title">Toestemming</h3>
+              <div class="consent-body">
+                <label class="consent-checkbox">
+                  <input type="checkbox" id="consent-given" />
+                  <span class="consent-label" data-i18n="consent.checkbox_label">Ik heb toestemming gevraagd en gekregen voor deze sessie.</span>
+                </label>
+                <div id="consent-indicator" class="consent-indicator" aria-live="polite">
+                  <span id="consent-tier-badge" class="consent-tier-badge" data-i18n="consent.tier_badge_audit">audit</span>
+                  <span id="consent-status" class="consent-status" data-i18n="consent.status_not_recorded">niet vastgelegd</span>
+                </div>
+                <p id="consent-hint" class="consent-hint"></p>
+              </div>
+            </section>
+
+          </div>
+
+          <div class="sidebar-foot">
+            <p class="setup-status" data-i18n="setup.status_ready">Ready</p>
+            <button id="sample-aha" class="sample-aha-button" type="button" data-i18n="setup.sample_aha_button">Toon me wat het doet</button>
+            <button id="start-call" class="start-stop-btn is-start" type="button">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              <span data-i18n="setup.start_call_button">Start Call</span>
+            </button>
+            <button id="end-call" class="start-stop-btn is-stop" type="button">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+              <span data-i18n="setup.end_call_button">Stop &amp; rapport</span>
+            </button>
+            <p class="s-help privacy-notice" data-i18n="setup.privacy_notice">
+              Audio wordt lokaal opgenomen voor terugluisteren. Wordt niet ge-upload.
+            </p>
+          </div>
+        </aside>
+
+        <!-- ============ MAIN AREA ============ -->
+        <div class="main">
+
+          <!-- TOP BAR -->
+          <div class="top">
+            <div class="brand brand-with-logo top-brand">
+              <img src="assets/vnx-logo.svg" alt="VNX Digital" />
+              <div class="nm">OnCue<small>Coaching</small></div>
+            </div>
+            <div class="deal" id="topbar-deal">
+              <span class="deal-company" id="topbar-company" data-i18n="header.no_prospect_set">Nog geen prospect ingesteld</span>
+              <span class="deal-industry" id="topbar-industry"></span>
+            </div>
+            <div class="spacer"></div>
+
+            <div class="phase-controls" role="group" aria-label="Gespreksfase" data-i18n-attr="aria-label:header.phase_group_label">
+              <button class="phase-button active" type="button" data-phase="discovery" data-i18n="header.phase_discovery">Discovery</button>
+              <button class="phase-button" type="button" data-phase="pitch" data-i18n="header.phase_pitch">Pitch</button>
+              <button class="phase-button" type="button" data-phase="closing" data-i18n="header.phase_closing">Closing</button>
+            </div>
+
+            <button id="swap-speakers" class="icon-btn" type="button" title="Swap Speakers" data-i18n-attr="title:header.swap_speakers">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3 3 7l4 4"/><path d="M3 7h13a4 4 0 0 1 4 4v1"/><path d="m17 21 4-4-4-4"/><path d="M21 17H8a4 4 0 0 1-4-4v-1"/></svg>
+            </button>
+
+            <div class="connection">
+              <span id="connection-dot" class="status-dot" aria-hidden="true"></span>
+              <span id="connection-text" data-i18n="header.status_disconnected">Disconnected</span>
+            </div>
+
+            <button id="theme-toggle" class="icon-btn" type="button" aria-pressed="false" title="Dark mode" data-i18n-attr="title:header.theme_toggle_title">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            </button>
+
+            <div id="system-status" class="system-status hidden" role="status"></div>
+
+            <div class="timer">
+              <span id="connection-pulse" class="rec-dot" aria-hidden="true"></span>
+              <span id="call-duration">00:00</span>
+            </div>
+
+            <button id="stop-server-btn" class="stop-btn" type="button" title="OnCue stoppen" data-i18n-attr="title:header.stop_server_title">&#x23F9;</button>
+          </div>
+
+          <!-- ============ CALL VIEW — mockup grid, always the live dashboard ============ -->
+          <div id="call-view" class="call-view-wrap">
+            <div class="body">
+
+              <!-- MAIN COLUMN -->
+              <div class="col">
+
+                <!-- HERO — coaching spotlight, driven by real coaching-alert websocket messages -->
+                <div class="card hero" id="hero">
+                  <div class="strip"></div>
+                  <div class="hero-in">
+                    <span class="kicker"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> <span data-i18n="coaching.signal_kicker">Coaching-signaal</span></span>
+                    <div class="headline" id="monologue-warning" data-i18n="coaching.monologue_default">Ik let mee op koopsignalen en bezwaren. Zodra er iets speelt, zie je hier direct de beste volgende zet.</div>
+                    <div id="hero-feedback" class="hero-feedback" hidden></div>
+                  </div>
+                </div>
+
+                <!-- TRANSCRIPT -->
+                <div class="card tr-card">
+                  <div class="card-h">
+                    <div class="ti">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                      <span data-i18n="transcript.title">Transcript</span>
+                    </div>
+                    <span class="ct" data-i18n="common.live_badge">live</span>
+                  </div>
+                  <div class="tr-body" id="transcript-list"></div>
+                  <div class="tr-foot">
+                    <span class="live"><span class="d"></span> <span data-i18n="transcript.live_listening">Live meeluisteren</span></span>
+                    <span style="margin-left:auto" data-i18n="transcript.markers_hint">pijnpunten &amp; bezwaren worden gemarkeerd</span>
+                  </div>
+                </div>
+
+              </div>
+
+              <!-- RIGHT RAIL -->
+              <div class="col rail">
+
+                <!-- BEZWAAR / PIJNPUNT / KANS — top of rail -->
+                <section class="card rail-card">
+                  <div class="card-h">
+                    <div class="ti">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                      <span data-i18n="objections.title">Bezwaren</span>
+                    </div>
+                    <span class="ct" id="objections-count">0</span>
+                  </div>
+                  <div id="objections-panel" class="pain-points">
+                    <div class="pain-points-empty" data-i18n="objections.empty_state">Nog geen bezwaren gedetecteerd.</div>
+                  </div>
+                </section>
+
+                <section class="card rail-card">
+                  <div class="card-h">
+                    <div class="ti">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                      <span data-i18n="painpoints.title">Pijnpunten</span>
+                    </div>
+                    <span class="ct" id="pain-points-count">0</span>
+                  </div>
+                  <div id="pain-points-panel" class="pain-points">
+                    <div class="pain-points-empty" data-i18n="painpoints.empty_state">Nog geen detections binnen.</div>
+                  </div>
+                </section>
+
+                <section class="card rail-card">
+                  <div class="card-h">
+                    <div class="ti">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2z"/><path d="m8 12 3 3 5-5"/></svg>
+                      <span data-i18n="opportunities.title">Kansen</span>
+                    </div>
+                    <span class="ct" id="opportunities-count">0</span>
+                  </div>
+                  <div id="opportunities-panel" class="pain-points">
+                    <div class="pain-points-empty" data-i18n="opportunities.empty_state">Nog geen kansen gedetecteerd.</div>
+                  </div>
+                </section>
+
+                <!-- SPREEKTIJD-WIDGET -->
+                <section class="card">
+                  <div class="card-h">
+                    <div class="ti">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M3 16v5h5"/><path d="M21 16v5h-5"/></svg>
+                      <span data-i18n="talktime.title">Talking time</span>
+                    </div>
+                  </div>
+                  <div class="ttc-body">
+                    <div class="ttc-side">
+                      <div class="ttrow"><span class="sw" style="background:var(--orange)"></span><span class="nm" data-i18n="talktime.you_label">Jij</span><span class="pc" id="rolling-self">--</span></div>
+                      <div class="ttrow"><span class="sw" style="background:var(--client)"></span><span class="nm" data-i18n="talktime.prospect_label">Prospect</span><span class="pc" id="rolling-prospect">--</span></div>
+                      <div id="talk-time-bar" class="talk-time-bar status-green" role="progressbar" aria-label="Talk time verhouding" data-i18n-attr="aria-label:talktime.bar_aria" style="--self-percent: 50%;"></div>
+                      <div class="ttc-goal"><span data-i18n="talktime.total_label">Totaal</span> · <span data-i18n="talktime.you_label">Jij</span> <b id="cumulative-self">--</b> · <span data-i18n="talktime.prospect_label">Prospect</span> <b id="cumulative-prospect">--</b></div>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- KOUD>WARM GAUGE — real tally of live bezwaar/kans events -->
+                <section class="card">
+                  <div class="card-h">
+                    <div class="ti">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 14a4 4 0 1 0 8 0V5a2 2 0 0 0-4 0v9"/><path d="M12 5v9"/></svg>
+                      <span data-i18n="sentiment.title">Klantstemming</span>
+                    </div>
+                  </div>
+                  <div class="sent-body">
+                    <div class="sent-track"><div class="sent-knob" id="sent-knob" style="left:50%"></div></div>
+                    <div class="sent-lab"><span data-i18n="sentiment.cool">koel</span><span data-i18n="sentiment.neutral">neutraal</span><span data-i18n="sentiment.warm">warm</span></div>
+                    <div class="sent-now"><span data-i18n="sentiment.now_label">Nu:</span> <b id="sent-now" data-i18n="sentiment.neutral">neutraal</b></div>
+                  </div>
+                </section>
+
+                <!-- SIGNALEN — live volgende-beste-vraag suggesties -->
+                <section class="card">
+                  <div class="card-h">
+                    <div class="ti">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/></svg>
+                      <span data-i18n="suggestions.title">Signalen</span>
+                    </div>
+                    <span class="ct" data-i18n="common.live_badge">live</span>
+                  </div>
+                  <div id="suggestions-panel" class="suggestions">
+                    <div class="suggestions-empty" data-i18n="coaching.suggestion_empty_state">Wacht op gesprekscontext...</div>
+                  </div>
+                </section>
+
+                <!-- GESPREKSPLAN — real script-coverage tracking -->
+                <section id="script-tracking-section" class="card">
+                  <div class="card-h">
+                    <div class="ti">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                      <span data-i18n="scripttracking.title">Gespreksplan</span>
+                    </div>
+                    <span class="ct" data-i18n="scripttracking.coverage_badge">dekking</span>
+                  </div>
+                  <div id="script-tracking-panel" class="script-tracking agenda-body">
+                    <div class="script-tracking-empty" data-i18n="scripttracking.empty_state">Nog geen scriptdekking gemeten.</div>
+                  </div>
+                </section>
+
+                <!-- SAMENVATTING -->
+                <section class="card summary-card">
+                  <button
+                    id="summary-toggle"
+                    class="summary-toggle"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="summary-content"
+                  >
+                    <span class="ti">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                      <span data-i18n="summary.title">Samenvatting</span>
+                    </span>
+                    <span class="summary-toggle-icon" aria-hidden="true">+</span>
+                  </button>
+                  <div id="summary-content" class="summary-content is-collapsed" hidden>
+                    <p id="summary-text" class="summary-text" data-i18n="summary.empty_state">Nog geen samenvatting beschikbaar.</p>
+                    <ul id="summary-moments" class="summary-moments">
+                      <li class="summary-empty" data-i18n="summary.empty_moments">Nog geen key moments.</li>
+                    </ul>
+                  </div>
+                </section>
+
+              </div>
+            </div>
+          </div>
+
+          <!-- ============ REPORT VIEW — shown after Stop & rapport ============ -->
+          <div id="report-view" class="report-view-wrap" style="display:none">
+            <main class="report-layout">
+              <section class="card report-card" aria-live="polite">
+                <div class="card-h">
+                  <div class="ti">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                    <span data-i18n="report.title">Post-call Report</span>
+                  </div>
+                </div>
+                <div class="report-summary">
+                  <div class="report-stat">
+                    <span class="report-label" data-i18n="report.call_duration_label">Call duration</span>
+                    <strong id="report-duration">00:00</strong>
+                  </div>
+                  <div class="report-stat">
+                    <span class="report-label" data-i18n="report.talktime_label">Talk-time</span>
+                    <strong><span id="report-self">0%</span> / <span id="report-prospect">0%</span></strong>
+                  </div>
+                  <div class="report-stat">
+                    <span class="report-label" data-i18n="report.monologues_label">Monologues</span>
+                    <strong id="report-monologues">0</strong>
+                  </div>
+                </div>
+
+                <div class="report-block" id="report-scorecard-block" style="display:none">
+                  <h3 class="report-subtitle" data-i18n="report.scorecard_title">Scorecard (gedetecteerd)</h3>
+                  <div id="report-scorecard" class="report-list"></div>
+                </div>
+
+                <div class="report-block">
+                  <h3 class="report-subtitle" data-i18n="report.pain_points_title">Pain points detected</h3>
+                  <div id="report-pain-points" class="report-list"></div>
+                </div>
+
+                <div class="report-block">
+                  <h3 class="report-subtitle" data-i18n="report.objections_title">Objections raised</h3>
+                  <div id="report-objections" class="report-list"></div>
+                </div>
+
+                <div class="report-block">
+                  <h3 class="report-subtitle" data-i18n="report.key_moments_title">Key moments</h3>
+                  <div id="report-key-moments" class="report-list"></div>
+                </div>
+
+                <div class="report-block">
+                  <h3 class="report-subtitle" data-i18n="report.final_summary_title">Final conversation summary</h3>
+                  <p id="report-final-summary" class="report-summary-text" data-i18n="summary.empty_state">
+                    Nog geen samenvatting beschikbaar.
+                  </p>
+                </div>
+
+                <div class="report-actions">
+                  <button id="report-download-json" class="report-download" type="button" data-i18n="report.download_json">
+                    Download Report (JSON)
+                  </button>
+                  <button id="report-download-markdown" class="report-download" type="button" data-i18n="report.download_markdown">
+                    Download Report (Markdown)
+                  </button>
+                </div>
+
+                <button id="report-new-call" class="report-download new-call-button" type="button" data-i18n="report.new_call_button">New Call</button>
+              </section>
+            </main>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <script>
+      window.WS_BASE_URL = window.WS_BASE_URL || (typeof location !== "undefined" ? `ws://${location.host}` : "ws://localhost:8760");
+      window.API_BASE_URL = window.API_BASE_URL || "";
+      // Shared /api/config fetch — js/i18n.js reads config.language from the
+      // same promise instead of making its own round-trip.
+      window.__configPromise = fetch("/api/config")
+        .then((response) => response.json())
+        .catch(() => ({}));
+      window.__configPromise.then((config) => {
+        const host = config?.ws_host;
+        const port = config?.ws_port;
+        if (host && port) {
+          window.WS_BASE_URL = `ws://${host}:${port}`;
+        }
+      });
+    </script>
+    <script src="js/i18n.js?v=2.0.0"></script>
+    <script src="js/copilot-auth.js?v=2.0.0"></script>
+    <script src="js/hint-feedback.js?v=2.0.0"></script>
+    <script src="js/app.js?v=2.0.0"></script>
+    <script src="js/pain-points.js?v=2.0.0"></script>
+    <script src="js/objections.js?v=2.0.0"></script>
+    <script src="js/opportunities.js?v=2.0.0"></script>
+    <script src="js/suggestions.js?v=2.0.0"></script>
+    <script src="js/transcript.js?v=2.0.0"></script>
+    <script src="js/summary.js?v=2.0.0"></script>
+    <script src="js/script-tracking.js?v=2.0.0"></script>
+    <script src="js/report.js?v=2.0.0"></script>
+    <script src="js/setup.js?v=2.0.0"></script>
+    <script src="js/consent.js?v=2.0.0"></script>
+    <script src="js/sample-aha.js?v=2.0.0"></script>
+    <script src="js/stop-control.js?v=2.0.0"></script>
+    <script src="js/constants.js?v=2.0.0"></script>
+    <script src="js/license.js?v=2.0.0"></script>
+    <script src="js/pro-upgrade.js?v=2.0.0"></script>
+    <script src="js/dashboard-shell.js?v=2.0.0"></script>
+  </body>
+</html>

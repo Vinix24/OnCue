@@ -1,0 +1,35 @@
+providers:
+  openrouter:
+    label: OpenRouter (default)
+    models:
+      - anthropic/claude-haiku-4.5
+      - anthropic/claude-sonnet-5
+  gemini:
+    label: Gemini
+    models:
+      - gemini-2.5-flash
+      - gemini-2.5-flash-turbo
+      - gemini-2.5-pro
+  openai:
+    label: OpenAI
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+      - o4-mini
+  groq:
+    label: Groq
+    models:
+      - llama-3.3-70b-versatile
+      - llama-3.1-8b-instant
+      - qwen2.5-32b
+  ollama:
+    label: Ollama (local)
+    models:
+      - qwen2.5:7b
+      - llama3.2:latest
+      - mistral:7b
+  azure:
+    label: Azure OpenAI (BYO-tenant)
+    models:
+      - gpt-4o
+      - gpt-4o-mini

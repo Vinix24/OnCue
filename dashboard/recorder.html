@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Call Recorder</title>
+  <style>
+    :root {
+      --bg: #0d0f14; --panel: #161a22; --line: #242a36;
+      --text: #e7ebf2; --muted: #8b94a7; --green: #34d27b; --amber: #f5b53d; --red: #ef4146;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 15px/1.5 -apple-system, system-ui, sans-serif;
+      display: flex; min-height: 100vh; align-items: center; justify-content: center;
+    }
+    .card {
+      width: min(560px, 92vw); background: var(--panel);
+      border: 1px solid var(--line); border-radius: 16px; padding: 28px 28px 32px;
+    }
+    h1 { font-size: 18px; margin: 0 0 4px; letter-spacing: .2px; }
+    .sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
+    label { display: block; color: var(--muted); font-size: 12px; margin: 0 0 6px; }
+    select {
+      width: 100%; background: #0f1218; color: var(--text); border: 1px solid var(--line);
+      border-radius: 9px; padding: 10px 12px; font-size: 14px; margin-bottom: 22px;
+    }
+    .rec-row { display: flex; align-items: center; gap: 18px; margin-bottom: 26px; }
+    .rec-btn {
+      width: 76px; height: 76px; border-radius: 50%; border: none; cursor: pointer;
+      background: var(--red); color: #fff; font-size: 13px; font-weight: 600;
+      display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+      transition: transform .08s ease, box-shadow .2s ease;
+    }
+    .rec-btn:hover { transform: scale(1.04); }
+    .rec-btn.recording { animation: pulse 1.3s ease-in-out infinite; }
+    @keyframes pulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(239,65,70,.55); }
+      50% { box-shadow: 0 0 0 14px rgba(239,65,70,0); }
+    }
+    .status { font-size: 14px; }
+    .status .state { font-weight: 600; }
+    .timer { font-variant-numeric: tabular-nums; font-size: 26px; letter-spacing: 1px; }
+    .dot { color: var(--red); }
+    .meters { display: grid; gap: 14px; }
+    .meter .top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+    .meter .name { color: var(--text); }
+    .meter .db { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .bar { height: 14px; background: #0f1218; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+    .fill { height: 100%; width: 0%; background: var(--green); border-radius: 6px; transition: width .08s linear; }
+    .fill.silent { background: var(--amber); }
+    .badge { color: var(--amber); font-size: 11px; margin-left: 8px; }
+    .saved { margin-top: 20px; font-size: 13px; color: var(--muted); word-break: break-all; }
+    .saved code { color: var(--green); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Call Recorder</h1>
+    <div class="sub">Lokale opname. Twee schone sporen naar <code>data/sessions/</code>.</div>
+
+    <label for="mic">Microfoon (jouw stem)</label>
+    <select id="mic"></select>
+
+    <div class="rec-row">
+      <button id="rec" class="rec-btn" title="Start opname">● REC</button>
+      <div class="status">
+        <div class="state" id="state">Klaar om op te nemen</div>
+        <div class="timer" id="timer">00:00</div>
+      </div>
+    </div>
+
+    <div class="meters">
+      <div class="meter">
+        <div class="top"><span class="name">Prospect <span class="muted">(system-audio)</span></span><span class="db" id="db-prospect">--</span></div>
+        <div class="bar"><div class="fill" id="fill-prospect"></div></div>
+      </div>
+      <div class="meter">
+        <div class="top"><span class="name">Jij <span class="muted">(mic)</span></span><span class="db" id="db-self">--</span></div>
+        <div class="bar"><div class="fill" id="fill-self"></div></div>
+      </div>
+    </div>
+
+    <div class="saved" id="saved"></div>
+  </div>
+
+  <script>
+    const recBtn = document.getElementById("rec");
+    const micSel = document.getElementById("mic");
+    const stateEl = document.getElementById("state");
+    const timerEl = document.getElementById("timer");
+    const savedEl = document.getElementById("saved");
+    let recording = false;
+    let ws = null;
+
+    function fmt(sec) {
+      const t = Math.floor(sec || 0);
+      return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0");
+    }
+    function dbPct(db) {
+      if (db === null || db === undefined) return 0;
+      return Math.max(0, Math.min(1, (db + 60) / 60)) * 100;
+    }
+
+    async function loadDevices() {
+      try {
+        const res = await fetch("/devices");
+        const data = await res.json();
+        micSel.innerHTML = "";
+        const def = document.createElement("option");
+        def.value = ""; def.textContent = "Systeemstandaard";
+        micSel.appendChild(def);
+        for (const m of data.mics) {
+          const o = document.createElement("option");
+          o.value = String(m.index);
+          o.textContent = m.name;
+          if (m.index === data.default_index) o.textContent += " (standaard)";
+          micSel.appendChild(o);
+        }
+      } catch (e) { stateEl.textContent = "Kon devices niet laden"; }
+    }
+
+    function setMeter(label, s) {
+      const fill = document.getElementById("fill-" + label);
+      const db = document.getElementById("db-" + label);
+      const silent = s ? s.silent : true;
+      const val = s ? s.db : null;
+      fill.style.width = dbPct(val) + "%";
+      fill.classList.toggle("silent", silent);
+      let txt = (val === null || val === undefined) ? "--" : (val.toFixed(0) + " dB");
+      if (silent && recording) txt += " · stil";
+      db.textContent = txt;
+    }
+
+    function onLevel(msg) {
+      timerEl.textContent = fmt(msg.elapsed_s);
+      const byLabel = {};
+      for (const s of msg.streams) byLabel[s.label] = s;
+      setMeter("prospect", byLabel["prospect"]);
+      setMeter("self", byLabel["self"]);
+    }
+
+    function connect() {
+      ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "level") onLevel(msg);
+        else if (msg.type === "stopped") {
+          recording = false;
+          recBtn.classList.remove("recording");
+          recBtn.textContent = "● REC";
+          stateEl.textContent = "Opname opgeslagen";
+          if (msg.directory) savedEl.innerHTML = "Opgeslagen in <code>" + msg.directory + "</code>";
+          setMeter("prospect", null); setMeter("self", null);
+        }
+      };
+      ws.onclose = () => { stateEl.textContent = "Verbinding gesloten"; };
+    }
+
+    recBtn.addEventListener("click", () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!recording) {
+        const mic = micSel.value === "" ? null : Number(micSel.value);
+        ws.send(JSON.stringify({ action: "start", mic }));
+        recording = true;
+        recBtn.classList.add("recording");
+        recBtn.textContent = "■ Stop";
+        stateEl.innerHTML = '<span class="dot">●</span> Opname loopt';
+        savedEl.textContent = "";
+      } else {
+        ws.send(JSON.stringify({ action: "stop" }));
+        stateEl.textContent = "Afronden...";
+      }
+    });
+
+    loadDevices();
+    connect();
+  </script>
+</body>
+</html>

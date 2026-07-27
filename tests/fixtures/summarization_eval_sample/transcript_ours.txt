@@ -1,0 +1,13 @@
+Verkoper: Goedemiddag, fijn dat u tijd had. Zoals besproken wilde ik het vandaag hebben over jullie offerteproces.
+Klant: Ja, dat kost ons inderdaad veel tijd. Elke offerte is nu nog maatwerk in Word.
+Verkoper: Herkenbaar. Kunt u me vertellen hoeveel offertes jullie per maand versturen?
+Klant: Zo'n 40 tot 50, verdeeld over drie accountmanagers.
+Verkoper: Helder. Ik stuur u voor vrijdag een concept-voorstel met een prijsindicatie voor de eerste fase.
+Klant: Graag, en kunt u daar ook een korte ROI-berekening bij zetten? Onze CFO vraagt daar altijd naar.
+Verkoper: Zeker, ik neem een ROI-sectie op in het voorstel.
+Klant: We hebben ook te maken met best veel fouten in offertes, dat kost extra tijd om te corrigeren.
+Verkoper: Dat nemen we mee in de scope. Ik plan een vervolgafspraak in met uw IT-manager om de systeemkoppeling te bespreken.
+Klant: Prima, ik zal Erik erbij vragen. Kunnen we volgende week donderdag?
+Verkoper: Ik check mijn agenda en stuur donderdagochtend een uitnodiging.
+Klant: Top. Nog één ding: kunnen jullie referenties delen van vergelijkbare bedrijven in de maakindustrie?
+Verkoper: Ja, ik stuur er twee mee met het voorstel van vrijdag.

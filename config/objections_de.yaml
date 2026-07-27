@@ -1,0 +1,40 @@
+routes:
+  - name: preis
+    utterances:
+      - "das ist fuer uns zu teuer"
+      - "dafuer haben wir kein Budget"
+      - "die Investition ist aktuell zu hoch"
+      - "das passt nicht in unsere Budgetplanung"
+      - "Ihr Angebot liegt ueber unserem Budget"
+
+  - name: timing
+    utterances:
+      - "jetzt ist nicht der richtige Zeitpunkt"
+      - "wir sind dafuer noch nicht bereit"
+      - "kommen Sie bitte spaeter noch einmal darauf zurueck"
+      - "das hat aktuell keine Prioritaet"
+      - "wir wollen das erst im naechsten Quartal angehen"
+
+  - name: wettbewerber
+    utterances:
+      - "wir arbeiten bereits mit einem anderen Anbieter"
+      - "unser aktueller Dienstleister deckt das bereits ab"
+      - "wir haben dafuer schon eine Loesung im Einsatz"
+      - "wir sind mit unserem bisherigen Anbieter zufrieden"
+      - "wir nutzen bereits ein anderes System"
+
+  - name: umfang
+    utterances:
+      - "wir moechten zunaechst klein starten"
+      - "das ist fuer uns im ersten Schritt zu gross"
+      - "wir suchen eine einfachere Loesung"
+      - "das ist uns auf einmal zu viel"
+      - "wir wuerden lieber mit einem kleinen Pilot beginnen"
+
+  - name: entscheidungsbefugnis
+    utterances:
+      - "ich muss das zuerst intern abstimmen"
+      - "ich kann das nicht allein entscheiden"
+      - "meine Vorgesetzten muessen das noch pruefen"
+      - "Finance muss das zuerst freigeben"
+      - "es sind weitere Entscheidungstraeger beteiligt"

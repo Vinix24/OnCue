@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OnCue -- Team Dashboard (wireframe)</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0f1117;--s:#1a1d27;--s2:#22263a;--b:#2e3350;--t:#e2e4ed;--m:#7b82a0;--a:#4f7cff;--ad:#2a3f80;--g:#2dd4a0;--y:#f4b94a;--r:#f25c5c}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--t);font-size:14px;line-height:1.5}
+
+/* header */
+.hd{position:sticky;top:0;z-index:100;background:var(--s);border-bottom:1px solid var(--b);padding:10px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ht{font-size:15px;font-weight:700;flex:1;min-width:120px}.ht span{color:var(--a)}
+.fp{background:var(--s2);border:1px solid var(--b);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--m);cursor:pointer}
+.fp.on{border-color:var(--a);color:var(--a);background:var(--ad)}
+select{background:var(--s2);border:1px solid var(--b);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--t);cursor:pointer}
+
+/* layout */
+.main{padding:20px;max-width:1300px;margin:0 auto}
+.slbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--m);margin-bottom:10px}
+
+/* kpi */
+.kpi{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px}
+@media(min-width:640px){.kpi{grid-template-columns:repeat(4,1fr)}}
+.kc{background:var(--s);border:1px solid var(--b);border-radius:10px;padding:16px}
+.kl{font-size:11px;color:var(--m);margin-bottom:6px}
+.kv{font-size:26px;font-weight:700}
+.ks{font-size:11px;color:var(--m);margin-top:2px}
+.bg{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;margin-top:5px}
+.bgg{background:rgba(45,212,160,.15);color:var(--g)}.bgy{background:rgba(244,185,74,.15);color:var(--y)}.bgr{background:rgba(242,92,92,.15);color:var(--r)}
+
+/* chart */
+.ch{background:var(--s);border:1px solid var(--b);border-radius:10px;padding:18px;margin-bottom:20px}
+.ch-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:6px}
+.ch-t{font-size:13px;font-weight:600}
+.leg{display:flex;gap:10px;flex-wrap:wrap}
+.li{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--m)}
+.ld{width:8px;height:8px;border-radius:50%}
+.bars{display:flex;align-items:flex-end;gap:6px;height:100px;border-bottom:1px solid var(--b);padding-bottom:0;margin-bottom:6px}
+.bg-grp{display:flex;align-items:flex-end;gap:2px;flex:1}
+.bar{flex:1;border-radius:3px 3px 0 0;min-width:5px}
+.wk{display:flex;gap:6px}
+.wl{flex:1;text-align:center;font-size:10px;color:var(--m)}
+
+/* table */
+.ts{background:var(--s);border:1px solid var(--b);border-radius:10px;margin-bottom:20px;overflow-x:auto}
+.tr-hd{display:flex;justify-content:space-between;align-items:center;padding:14px 18px 10px;border-bottom:1px solid var(--b)}
+.tt{font-size:13px;font-weight:600}
+.sw{font-size:11px;color:var(--y)}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:9px 18px;font-size:11px;color:var(--m);font-weight:500;border-bottom:1px solid var(--b);white-space:nowrap}
+td{padding:11px 18px;border-bottom:1px solid var(--b);font-size:12px}
+tr:last-child td{border-bottom:none}
+tr.cr{cursor:pointer}tr.cr:hover td{background:var(--s2)}
+.rn{font-weight:600}
+.sd{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px}
+.sdg{background:var(--g)}.sdy{background:var(--y)}
+.tb{display:flex;align-items:center;gap:6px}
+.bt{width:52px;height:4px;background:var(--s2);border-radius:2px;overflow:hidden}
+.bf{height:100%;border-radius:2px;background:var(--g)}.bfw{background:var(--y)}.bfo{background:var(--r)}
+.pb{font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px}
+
+/* drawer -- CSS-only via :target */
+#drawer{display:none;position:fixed;top:0;right:0;width:380px;height:100vh;background:var(--s);border-left:1px solid var(--b);z-index:300;overflow-y:auto;padding:20px}
+#drawer:target{display:block}
+.dc{display:inline-block;font-size:12px;color:var(--m);text-decoration:none;margin-bottom:14px}
+.dr{font-size:17px;font-weight:700;margin-bottom:2px}
+.dm{font-size:11px;color:var(--m);margin-bottom:16px}
+.si{background:var(--s2);border:1px solid var(--b);border-radius:8px;padding:12px;margin-bottom:8px}
+.sd2{font-size:11px;color:var(--m);margin-bottom:3px}
+.spb{font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;background:var(--ad);color:var(--a);text-transform:uppercase;margin-bottom:7px;display:inline-block}
+.de{border-left:2px solid var(--a);padding-left:8px;margin-bottom:6px;font-size:11px}
+.dt{color:var(--m);font-size:10px}
+.dq{font-style:italic;margin-top:1px}
+.sbs{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.sb{font-size:10px;padding:2px 6px;background:rgba(45,212,160,.1);color:var(--g);border-radius:4px}
+
+/* empty state */
+.es{margin-top:36px;padding-top:36px;border-top:1px dashed var(--b)}
+.ekpi{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px}
+@media(min-width:640px){.ekpi{grid-template-columns:repeat(4,1fr)}}
+.ec{background:var(--s);border:1px dashed var(--b);border-radius:10px;padding:16px;min-height:72px;display:flex;align-items:center;justify-content:center}
+.ep{width:56px;height:12px;background:var(--s2);border-radius:4px}
+.ecta{background:var(--s);border:1px solid var(--b);border-radius:10px;padding:24px;text-align:center}
+.ect{font-size:15px;font-weight:600;margin-bottom:6px}
+.ecx{font-size:12px;color:var(--m);max-width:300px;margin:0 auto 14px}
+.btn{display:inline-block;background:var(--a);color:#fff;padding:7px 18px;border-radius:6px;font-size:12px;font-weight:600;text-decoration:none}
+</style>
+</head>
+<body>
+
+<header class="hd">
+  <div class="ht">OnCue / <span>Team View</span></div>
+  <div style="display:flex;gap:6px">
+    <span class="fp">Week</span><span class="fp on">Maand</span><span class="fp">Kwartaal</span>
+  </div>
+  <select><option>Preset: alle</option><option>Sales</option><option>Coach</option><option>Recruitment</option></select>
+  <select><option>Team: Noord-Holland</option><option>Team: Landelijk</option></select>
+</header>
+
+<main class="main">
+  <p class="slbl">Filled state -- mei 2026</p>
+
+  <div class="kpi">
+    <div class="kc"><div class="kl">Totaal sessies</div><div class="kv">47</div><div class="ks">+12 vs. vorige maand</div><span class="bg bgg">+34%</span></div>
+    <div class="kc"><div class="kl">Gem. talk-time rep</div><div class="kv">52%</div><div class="ks">Doel: 40-60%</div><span class="bg bgg">In range</span></div>
+    <div class="kc"><div class="kl">Top pain-point</div><div class="kv" style="font-size:16px;margin-top:2px">Budget</div><div class="ks">38x gedetecteerd</div><span class="bg bgy">Toenemend</span></div>
+    <div class="kc"><div class="kl">Conversion rate</div><div class="kv">61%</div><div class="ks">Close-fase bereikt</div><span class="bg bgg">+7pp</span></div>
+  </div>
+
+  <div class="ch">
+    <div class="ch-hd">
+      <span class="ch-t">Pain-point trend (wekelijks)</span>
+      <div class="leg">
+        <div class="li"><div class="ld" style="background:#4f7cff"></div>Budget</div>
+        <div class="li"><div class="ld" style="background:#2dd4a0"></div>Tijdgebrek</div>
+        <div class="li"><div class="ld" style="background:#f4b94a"></div>Intern draagvlak</div>
+        <div class="li"><div class="ld" style="background:#f25c5c"></div>Concurrentie</div>
+      </div>
+    </div>
+    <div class="bars">
+      <div class="bg-grp"><div class="bar" style="height:55%;background:#4f7cff"></div><div class="bar" style="height:28%;background:#2dd4a0"></div><div class="bar" style="height:18%;background:#f4b94a"></div><div class="bar" style="height:10%;background:#f25c5c"></div></div>
+      <div class="bg-grp"><div class="bar" style="height:65%;background:#4f7cff"></div><div class="bar" style="height:24%;background:#2dd4a0"></div><div class="bar" style="height:22%;background:#f4b94a"></div><div class="bar" style="height:14%;background:#f25c5c"></div></div>
+      <div class="bg-grp"><div class="bar" style="height:78%;background:#4f7cff"></div><div class="bar" style="height:20%;background:#2dd4a0"></div><div class="bar" style="height:16%;background:#f4b94a"></div><div class="bar" style="height:18%;background:#f25c5c"></div></div>
+      <div class="bg-grp"><div class="bar" style="height:90%;background:#4f7cff"></div><div class="bar" style="height:32%;background:#2dd4a0"></div><div class="bar" style="height:12%;background:#f4b94a"></div><div class="bar" style="height:12%;background:#f25c5c"></div></div>
+    </div>
+    <div class="wk"><div class="wl">Week 1</div><div class="wl">Week 2</div><div class="wl">Week 3</div><div class="wl">Week 4</div></div>
+  </div>
+
+  <div class="ts">
+    <div class="tr-hd"><span class="tt">Reps</span><span class="sw">&#9888; Geel = sync &gt;24u geleden</span></div>
+    <table>
+      <thead><tr><th>Rep</th><th>Sessies</th><th>Gem. duur</th><th>Talk-time</th><th>Pain-pts/call</th><th>Close-fase</th></tr></thead>
+      <tbody>
+        <tr class="cr"><td><span class="sd sdg"></span><span class="rn">Sophie van Dijk</span></td><td>12</td><td>38 min</td><td><div class="tb"><div class="bt"><div class="bf" style="width:48%"></div></div>48%</div></td><td>3.2</td><td><span class="pb bgg">75%</span></td></tr>
+        <tr class="cr"><td><span class="sd sdg"></span><span class="rn">Mark Jansen</span></td><td>11</td><td>42 min</td><td><div class="tb"><div class="bt"><div class="bf bfw" style="width:68%"></div></div>68%</div></td><td>4.7</td><td><span class="pb bgy">55%</span></td></tr>
+        <tr class="cr"><td><span class="sd sdg"></span><span class="rn">Lisa Bakker</span></td><td>9</td><td>29 min</td><td><div class="tb"><div class="bt"><div class="bf" style="width:43%"></div></div>43%</div></td><td>2.1</td><td><span class="pb bgg">67%</span></td></tr>
+        <tr class="cr"><td><span class="sd sdy"></span><span class="rn">Pieter de Boer</span></td><td>8</td><td>55 min</td><td><div class="tb"><div class="bt"><div class="bf bfo" style="width:72%"></div></div>72%</div></td><td>5.8</td><td><span class="pb bgr">38%</span></td></tr>
+        <tr class="cr"><td><span class="sd sdg"></span><a href="#drawer" style="text-decoration:none;color:inherit"><span class="rn">Emma Visser</span></a></td><td>7</td><td>33 min</td><td><div class="tb"><div class="bt"><div class="bf" style="width:51%"></div></div>51%</div></td><td>2.9</td><td><span class="pb bgg">71%</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="es">
+    <p class="slbl">Empty state -- geen sync actief</p>
+    <div class="ekpi"><div class="ec"><div class="ep"></div></div><div class="ec"><div class="ep"></div></div><div class="ec"><div class="ep"></div></div><div class="ec"><div class="ep"></div></div></div>
+    <div class="ecta">
+      <div class="ect">Geen reps gesynchroniseerd</div>
+      <div class="ecx">Elk teamlid activeert de export-cron na installatie. Zodra een sessie is gedeeld, verschijnt hier het teamoverzicht.</div>
+      <a href="#" class="btn">Sync instellen</a>
+    </div>
+  </div>
+</main>
+
+<div id="drawer">
+  <a href="#" class="dc">&#8592; Sluiten</a>
+  <div class="dr">Emma Visser</div>
+  <div class="dm">7 sessies / gem. 33 min / preset: sales</div>
+  <div class="si">
+    <div class="sd2">14 mei 2026, 10:24</div><span class="spb">Sales</span>
+    <div class="de"><div class="dt">pain_point / budget</div><div class="dq">"We hebben nu geen budget vrijgemaakt voor dit kwartaal..."</div></div>
+    <div class="de"><div class="dt">buying_signal / timeline</div><div class="dq">"Als het voor september live kan, zit het er wel in."</div></div>
+    <div class="sbs"><span class="sb">ROI-calculator</span><span class="sb">Case: Renewance</span></div>
+  </div>
+  <div class="si">
+    <div class="sd2">11 mei 2026, 14:07</div><span class="spb">Sales</span>
+    <div class="de"><div class="dt">objection / intern_draagvlak</div><div class="dq">"Ik moet dit eerst intern bespreken met de directeur."</div></div>
+    <div class="sbs"><span class="sb">Stakeholder-deck</span></div>
+  </div>
+  <div class="si">
+    <div class="sd2">8 mei 2026, 09:15</div><span class="spb">Sales</span>
+    <div class="de"><div class="dt">pain_point / tijdgebrek</div><div class="dq">"Mijn team heeft simpelweg geen tijd om dit zelf op te zetten."</div></div>
+    <div class="sbs"><span class="sb">Onboarding-tijdlijn</span><span class="sb">Case: SRC</span></div>
+  </div>
+</div>
+
+</body>
+</html>

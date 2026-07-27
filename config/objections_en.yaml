@@ -1,0 +1,40 @@
+routes:
+  - name: price
+    utterances:
+      - "this is too expensive for us"
+      - "we do not have budget for this"
+      - "the investment is too high right now"
+      - "this does not fit our budget cycle"
+      - "your pricing is above what we planned"
+
+  - name: timing
+    utterances:
+      - "not right now"
+      - "we are not ready yet"
+      - "can we revisit this later"
+      - "this is not the right moment"
+      - "we want to pick this up next quarter"
+
+  - name: competitor
+    utterances:
+      - "we already work with another provider"
+      - "our current vendor already covers this"
+      - "we already have a solution in place"
+      - "we are satisfied with our current supplier"
+      - "we use a competing platform"
+
+  - name: scope
+    utterances:
+      - "we want to start with something small"
+      - "this feels too big for us"
+      - "we are looking for a simpler option"
+      - "this is too much at once"
+      - "we prefer a small pilot first"
+
+  - name: authority
+    utterances:
+      - "I need to discuss this internally first"
+      - "I cannot decide this alone"
+      - "my manager still needs to review this"
+      - "finance has to approve this first"
+      - "other stakeholders are involved in the decision"

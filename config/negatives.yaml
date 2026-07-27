@@ -1,0 +1,52 @@
+# Negatieve / "geen bezwaar" route-set. Live gewired in ObjectionRouter
+# wanneer INCLUDE_NEGATIVES=true (default). Vangt generieke, niet-bezwaar
+# prospect-speech (vragen, rambling, bevestigingen, budget/scope-signalen die
+# geen bezwaar zijn) af zodat die niet als bezwaar wordt weggezet.
+#
+# Structurele precision-fix voor ObjectionRouter over-matching (precision
+# ~0.28): zie scripts/eval_objection_precision.py
+# (compute_precision_with_extra_class / simulate_extra_route) en
+# src/sales_copilot/modules/detector/eval_mining.py
+# (_REPRESENTATIVE_NEGATIVES / _REPRESENTATIVE_NEAR_MISSES), waar deze route
+# als gesimuleerde "negative"-klasse de precision-fix al aantoonde. Deze file
+# productioniseert die simulatie als een echte, live route.
+#
+# Schema mirrort config/objections.yaml 1-op-1 zodat dit drop-in bruikbaar is
+# voor dezelfde semantic-router (PainPointRouter / ObjectionRouter-lader).
+routes:
+  - name: negative
+    utterances:
+      # Generieke vragen / niet-bezwaar prospect-speech
+      - kunt u dat uitleggen
+      - kunt u dat nog eens uitleggen
+      - ik begrijp het
+      - ik begrijp het idee
+      - wat zijn de volgende stappen
+      - hoe werkt dat precies
+      - hoe zit het met de implementatie
+      - vertel me meer over de implementatie
+      - waarom zou ik nu moeten veranderen
+      - we zijn nog aan het verkennen
+      - dat is interessant
+      - kunnen we eerst een gesprek hebben
+      - ik moet dit intern bespreken
+      # Prijs-adjacent maar geen prijsbezwaar
+      - we hebben dit jaar een ruim budget
+      - de kosten zijn voor ons niet het probleem
+      - het budget is goedgekeurd
+      # Timing-adjacent maar geen timingbezwaar
+      - we zijn juist nu aan het opschalen
+      - dit kwartaal hebben we volle focus
+      # Scope-adjacent maar geen scopebezwaar
+      - dit is precies de omvang die we zoeken
+      # Autoriteit-adjacent maar geen autoriteitsbezwaar
+      - mijn manager is hier direct bij betrokken
+      # Rambling / backchannel / bevestigingen (live over-match: "ja ja ja,
+      # dat was de eerste vraag van IT..." werd getagd als gap-behoefte)
+      - ja ja ja dat was de eerste vraag van it
+      - dat was ook al een vraag die eerder langskwam
+      - oke duidelijk
+      - juist ja dat snap ik
+      - dat klopt ja
+      - even kijken hoor
+      - nou ja dat is een goede vraag

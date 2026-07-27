@@ -1,0 +1,77 @@
+# Per-provider/model token pricing used by scripts/eval_cascade.py.
+# Prices are in USD per 1_000_000 tokens (the common cloud LLM billing unit).
+# Local providers (ollama) are always $0.
+#
+# The harness matches on exact ``provider:model`` first, then falls back to a
+# wildcard entry for the same provider. Update this file when you add a new
+# cloud model to the shootout matrix.
+prices:
+  - provider: gemini
+    model: gemini-2.5-flash
+    input_per_1m: 0.15
+    output_per_1m: 0.60
+  - provider: gemini
+    model: gemini-2.5-pro
+    input_per_1m: 1.25
+    output_per_1m: 10.00
+  - provider: vertex
+    model: gemini-2.5-flash
+    input_per_1m: 0.15
+    output_per_1m: 0.60
+  - provider: openai
+    model: gpt-4o-mini
+    input_per_1m: 0.15
+    output_per_1m: 0.60
+  - provider: openai
+    model: gpt-4o
+    input_per_1m: 2.50
+    output_per_1m: 10.00
+  - provider: groq
+    model: llama-3.1-8b-instant
+    input_per_1m: 0.05
+    output_per_1m: 0.08
+  - provider: groq
+    model: llama-3.3-70b-versatile
+    input_per_1m: 0.59
+    output_per_1m: 0.79
+  - provider: azure
+    model: gpt-4o-mini
+    input_per_1m: 0.165
+    output_per_1m: 0.66
+  - provider: ollama
+    model: "*"
+    input_per_1m: 0.0
+    output_per_1m: 0.0
+  # OpenRouter prices verified 2026-07-16 against the live https://openrouter.ai/api/v1/models
+  # pricing feed (USD per token there, multiplied by 1e6 for this table's per-1M convention).
+  - provider: openrouter
+    model: "qwen/qwen3-30b-a3b-instruct-2507"
+    input_per_1m: 0.10
+    output_per_1m: 0.30
+  - provider: openrouter
+    model: "qwen/qwen3.6-35b-a3b"
+    input_per_1m: 0.13
+    output_per_1m: 1.00
+  - provider: openrouter
+    model: "mistralai/mistral-small-3.2-24b-instruct"
+    input_per_1m: 0.10
+    output_per_1m: 0.30
+  # Fase-B B3 (scripts/eval_suggestion.py) quality reference. Model-id and price are NOT
+  # verified against the live OpenRouter pricing feed -- the dispatch worker that added this
+  # entry (2026-07-17) has no WebFetch/WebSearch access. The price mirrors the standard
+  # Sonnet-tier rate that every prior Claude Sonnet generation has shipped at on both the
+  # direct Anthropic API and OpenRouter. Re-verify against https://openrouter.ai/api/v1/models
+  # before relying on this for a real --run cost estimate.
+  - provider: openrouter
+    model: "anthropic/claude-sonnet-5"
+    input_per_1m: 3.00
+    output_per_1m: 15.00
+  # Fase-B B3 eval winner for the general/Sales tier, now the live production default
+  # (LLM_PROVIDER=openrouter / LLM_MODEL=anthropic/claude-haiku-4.5 in .env.example).
+  # Slug and $1/$5 price are list values (not covered by the 2026-07-16 verification pass
+  # above) -- re-verify against https://openrouter.ai/api/v1/models before relying on this
+  # for a real cost estimate.
+  - provider: openrouter
+    model: "anthropic/claude-haiku-4.5"
+    input_per_1m: 1.00
+    output_per_1m: 5.00

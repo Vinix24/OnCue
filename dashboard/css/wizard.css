@@ -1,0 +1,322 @@
+/* OnCue — Browser Permissions Wizard (W3)
+   Vanilla CSS extension of dashboard.css for the first-run wizard.
+   No framework, no build step.
+   ============================================================ */
+
+.wizard-layout {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+.wizard-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.wizard-header h1 {
+  margin: 0 0 6px;
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.wizard-header p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.wizard-tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.wizard-tier-badge.pro {
+  background: rgba(249, 115, 22, 0.12);
+  color: var(--secondary);
+}
+
+.wizard-actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+/* --- First-run key entry (provider API key + Pro license) ------------- */
+.wizard-config {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.wizard-config-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-left: 48px;
+}
+
+.wizard-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wizard-field-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.wizard-field-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wizard-input {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.wizard-input:focus {
+  outline: none;
+  border-color: var(--secondary);
+  box-shadow: var(--glow-cyan);
+}
+
+@media (max-width: 640px) {
+  .wizard-config-body {
+    padding-left: 0;
+  }
+}
+
+.wizard-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wizard-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.wizard-step.running {
+  box-shadow: var(--glow-cyan);
+}
+
+.wizard-step.locked {
+  opacity: 0.72;
+}
+
+.wizard-step-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.wizard-step-number {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.wizard-step-number.ok {
+  background: rgba(34, 211, 238, 0.16);
+  border-color: rgba(34, 211, 238, 0.35);
+  color: var(--bar-self);
+}
+
+.wizard-step-number.fail {
+  background: rgba(249, 115, 22, 0.12);
+  border-color: rgba(249, 115, 22, 0.35);
+  color: var(--danger);
+}
+
+.wizard-step-title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.wizard-step-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wizard-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+}
+
+.wizard-badge.pro {
+  background: rgba(249, 115, 22, 0.1);
+  color: var(--secondary);
+}
+
+.wizard-badge.locked {
+  opacity: 0.8;
+}
+
+.wizard-step-body {
+  padding-left: 48px;
+}
+
+.wizard-message {
+  margin: 0 0 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.wizard-message.ok {
+  color: var(--bar-self);
+}
+
+.wizard-message.fail {
+  color: var(--danger);
+}
+
+.wizard-meter {
+  height: 10px;
+  background: var(--bg-soft);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+}
+
+.wizard-meter-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--bar-self), var(--secondary));
+  transition: width 0.08s linear;
+}
+
+.wizard-step-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 48px;
+  flex-wrap: wrap;
+}
+
+.wizard-btn {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.wizard-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wizard-btn-primary {
+  background: var(--primary);
+  color: var(--text-bright);
+}
+
+.wizard-btn-primary:hover:not(:disabled) {
+  background: var(--primary-light);
+}
+
+.wizard-btn-secondary {
+  background: var(--glass-bg-strong);
+  color: var(--text);
+  border: 1px solid var(--glass-border);
+}
+
+.wizard-btn-secondary:hover:not(:disabled) {
+  background: var(--glass-bg);
+}
+
+.wizard-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--secondary);
+  border-radius: 50%;
+  animation: wizard-spin 0.8s linear infinite;
+}
+
+@keyframes wizard-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.wizard-summary {
+  margin-top: 28px;
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wizard-summary.ok {
+  box-shadow: var(--glow-cyan);
+}
+
+.wizard-summary.fail {
+  box-shadow: var(--glow-orange);
+}
+
+@media (max-width: 640px) {
+  .wizard-header {
+    flex-direction: column;
+  }
+
+  .wizard-step-body,
+  .wizard-step-footer {
+    padding-left: 0;
+  }
+}

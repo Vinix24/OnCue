@@ -1,0 +1,126 @@
+script:
+  - id: introductie
+    title: Introductie & verwachtingen
+    phase: discovery
+    required: true
+    example_phrases:
+      - "even kort voorstellen"
+      - "wat verwacht u van dit gesprek"
+      - "waar kunnen we elkaar mee helpen"
+      - "het doel van dit gesprek is"
+    keywords:
+      - "voorstellen"
+      - "verwachtingen"
+      - "doel"
+
+  - id: budget
+    title: Budget / investeringsruimte
+    phase: discovery
+    required: true
+    example_phrases:
+      - "wat is het budget voor dit project"
+      - "hebben jullie een investeringsruimte"
+      - "waar zit de financiële kader"
+      - "hoeveel budget is er beschikbaar"
+    keywords:
+      - "budget"
+      - "investering"
+      - "financieel"
+
+  - id: tijdlijn
+    title: Tijdlijn / beslisftermijn
+    phase: discovery
+    required: true
+    example_phrases:
+      - "wanneer moet dit opgeleverd zijn"
+      - "wat is de beslisftermijn"
+      - "hoe snel wilt u dit gerealiseerd hebben"
+      - "wanneer wilt u van start"
+    keywords:
+      - "tijdlijn"
+      - "beslisftermijn"
+      - "opleveren"
+
+  - id: beslisser
+    title: Beslissers / betrokkenen
+    phase: discovery
+    required: true
+    example_phrases:
+      - "wie zijn de betrokken beslissers"
+      - "wie neemt uiteindelijk de beslissing"
+      - "moeten er nog anderen meekijken"
+      - "wie is de budgethouder"
+    keywords:
+      - "beslisser"
+      - "budgethouder"
+      - "betrokkenen"
+
+  - id: huidige_situatie
+    title: Huidige situatie & pijnpunten
+    phase: discovery
+    required: true
+    example_phrases:
+      - "hoe werkt het nu"
+      - "wat loopt er nu niet lekker"
+      - "waar zit de frustratie op dit moment"
+      - "wat kost dat u nu"
+    keywords:
+      - "huidige situatie"
+      - "pijnpunt"
+      - "frustratie"
+
+  - id: oplossing
+    title: Gepresenteerde oplossing
+    phase: pitch
+    required: true
+    example_phrases:
+      - "laten ik u voorstellen"
+      - "dit is hoe wij dat aanpakken"
+      - "onze oplossing bestaat uit"
+      - "daarvoor hebben wij"
+    keywords:
+      - "oplossing"
+      - "aanpak"
+      - "presenteren"
+
+  - id: meerwaarde
+    title: Meerwaarde & differentiatie
+    phase: pitch
+    required: true
+    example_phrases:
+      - "waarom werken klanten bij ons"
+      - "het voordeel voor u is"
+      - "wat dit uniek maakt"
+      - "de meerwaarde zit in"
+    keywords:
+      - "meerwaarde"
+      - "differentiatie"
+      - "voordeel"
+
+  - id: bezwaren
+    title: Bezwaren behandeld
+    phase: pitch
+    required: true
+    example_phrases:
+      - "begrijp ik dat u twijfelt over"
+      - "dat is een terecht bezwaar"
+      - "wat zou u over de streep trekken"
+      - "hoe zit het met"
+    keywords:
+      - "bezwaar"
+      - "twijfel"
+      - "tegenargument"
+
+  - id: vervolgstap
+    title: Duidelijke vervolgstap
+    phase: closing
+    required: true
+    example_phrases:
+      - "wat is de volgende stap"
+      - "kunnen we een vervolgafspraak inplannen"
+      - "wanneer krijg ik een terugkoppeling"
+      - "wie regelt de opvolging"
+    keywords:
+      - "vervolgstap"
+      - "afspraak"
+      - "opvolging"
