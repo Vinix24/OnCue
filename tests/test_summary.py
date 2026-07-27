@@ -163,6 +163,7 @@ async def test_detector_main_does_not_open_summary_channel_when_disabled(
     stop_event.set()
     await detector_main.main(
         detector_config=DetectorConfig(
+            llm_provider="none",
             auto_phase_detection=False,
             enable_objection_detection=False,
             enable_suggestions=False,

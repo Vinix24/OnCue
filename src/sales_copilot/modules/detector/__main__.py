@@ -354,9 +354,11 @@ async def main(
     injector: SlideInjector | None = None
     suggestion_engine: SuggestionEngine | None = None
     objection_detector: ObjectionDetector | None = None
+    script_tracker: ScriptTracker | None = None
     phase_task: asyncio.Task[None] | None = None
     suggestions_task: asyncio.Task[None] | None = None
     summary_task: asyncio.Task[None] | None = None
+    script_tracking_task: asyncio.Task[None] | None = None
 
     def _request_shutdown() -> None:
         if not stop_event.is_set():

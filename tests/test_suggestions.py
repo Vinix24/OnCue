@@ -174,9 +174,12 @@ def test_suggestion_client_user_prompt_mentions_salesperson_follow_up() -> None:
 
 
 @pytest.mark.asyncio
-async def test_suggest_streaming_default_yields_partials_and_final_object() -> None:
+async def test_suggest_streaming_default_yields_partials_and_final_object(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """llm_streaming defaults True -> suggest() drains astream(), invoking on_partial for
     every partial and returning the final, fully-formed object's questions."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     config = DetectorConfig(llm_provider="openrouter", llm_model="m")
     assert config.llm_streaming is True
     client = SuggestionLLMClient(config)
@@ -199,9 +202,12 @@ async def test_suggest_streaming_default_yields_partials_and_final_object() -> N
 
 
 @pytest.mark.asyncio
-async def test_suggest_llm_streaming_false_uses_acreate_and_skips_partial_callback() -> None:
+async def test_suggest_llm_streaming_false_uses_acreate_and_skips_partial_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """LLM_STREAMING=false must still produce the same final object via the non-streaming
     acreate() path, and on_partial must never fire (there is nothing partial to report)."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     config = DetectorConfig(llm_provider="openrouter", llm_model="m", llm_streaming=False)
     client = SuggestionLLMClient(config)
 
@@ -222,7 +228,10 @@ async def test_suggest_llm_streaming_false_uses_acreate_and_skips_partial_callba
 
 
 @pytest.mark.asyncio
-async def test_suggest_passes_max_output_tokens_cap_in_both_modes() -> None:
+async def test_suggest_passes_max_output_tokens_cap_in_both_modes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     streaming_config = DetectorConfig(llm_provider="openrouter", llm_model="m")
     streaming_client = SuggestionLLMClient(streaming_config)
     streaming_calls: list[dict] = []
@@ -342,6 +351,7 @@ async def test_publish_payload_reuses_open_connection_across_multiple_calls(
 ) -> None:
     """Streaming fires _publish_payload once per partial plus once for the final message;
     all of them must share a single WS connection instead of connecting per message."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     engine = SuggestionEngine(DetectorConfig(enable_suggestions=True), WebSocketConfig())
     socket = _FakeWebSocket()
     connect_calls: list[str] = []
@@ -369,6 +379,7 @@ async def test_publish_payload_reuses_open_connection_across_multiple_calls(
 async def test_publish_payload_reconnects_after_connection_closes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     engine = SuggestionEngine(DetectorConfig(enable_suggestions=True), WebSocketConfig())
     sockets = [_FakeWebSocket(), _FakeWebSocket()]
     connect_calls: list[str] = []
@@ -394,6 +405,7 @@ async def test_publish_payload_reconnects_after_connection_closes(
 async def test_publish_payload_closes_and_reraises_on_send_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     engine = SuggestionEngine(DetectorConfig(enable_suggestions=True), WebSocketConfig())
 
     class _FailingWebSocket(_FakeWebSocket):
@@ -416,6 +428,7 @@ async def test_publish_payload_closes_and_reraises_on_send_failure(
 
 @pytest.mark.asyncio
 async def test_suggestion_engine_close_closes_held_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     engine = SuggestionEngine(DetectorConfig(enable_suggestions=True), WebSocketConfig())
     socket = _FakeWebSocket()
 

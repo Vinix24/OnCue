@@ -117,7 +117,8 @@ def test_transcriber_config_default_vocabulary_follows_language(
 # --- suggestion client wiring ----------------------------------------------
 
 
-def test_suggestion_client_prompts_follow_language_nl() -> None:
+def test_suggestion_client_prompts_follow_language_nl(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     client = SuggestionLLMClient(DetectorConfig(llm_provider="openrouter", llm_model="m"), language="nl")
 
     prompt = client._user_prompt(["We lopen vast in onboarding."])
@@ -127,7 +128,8 @@ def test_suggestion_client_prompts_follow_language_nl() -> None:
     assert "salescoach" in client.system_prompt
 
 
-def test_suggestion_client_prompts_follow_language_en() -> None:
+def test_suggestion_client_prompts_follow_language_en(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     client = SuggestionLLMClient(DetectorConfig(llm_provider="openrouter", llm_model="m"), language="en")
 
     prompt = client._user_prompt(["We are stuck in onboarding."])
