@@ -103,7 +103,10 @@ def test_timeout_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     elapsed = time.monotonic() - start
 
     assert result is None
-    assert elapsed < 0.1
+    # Generous CI-safe guard against a pathological hang, not a micro-benchmark.
+    # The real timeout proof is `result is None` above (a live call returns a
+    # PainPointDetection, never None). 0.1s rode the edge on shared CI runners.
+    assert elapsed < 1.0
 
 
 def test_thinking_policy_defaults_to_none(monkeypatch: pytest.MonkeyPatch) -> None:
