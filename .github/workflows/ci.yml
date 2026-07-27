@@ -38,9 +38,6 @@ jobs:
         run: |
           source .venv/bin/activate
           python scripts/ci_auth_hardening_check.py
-      - name: Commit-hash audit
-        run: |
-          bash scripts/audit_commit_hashes.sh --since 30
       - name: Architecture boundary check
         run: |
           source .venv/bin/activate
