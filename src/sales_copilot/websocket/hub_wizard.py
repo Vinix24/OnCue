@@ -17,6 +17,11 @@ from fastapi.responses import JSONResponse
 from sales_copilot.auth.feature_policy import get_feature_policy
 from sales_copilot.core.config import load_env
 from sales_copilot.core.env_writer import read_env_value, set_env_var
+from sales_copilot.core.profile_docs import (
+    MAX_PROFILE_CHARS,
+    read_profile_raw,
+    write_profile_document,
+)
 from sales_copilot.websocket.hub_auth import require_token
 from sales_copilot.wizard.cli import _W1_STEP_IDS, get_steps
 from sales_copilot.wizard.detectors import provider_key_env
@@ -31,6 +36,11 @@ _LICENSE_ENV = "SALES_COPILOT_LICENSE"
 # Below this a pasted value is almost certainly a paste error, not a real key.
 _MIN_PROVIDER_KEY_LEN = 8
 _MIN_LICENSE_LEN = 8
+# Defensive ceiling on a saved profile doc -- generous for a hand-written
+# "what I already know / what I sell / my method" doc; INSIGHT_PROFILE_MAX_CHARS
+# (default 4000) is the separate, much smaller cap applied when the profile is
+# loaded into a deep-lane prompt (core/profile_docs.py::load_profile_context).
+_MAX_PROFILE_INPUT_CHARS = 200_000
 
 
 def _result_to_dict(result: StepResult) -> dict[str, Any]:
@@ -282,3 +292,43 @@ async def set_license(request: Request) -> JSONResponse:
             "key_env": _LICENSE_ENV,
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Verkopersprofiel — the persistent "what I already know, what I sell, my
+# method" doc every deep-insight run loads (PR-D4). GET is unauthenticated,
+# matching the other read-only wizard endpoints above (steps/state/config):
+# the hub is localhost-only (invariant 4) and this is the operator's own
+# profile text, not a secret like a provider or license key. POST requires a
+# token like every other mutating wizard route.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/v1/profile")
+async def get_profile() -> dict[str, Any]:
+    """Return the seller profile doc's current content for the wizard editor."""
+
+    content = read_profile_raw()
+    return {
+        "content": content,
+        "exists": bool(content.strip()),
+        "max_chars": MAX_PROFILE_CHARS,
+    }
+
+
+@router.post("/api/v1/profile", dependencies=[Depends(require_token)])
+async def set_profile(request: Request) -> JSONResponse:
+    """Create or overwrite the seller profile doc."""
+
+    body = await _read_json(request)
+    content = str(body.get("content", ""))
+    if len(content) > _MAX_PROFILE_INPUT_CHARS:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "message": f"Profiel is te lang (max {_MAX_PROFILE_INPUT_CHARS} tekens).",
+            },
+        )
+    await asyncio.to_thread(write_profile_document, content)
+    return JSONResponse(content={"ok": True, "message": "Verkopersprofiel opgeslagen."})

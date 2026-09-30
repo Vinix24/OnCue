@@ -17,6 +17,11 @@ from sales_copilot.modules.talk_time.vad import load_silero_model
 from sales_copilot.modules.transcriber.backends import create_backend
 from sales_copilot.modules.transcriber.backends.base import TranscriptionBackend
 from sales_copilot.modules.transcriber.engine import PartialTranscriptEvent, Speaker, TranscriptEvent
+from sales_copilot.modules.transcriber.normalize import (
+    NormalizationLists,
+    get_default_normalization_lists,
+    normalize,
+)
 from sales_copilot.websocket.hub_auth import channel_ws_url
 
 logger = logging.getLogger(__name__)
@@ -48,6 +53,7 @@ class DirectWhisperEngine:
     _publish_count: int = field(init=False, default=0, repr=False)
     _loop_count: int = field(init=False, default=0, repr=False)
     _diarizer: object | None = field(init=False, default=None, repr=False)
+    _normalization_lists: NormalizationLists | None = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
         self._buffer = []
@@ -60,6 +66,7 @@ class DirectWhisperEngine:
         self._vad_model = self._load_vad()
         self.backend = self.backend or create_backend()
         self._diarizer = get_diarizer()
+        self._normalization_lists = get_default_normalization_lists()
 
     async def run(self, stop_event: asyncio.Event, start_event: asyncio.Event | None = None) -> None:
         with managed_audio_stream(self.audio_stream):
@@ -150,6 +157,12 @@ class DirectWhisperEngine:
         if len(cleaned) < self.min_text_length:
             return
         self._transcribe_count += 1
+
+        assert self._normalization_lists is not None
+        cleaned, replacements = normalize(cleaned, self._normalization_lists)
+        for source, target, rule in replacements:
+            logger.debug("transcript normalization: %r -> %r (rule=%s)", source, target, rule)
+
         if cleaned == self._last_published_text:
             return
         self._last_published_text = cleaned

@@ -374,6 +374,85 @@ class DetectorConfig:
 
 
 @dataclass(frozen=True)
+class InsightConfig:
+    """Track 3 (deep insight lane): minutes-latency, full-transcript analysis.
+
+    Deliberately separate from ``DetectorConfig``: the deep lane runs its own
+    provider/model (``INSIGHT_PROVIDER``/``INSIGHT_MODEL``, falling back to the
+    detector's provider/model when unset) so an operator can keep the fast
+    detector local while routing the deep lane to a frontier/BYO-tenant
+    destination, per the privacy/cloud spectrum in ``docs/ARCHITECTURE_BOUNDARIES.md``.
+    """
+
+    enabled: bool = False
+    interval_seconds: int = 90
+    llm_provider: str | None = None
+    llm_model: str | None = None
+    llm_timeout_ms: int = 60_000
+    max_context_chars: int = 16_000
+    max_calls_per_session: int = 30
+    reasoning_budget: int = 8192
+    entity_trigger_enabled: bool = True
+    negative_feedback_limit: int = 20
+    # PR-D4: persistent seller profile ("what I already know, what I sell, my
+    # method") and per-client dossier (opt-in earlier transcripts of the same
+    # customer) -- both loaded into the deep-lane system prompt alongside the
+    # prep docs above. See core/profile_docs.py and
+    # core/context_docs.py::load_client_dossier.
+    profile_enabled: bool = True
+    profile_max_chars: int = 4_000
+    dossier_max_chars: int = 8_000
+    dossier_auto_save: bool = False
+
+    @classmethod
+    def from_env(cls) -> InsightConfig:
+        return cls(
+            enabled=bool(env_bool("INSIGHT_ENABLED", False)),
+            interval_seconds=env_int("INSIGHT_INTERVAL_S", 90) or 90,
+            llm_provider=env("INSIGHT_PROVIDER") or None,
+            llm_model=env("INSIGHT_MODEL") or None,
+            llm_timeout_ms=env_int("INSIGHT_LLM_TIMEOUT_MS", 60_000) or 60_000,
+            max_context_chars=env_int("INSIGHT_MAX_CONTEXT_CHARS", 16_000) or 16_000,
+            max_calls_per_session=env_int("INSIGHT_MAX_CALLS_PER_SESSION", 30) or 30,
+            reasoning_budget=env_int("INSIGHT_REASONING_BUDGET", 8192) or 8192,
+            entity_trigger_enabled=bool(env_bool("INSIGHT_ENTITY_TRIGGER_ENABLED", True)),
+            negative_feedback_limit=env_int("INSIGHT_NEGATIVE_FEEDBACK_LIMIT", 20) or 20,
+            profile_enabled=bool(env_bool("PROFILE_ENABLED", True)),
+            profile_max_chars=env_int("INSIGHT_PROFILE_MAX_CHARS", 4_000) or 4_000,
+            dossier_max_chars=env_int("INSIGHT_DOSSIER_MAX_CHARS", 8_000) or 8_000,
+            dossier_auto_save=bool(env_bool("DOSSIER_AUTO_SAVE", False)),
+        )
+
+
+@dataclass(frozen=True)
+class MCPBridgeConfig:
+    """MCP server bridge (JSON-RPC over stdio, host-agnostic).
+
+    Connects to the local hub as an authenticated WebSocket client and exposes
+    three read-only tools to an MCP host (session brief, transcript,
+    detections) plus one write-back tool, ``push_insight``, that lets the host
+    publish its own insights onto the local ``insights`` channel. Pro-tier,
+    off by default.
+    """
+
+    enabled: bool = False
+    ws_host: str = "127.0.0.1"
+    ws_port: int = 8760
+    max_pushed_insights_per_session: int = 50
+
+    @classmethod
+    def from_env(cls) -> MCPBridgeConfig:
+        return cls(
+            enabled=bool(env_bool("MCP_BRIDGE_ENABLED", False)),
+            ws_host=env("WS_HUB_HOST", "127.0.0.1") or "127.0.0.1",
+            ws_port=env_int("WS_HUB_PORT", 8760) or 8760,
+            max_pushed_insights_per_session=(
+                env_int("MCP_BRIDGE_MAX_PUSHED_INSIGHTS_PER_SESSION", 50) or 50
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class SlidesConfig:
     case_db_type: str = "sqlite"
     case_db_sqlite_path: str = str(resolve_app_path("data/cases.db"))
@@ -437,6 +516,17 @@ class CallConfig:
     context_docs: list[str] = field(default_factory=list)
     call_language: str = "nl"
     transcribe_self_live: bool | None = None
+    # PR-D4: optional client-dossier link for this session. None means no
+    # dossier (the opt-in itself -- a session with no client_slug never loads
+    # or saves dossier material). Normalized via
+    # core.context_docs.slugify_client_name before it reaches here.
+    client_slug: str | None = None
+    # klantmap-als-eenheid D2: the selected client's klant.yaml ``aflevering``,
+    # server-derived in hub_core.extract_start_call_config. Only "lokaal" is a
+    # supported value (core.klant_config validates that); None means no client,
+    # or no aflevering set, i.e. the existing global report-delivery-sinks
+    # behaviour is unchanged.
+    aflevering: str | None = None
 
     def __post_init__(self) -> None:
         if self.screens not in {1, 2}:
@@ -497,6 +587,34 @@ class MeasurementConfig:
         )
 
 
+@dataclass(frozen=True)
+class ReportDeliveryConfig:
+    """Customer-configured trigger delivery for the post-call report.
+
+    Both sinks are optional and independent, and both default OFF: a fresh
+    install behaves exactly as before (the report only ever lands in the local
+    ``data/reports/`` directory ``generator.generate_report`` already writes).
+    See ``docs/MODULE4.md`` ("Report Delivery") for the full contract and
+    ``docs/ARCHITECTURE_BOUNDARIES.md`` for the outbound-class classification.
+    """
+
+    directory: str | None = None
+    endpoint: str | None = None
+    endpoint_timeout_s: float = 10.0
+    endpoint_max_attempts: int = 3
+    endpoint_retry_backoff_s: float = 2.0
+
+    @classmethod
+    def from_env(cls) -> ReportDeliveryConfig:
+        return cls(
+            directory=env("REPORT_DELIVERY_DIR"),
+            endpoint=env("REPORT_DELIVERY_ENDPOINT"),
+            endpoint_timeout_s=env_float("REPORT_DELIVERY_TIMEOUT_S", 10.0) or 10.0,
+            endpoint_max_attempts=env_int("REPORT_DELIVERY_MAX_ATTEMPTS", 3) or 3,
+            endpoint_retry_backoff_s=env_float("REPORT_DELIVERY_RETRY_BACKOFF_S", 2.0) or 2.0,
+        )
+
+
 def with_overrides(config: Any, **overrides: Any) -> Any:
     filtered = {key: value for key, value in overrides.items() if value is not None}
     return replace(config, **filtered)
@@ -506,6 +624,7 @@ def build_module_configs(call_config: CallConfig) -> dict[str, Any]:
     talk_time = TalkTimeConfig.from_env()
     transcriber = TranscriberConfig.from_env()
     detector = DetectorConfig.from_env()
+    insight = InsightConfig.from_env()
     slides = SlidesConfig.from_env()
     websocket = WebSocketConfig.from_env()
     i18n_config = I18nConfig.from_env()
@@ -526,6 +645,7 @@ def build_module_configs(call_config: CallConfig) -> dict[str, Any]:
         "talk_time": talk_time,
         "transcriber": transcriber,
         "detector": detector,
+        "insight": insight,
         "slides": slides,
         "websocket": websocket,
         "i18n": i18n_config,

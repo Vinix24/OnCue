@@ -20,6 +20,15 @@ def test_load_audio_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.channels == 1
     assert config.audiotee_path == "./bin/audiotee"
     assert config.target_process is None
+    assert config.wasapi_endpoint_name is None
+
+
+def test_load_audio_config_reads_wasapi_endpoint_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUDIO_WASAPI_ENDPOINT_NAME", "Realtek USB Headset")
+
+    config = talk_time_main._load_audio_config()
+
+    assert config.wasapi_endpoint_name == "Realtek USB Headset"
 
 
 def test_load_audio_config_invalid_method(monkeypatch: pytest.MonkeyPatch) -> None:

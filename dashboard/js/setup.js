@@ -1,6 +1,7 @@
 (() => {
 const PRESET_ENDPOINT = "/api/presets";
 const LLM_MODELS_ENDPOINT = "/api/llm-models";
+const CLIENTS_ENDPOINT = "/api/v1/clients";
 const STORAGE_KEY = "sales-copilot-setup";
 const DEFAULT_WS_BASE_URL = typeof location !== "undefined" ? `ws://${location.host}` : "ws://localhost:8760";
 const resolveApiBaseUrl = () => {
@@ -22,8 +23,9 @@ const setupSelectors = {
   transcriptBackend: document.getElementById("transcript-backend"),
   callMedium: document.getElementById("call-medium"),
   transcriberSelfLive: document.getElementById("transcribe-self-live"),
-  prospectCompany: document.getElementById("prospect-company"),
-  prospectIndustry: document.getElementById("prospect-industry"),
+  detectionOffIndicator: document.getElementById("detection-off-indicator"),
+  clientSelect: document.getElementById("client-select"),
+  cloudSyncWarning: document.getElementById("client-cloud-sync-warning"),
   dropzone: document.getElementById("document-dropzone"),
   fileInput: document.getElementById("document-input"),
   fileList: document.getElementById("document-list"),
@@ -35,6 +37,56 @@ let uploadedFiles = [];
 let presets = [];
 let llmModelOptions = [];
 let pendingLlmSelection = null;
+let clients = [];
+let pendingClientSelection = null;
+
+// pain_points is the AI-detection master switch. Both `applyPreset` and
+// `restoreConfig` write module checkboxes and both must go through
+// writeModuleCheckboxes() below so the same rule applies everywhere:
+// a deliberate operator action (a preset click, a restored prior session)
+// may set any module -- including turning the detector off, which
+// `discovery` / `coaching_only` do on purpose. What must never happen is a
+// *non-deliberate* default (the first preset auto-applied on page load,
+// before the operator has done anything) silently overwriting a choice
+// that is already established. See dispatch D-543177d3.
+//
+// The flag also gates `setScreenMode`, which #206 left outside it: the screen
+// mode carries a module side effect (single-screen clears `presentation`) and
+// is itself persisted, so a non-deliberate write there reached the same state
+// by another road.
+let modulesEstablished = false;
+
+const MASTER_MODULE = "pain_points";
+
+const writeModuleCheckboxes = (modules, { deliberate }) => {
+  if (!modules || !setupSelectors.moduleInputs.length) {
+    return;
+  }
+  if (!deliberate && modulesEstablished) {
+    updateDetectionIndicator();
+    return;
+  }
+  setupSelectors.moduleInputs.forEach((input) => {
+    const value = modules[input.dataset.module];
+    if (typeof value === "boolean") {
+      input.checked = value;
+    }
+  });
+  modulesEstablished = true;
+  updateDetectionIndicator();
+};
+
+// The indicator reads the live checkbox state -- the exact same input
+// collectModules() reads to build the start_call payload -- so it can never
+// drift from what is actually sent.
+const updateDetectionIndicator = () => {
+  if (!setupSelectors.detectionOffIndicator) {
+    return;
+  }
+  const painPointsInput = setupSelectors.moduleInputs.find((input) => input.dataset.module === MASTER_MODULE);
+  const detectionOn = painPointsInput ? !!painPointsInput.checked : true;
+  setupSelectors.detectionOffIndicator.classList.toggle("hidden", detectionOn);
+};
 
 const slugifyCompany = (value) => {
   const normalized = String(value || "")
@@ -150,6 +202,82 @@ const loadLlmModelOptions = async () => {
   renderLlmModelOptions(providers);
 };
 
+// klantmap-als-eenheid D2: "Server leidt af, dashboard kiest alleen" -- this picker is
+// the only client-related control left in the setup menu. It replaces the old free-typed
+// "Prospect bedrijf" / "Industry" fields and the "Klantdossier" checkbox; /api/start-call
+// derives prospect_company, prospect_industry, call_terms and privacy from the picked
+// client's klant.yaml.
+const applyClientSelection = (slug) => {
+  if (!setupSelectors.clientSelect) {
+    return;
+  }
+  const exists = clients.some((entry) => entry.slug === slug);
+  if (exists) {
+    setupSelectors.clientSelect.value = slug;
+    pendingClientSelection = null;
+    return;
+  }
+  pendingClientSelection = slug;
+};
+
+const renderCloudSyncWarning = (warning) => {
+  if (!setupSelectors.cloudSyncWarning) {
+    return;
+  }
+  if (!warning || !warning.message) {
+    setupSelectors.cloudSyncWarning.textContent = "";
+    setupSelectors.cloudSyncWarning.classList.add("hidden");
+    return;
+  }
+  setupSelectors.cloudSyncWarning.textContent = warning.message;
+  setupSelectors.cloudSyncWarning.classList.remove("hidden");
+};
+
+const renderClientOptions = (clientList) => {
+  clients = Array.isArray(clientList) ? clientList : [];
+  if (!setupSelectors.clientSelect) {
+    return;
+  }
+  const previousValue = setupSelectors.clientSelect.value;
+  setupSelectors.clientSelect.innerHTML = "";
+
+  const noneOption = document.createElement("option");
+  noneOption.value = "";
+  noneOption.textContent = window.t("setup.client_none_option");
+  setupSelectors.clientSelect.appendChild(noneOption);
+
+  clients.forEach((entry) => {
+    if (!entry || typeof entry.slug !== "string" || !entry.slug) {
+      return;
+    }
+    const option = document.createElement("option");
+    option.value = entry.slug;
+    option.textContent = entry.bedrijf || entry.slug;
+    setupSelectors.clientSelect.appendChild(option);
+  });
+
+  if (pendingClientSelection) {
+    applyClientSelection(pendingClientSelection);
+  } else if (previousValue) {
+    applyClientSelection(previousValue);
+  }
+};
+
+const loadClients = async () => {
+  const apiBaseUrl = resolveApiBaseUrl();
+  const url = apiBaseUrl ? `${apiBaseUrl}${CLIENTS_ENDPOINT}` : CLIENTS_ENDPOINT;
+  let payload = null;
+  try {
+    const response = await fetch(url);
+    payload = await safeJson(response);
+  } catch (error) {
+    payload = null;
+  }
+  await window.SalesCopilotI18n.ready;
+  renderClientOptions(payload?.clients);
+  renderCloudSyncWarning(payload?.cloud_sync_warning);
+};
+
 const renderPresets = () => {
   if (!setupSelectors.presetBar) {
     return;
@@ -181,7 +309,7 @@ const renderPresets = () => {
   });
   if (presets[0]) {
     setActivePreset(setupSelectors.presetBar.querySelector(".preset-pill"));
-    applyPreset(presets[0]);
+    applyPreset(presets[0], { deliberate: false });
   }
 };
 
@@ -194,38 +322,54 @@ const setActivePreset = (target) => {
   });
 };
 
-const setScreenMode = (mode) => {
+const setScreenMode = (mode, { deliberate = true } = {}) => {
   if (!setupSelectors.screenToggle) {
+    return;
+  }
+  // The screen mode belongs to the same established configuration the module
+  // checkboxes do -- single-screen clears `presentation` outright, and the mode
+  // itself is written straight back to localStorage by the saveConfig() at the
+  // end of applyPreset. #206 left this call ungated and its own report flagged
+  // the consequence; the leak turned out to be wider than the checkbox alone,
+  // because a non-deliberate apply that only flipped the toggle still got
+  // persisted and then applied for real by the next deliberate restore. So the
+  // whole call passes the guard: a non-deliberate default may establish the
+  // mode on a genuinely fresh browser and may never overwrite it afterwards.
+  if (!deliberate && modulesEstablished) {
     return;
   }
   setupSelectors.screenToggle.querySelectorAll(".toggle-button").forEach((button) => {
     button.classList.toggle("active", button.dataset.mode === mode);
   });
   const presentationToggle = setupSelectors.moduleInputs.find((input) => input.dataset.module === "presentation");
-  if (presentationToggle) {
-    if (mode === "single") {
-      presentationToggle.checked = false;
-      presentationToggle.disabled = true;
-    } else {
-      presentationToggle.disabled = false;
-    }
+  if (!presentationToggle) {
+    return;
+  }
+  // Disabling the input is a capability, not a choice: one screen cannot drive
+  // a second one.
+  presentationToggle.disabled = mode === "single";
+  // Clearing the checkbox is a module write like any other, so it goes through
+  // the same choke point rather than around it.
+  if (mode === "single") {
+    writeModuleCheckboxes({ presentation: false }, { deliberate });
   }
 };
 
-const applyPreset = (preset) => {
+const applyPreset = (preset, { deliberate = true } = {}) => {
   if (!preset) {
     return;
   }
+  // Resolve the module-write authority ONCE for the whole application. The
+  // preset's module set and setScreenMode's single-screen side effect belong
+  // to the same apply and must pass or fail the guard together: re-reading
+  // modulesEstablished per call would let the first write flip the flag and
+  // lock the second one out on a genuinely fresh browser.
+  const mayWriteModules = deliberate || !modulesEstablished;
+  // Modules first, then the screen mode: the single-screen constraint has to
+  // land last so it wins over a preset that also lists presentation:true.
+  writeModuleCheckboxes(preset.modules, { deliberate: mayWriteModules });
   if (preset.screen_mode) {
-    setScreenMode(preset.screen_mode);
-  }
-  if (preset.modules && setupSelectors.moduleInputs.length) {
-    setupSelectors.moduleInputs.forEach((input) => {
-      const value = preset.modules[input.dataset.module];
-      if (typeof value === "boolean") {
-        input.checked = value;
-      }
-    });
+    setScreenMode(preset.screen_mode, { deliberate: mayWriteModules });
   }
   applyLlmSelection(preset.llm_provider, preset.llm_model);
   if (setupSelectors.transcriptBackend && preset.transcript?.backend) {
@@ -233,12 +377,6 @@ const applyPreset = (preset) => {
   }
   if (setupSelectors.transcriberSelfLive && typeof preset.transcript?.transcribe_self_live === "boolean") {
     setupSelectors.transcriberSelfLive.checked = preset.transcript.transcribe_self_live;
-  }
-  if (setupSelectors.prospectCompany && preset.prospect_company) {
-    setupSelectors.prospectCompany.value = preset.prospect_company;
-  }
-  if (setupSelectors.prospectIndustry && preset.prospect_industry) {
-    setupSelectors.prospectIndustry.value = preset.prospect_industry;
   }
   saveConfig();
 };
@@ -267,13 +405,14 @@ const collectConfig = () => {
       backend: setupSelectors.transcriptBackend?.value || "whisper.cpp",
       transcribe_self_live: !!setupSelectors.transcriberSelfLive?.checked,
     },
-    prospect: {
-      company: setupSelectors.prospectCompany?.value || "",
-      industry: setupSelectors.prospectIndustry?.value || "",
-    },
     prospect_source: setupSelectors.callMedium?.value || "blackhole",
     context_doc_ids: uploadedFiles.map((file) => file.id).filter(Boolean),
     uploads: uploadedFiles,
+    // "Server leidt af, dashboard kiest alleen" (klantmap-als-eenheid D2): the only
+    // client-related thing this dashboard sends is which client folder was picked (or
+    // null, "geen klant"). /api/start-call derives prospect_company, prospect_industry,
+    // call_terms and privacy itself from that client's klant.yaml.
+    client_slug: setupSelectors.clientSelect?.value || null,
   };
   if (typeof window.getConsentPayload === "function") {
     const consent = window.getConsentPayload();
@@ -286,6 +425,7 @@ const collectConfig = () => {
 
 const saveConfig = () => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(collectConfig()));
+  updateDetectionIndicator();
 };
 
 const restoreConfig = () => {
@@ -295,25 +435,18 @@ const restoreConfig = () => {
   }
   try {
     const config = JSON.parse(raw);
-    if (config.screen_mode) {
-      setScreenMode(config.screen_mode);
-    }
     if (config.preset_name && setupSelectors.domainPreset) {
       setupSelectors.domainPreset.value = config.preset_name;
     }
+    // Same order as applyPreset: modules first, then the screen mode, so the
+    // single-screen constraint wins over a stored presentation:true instead of
+    // leaving the checkbox ticked but disabled — which collectModules() would
+    // still have sent as presentation:true in the start_call payload.
     if (config.modules) {
-      setupSelectors.moduleInputs.forEach((input) => {
-        // pain_points is the AI-detection master switch — always force true
-        // on restore so a stale "unchecked" cache cannot silently disable
-        // pain points / objections / suggestions detection.
-        if (input.dataset.module === "pain_points") {
-          input.checked = true;
-          return;
-        }
-        if (typeof config.modules[input.dataset.module] === "boolean") {
-          input.checked = config.modules[input.dataset.module];
-        }
-      });
+      writeModuleCheckboxes(config.modules, { deliberate: true });
+    }
+    if (config.screen_mode) {
+      setScreenMode(config.screen_mode);
     }
     applyLlmSelection(config.llm?.provider, config.llm?.model);
     if (config.transcript?.backend && setupSelectors.transcriptBackend) {
@@ -327,11 +460,8 @@ const restoreConfig = () => {
     if (typeof config.transcript?.transcribe_self_live === "boolean" && setupSelectors.transcriberSelfLive) {
       setupSelectors.transcriberSelfLive.checked = config.transcript.transcribe_self_live;
     }
-    if (config.prospect?.company && setupSelectors.prospectCompany) {
-      setupSelectors.prospectCompany.value = config.prospect.company;
-    }
-    if (config.prospect?.industry && setupSelectors.prospectIndustry) {
-      setupSelectors.prospectIndustry.value = config.prospect.industry;
+    if (typeof config.client_slug === "string" && config.client_slug) {
+      applyClientSelection(config.client_slug);
     }
     if (Array.isArray(config.uploads)) {
       uploadedFiles = config.uploads;
@@ -370,7 +500,7 @@ const uploadFile = async (file) => {
   await window.copilotAuthReady;
   const form = new FormData();
   form.append("file", file);
-  form.append("company_slug", slugifyCompany(setupSelectors.prospectCompany?.value || ""));
+  form.append("company_slug", slugifyCompany(setupSelectors.clientSelect?.value || ""));
   const apiBaseUrl = resolveApiBaseUrl();
   const uploadUrl = apiBaseUrl ? `${apiBaseUrl}/upload` : "/upload";
   const response = await fetch(uploadUrl, {
@@ -452,8 +582,7 @@ const initFieldListeners = () => {
     setupSelectors.transcriptBackend,
     setupSelectors.callMedium,
     setupSelectors.domainPreset,
-    setupSelectors.prospectCompany,
-    setupSelectors.prospectIndustry,
+    setupSelectors.clientSelect,
   ].forEach((field) => {
     if (field) {
       field.addEventListener("input", saveConfig);
@@ -478,7 +607,11 @@ const sendStartCall = async (config) => {
     body: JSON.stringify(config),
   });
   if (!response.ok) {
-    throw new Error("Start call failed");
+    // The privacy-poort (klantmap-als-eenheid D2) rejects with 400 and a human-readable
+    // Dutch `detail` naming the client and the provider tier that failed -- surface that
+    // exact reason instead of the generic failure message.
+    const payload = await safeJson(response);
+    throw new Error(payload?.detail || "Start call failed");
   }
 };
 
@@ -555,7 +688,11 @@ const initStartCall = () => {
     }
     try {
       await sendStartCall(config);
-      showCallView();
+      // Go through window.showCallView: dashboard-shell.js wraps that property
+      // to set body.in-call, which swaps the sidebar Start button for
+      // "Stop & rapport". Calling the local binding skips the wrapper, leaving
+      // the call with no end-call control and the button stuck on "Starting...".
+      window.showCallView();
       if (window.startCallSockets) {
         window.startCallSockets();
       }
@@ -571,6 +708,11 @@ const initStartCall = () => {
       let message = window.t("setup.start_call_failed_generic");
       if (error?.message?.includes("consent_required") || error?.detail?.includes("consent")) {
         message = window.t("consent.call_blocked_alert");
+      } else if (error?.message && error.message !== "Start call failed") {
+        // The privacy-poort (klantmap-als-eenheid D2) and klant.yaml validation errors
+        // are already human-readable Dutch text from the backend -- show that instead
+        // of the generic fallback.
+        message = error.message;
       }
       window.alert(message);
       // 2s lockout before re-enabling after error
@@ -587,11 +729,15 @@ window.showSetupView = showSetupView;
 window.showReportView = showReportView;
 
 restoreConfig();
+updateDetectionIndicator();
 loadLlmModelOptions().then(() => {
   restoreConfig();
   if (presets[0]) {
-    applyPreset(presets[0]);
+    applyPreset(presets[0], { deliberate: false });
   }
+});
+loadClients().then(() => {
+  restoreConfig();
 });
 loadPresets();
 initScreenToggle();

@@ -104,6 +104,13 @@
   box-shadow: var(--glow-cyan);
 }
 
+.wizard-textarea {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
 @media (max-width: 640px) {
   .wizard-config-body {
     padding-left: 0;

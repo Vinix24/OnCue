@@ -9,6 +9,7 @@ from sales_copilot.modules.detector.eval_mining import (
     classify_records,
     load_jsonl_records,
     load_records,
+    pain_point_seed_records,
     seed_records,
     utterances_from_jsonl,
     utterances_from_markdown,
@@ -107,6 +108,16 @@ def test_seed_records_contains_objections_and_negatives() -> None:
     assert "timing" in labels
     assert "negative" in labels
     assert "kans" in labels
+    assert any(r["source"] == "seed" for r in records)
+
+
+def test_pain_point_seed_records_contains_routes_and_negatives() -> None:
+    records = pain_point_seed_records()
+    labels = {r["label"] for r in records}
+    assert "offerteproces" in labels
+    assert "rapportage" in labels
+    assert "negative" in labels
+    assert any(r["text"] == "een maand of vijf, zes" for r in records)
     assert any(r["source"] == "seed" for r in records)
 
 

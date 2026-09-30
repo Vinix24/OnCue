@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="OnCue">
+  <defs>
+    <linearGradient id="oncue-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="rgb(251, 146, 60)" />
+      <stop offset="1" stop-color="rgb(249, 115, 22)" />
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="230" fill="url(#oncue-bg)" />
+  <rect x="181" y="437" width="90" height="150" rx="45" fill="rgb(255, 255, 255)" />
+  <rect x="324" y="372" width="90" height="280" rx="45" fill="rgb(255, 255, 255)" />
+  <rect x="467" y="297" width="90" height="430" rx="45" fill="rgb(255, 255, 255)" />
+  <rect x="610" y="372" width="90" height="280" rx="45" fill="rgb(255, 255, 255)" />
+  <rect x="753" y="437" width="90" height="150" rx="45" fill="rgb(255, 255, 255)" />
+  <circle cx="856" cy="856" r="46" fill="rgb(34, 211, 238)" />
+</svg>

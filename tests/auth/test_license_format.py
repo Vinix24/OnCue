@@ -13,6 +13,7 @@ from sales_copilot.auth.license_format import (
     ENTERPRISE_FEATURES,
     FEATURE_CALLTAP,
     FEATURE_CENTRAL_AUDIT,
+    FEATURE_REPORT_DELIVERY_ENDPOINT,
     FREE_FEATURES,
     LEGACY_HMAC_DEADLINE,
     PRO_FEATURES,
@@ -84,7 +85,10 @@ def test_known_good_vector_signature_and_decoded_fields() -> None:
 def test_tier_feature_mappings_are_explicit() -> None:
     assert FEATURE_CALLTAP not in FREE_FEATURES
     assert FEATURE_CENTRAL_AUDIT not in FREE_FEATURES
+    assert FEATURE_REPORT_DELIVERY_ENDPOINT not in FREE_FEATURES
     assert {FEATURE_CALLTAP, FEATURE_CENTRAL_AUDIT} <= PRO_FEATURES
+    assert FEATURE_REPORT_DELIVERY_ENDPOINT in PRO_FEATURES
+    assert FEATURE_REPORT_DELIVERY_ENDPOINT in ENTERPRISE_FEATURES
     assert TIER_FEATURES == {
         "free": FREE_FEATURES,
         "pro": PRO_FEATURES,

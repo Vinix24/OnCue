@@ -32,6 +32,23 @@ const formatConfidence = (confidence) => {
   return Math.round(pct);
 };
 
+// Confidence tier. Before #205 every keyword match came back at a hardcoded
+// 0.95/"high", so rendering the tier would have rendered a constant; the
+// score is now proportional to real overlap and the tier is derived from the
+// detector's own configured thresholds (detector-status.js owns them, fed by
+// the /ws/detector-status payload). A weak match must not look like a strong
+// one -- see .is-uncertain in dashboard.css.
+const applyConfidenceTier = (card, confidence) => {
+  const tier = typeof window.detectorConfidenceTier === "function"
+    ? window.detectorConfidenceTier(confidence)
+    : "unknown";
+  if (tier === "unknown") {
+    return;
+  }
+  card.classList.add(tier === "high" ? "is-high" : "is-uncertain");
+  card.title = window.t(tier === "high" ? "detector.confidence_high" : "detector.confidence_uncertain");
+};
+
 const clearEmptyState = () => {
   if (!opportunitiesPanel) {
     return;
@@ -121,6 +138,7 @@ const addOpportunityCard = (payload) => {
 
   const card = document.createElement("div");
   card.className = "opportunity-card is-expanded is-new";
+  applyConfidenceTier(card, payload.confidence);
 
   const header = document.createElement("div");
   header.className = "pain-point-header";

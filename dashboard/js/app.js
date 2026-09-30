@@ -266,6 +266,11 @@ const handleCoachingMessage = (payload) => {
     showAudioWarning(stream, msg);
     return;
   }
+  if (payload.type === "tap_status") {
+    const stream = payload.stream === "self" ? "self" : "prospect";
+    updateTapIndicator(stream, payload.dashboard_state);
+    return;
+  }
   if (payload.alert_type !== "monologue_warning") {
     return;
   }
@@ -439,6 +444,46 @@ const _audioWarningElements = {
 };
 const _audioWarningTimers = { self: null, prospect: null };
 
+const _tapIndicatorElements = {
+  self: document.getElementById("tap-indicator-self"),
+  prospect: document.getElementById("tap-indicator-prospect"),
+};
+
+const _tapIndicatorSideLabelKey = {
+  self: "talktime.you_label",
+  prospect: "talktime.prospect_label",
+};
+
+// Streams without tap_health (plain streams) never send tap_status, so the
+// indicator stays hidden and the row looks exactly as it did before this
+// existed -- see dispatch D3 point 3.
+const updateTapIndicator = (stream, dashboardState) => {
+  const el = _tapIndicatorElements[stream];
+  if (!el) {
+    return;
+  }
+  el.dataset.tapState = dashboardState;
+  el.classList.remove("hidden");
+  const sideLabel = window.t(_tapIndicatorSideLabelKey[stream] || "talktime.prospect_label");
+  const stateLabel = window.t(`talktime.tap_status_${dashboardState}`);
+  const label = window.t("talktime.tap_indicator_aria", { side: sideLabel, state: stateLabel });
+  el.setAttribute("aria-label", label);
+  el.setAttribute("title", label);
+};
+
+const resetTapIndicators = () => {
+  ["self", "prospect"].forEach((stream) => {
+    const el = _tapIndicatorElements[stream];
+    if (!el) {
+      return;
+    }
+    el.dataset.tapState = "unknown";
+    el.classList.add("hidden");
+    el.removeAttribute("aria-label");
+    el.removeAttribute("title");
+  });
+};
+
 const clearAudioWarning = (stream) => {
   const el = _audioWarningElements[stream];
   if (!el) {
@@ -499,6 +544,7 @@ const resetCallState = () => {
   if (selectors.cumulativeProspect) {
     selectors.cumulativeProspect.textContent = "--";
   }
+  resetTapIndicators();
   hideSystemStatus();
   setActivePhase("discovery", "manual");
 };
@@ -525,6 +571,15 @@ const resetCallPanels = () => {
   }
   if (window.resetScriptTrackingPanel) {
     window.resetScriptTrackingPanel();
+  }
+  if (window.resetInsightsPanel) {
+    window.resetInsightsPanel();
+  }
+  if (window.resetDetectorStatus) {
+    // Last call's counters say nothing about this one. The detector republishes
+    // within one status interval; until then the strip honestly reads "not
+    // started yet" rather than showing a stale total.
+    window.resetDetectorStatus();
   }
   clearAudioWarnings();
 };

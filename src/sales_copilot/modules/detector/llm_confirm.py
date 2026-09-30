@@ -38,7 +38,7 @@ class LLMConfirmClient:
         self.config = config or DetectorConfig.from_env()
         self.provider = self.config.llm_provider.lower()
         self.categories = self._load_categories(self.config.pain_points_config)
-        self._context_block = self._load_context_docs(context_docs or [])
+        self._context_block = self._load_context_docs(context_docs or [], provider=self.provider)
         self.system_prompt = self._build_system_prompt()
         self._thinking = thinking
         self._llm = LLMClient(
@@ -142,5 +142,5 @@ class LLMConfirmClient:
         return categories
 
     @staticmethod
-    def _load_context_docs(paths: list[str]) -> str:
-        return load_context_documents(paths)
+    def _load_context_docs(paths: list[str], *, provider: str | None = None) -> str:
+        return load_context_documents(paths, provider=provider)

@@ -7,6 +7,7 @@ import pytest
 from sales_copilot.core.config import WebSocketConfig
 from sales_copilot.modules.transcriber.backends.mlx_backend import MlxWhisperBackend
 from sales_copilot.modules.transcriber.engine import TranscriptEvent
+from sales_copilot.modules.transcriber.normalize import NormalizationLists
 from sales_copilot.modules.transcriber.whisper_direct import DirectWhisperEngine
 
 
@@ -125,6 +126,49 @@ async def test_direct_engine_publishes_and_deduplicates(monkeypatch: pytest.Monk
     assert len(final_events) == 1, f"Expected 1 final (dedup), got {len(final_events)}"
     assert final_events[0]["text"] == "zelfde tekst"
     assert final_events[0]["speaker"] == "self"
+
+
+@pytest.mark.asyncio
+async def test_direct_engine_publishes_normalized_text(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    stop_event = asyncio.Event()
+    frames = np.ones((1600, 1), dtype=np.float32)
+    audio_stream = _FakeAudioStream([frames, None])
+    ws = _FinalTranscriptWs(stop_event)
+
+    async def _connect(*_args, **_kwargs):
+        return ws
+
+    monkeypatch.setattr(
+        "sales_copilot.modules.transcriber.whisper_direct.websockets.connect",
+        _connect,
+    )
+    monkeypatch.setattr(DirectWhisperEngine, "_load_vad", staticmethod(lambda: None))
+    monkeypatch.setattr(DirectWhisperEngine, "_is_speech", lambda self, chunk: bool(np.mean(chunk) > 0))
+    backend = _FakeBackend(text="we werken met HupSpot vandaag")
+
+    engine = DirectWhisperEngine(
+        audio_stream=audio_stream,
+        ws_config=WebSocketConfig(),
+        speaker="self",
+        backend=backend,
+        silence_gap_seconds=0.0,
+    )
+    engine._normalization_lists = NormalizationLists(  # noqa: SLF001
+        enabled=True, terms=(), variants={"HupSpot": "HubSpot"}
+    )
+
+    with caplog.at_level("DEBUG", logger="sales_copilot.modules.transcriber.whisper_direct"):
+        await engine.run(stop_event)
+
+    messages = [json.loads(m) for m in ws.sent]
+    final_events = [m for m in messages if m["type"] == "transcript"]
+    assert len(final_events) == 1
+    assert final_events[0]["text"] == "we werken met HubSpot vandaag"
+    assert set(final_events[0].keys()) == {"type", "text", "speaker", "start_ms", "end_ms", "is_final"}
+    assert "HupSpot" not in json.dumps(final_events[0])
+    assert any("HupSpot" in record.getMessage() for record in caplog.records)
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,120 @@
+{"text": "Het duurt bij ons soms wel een week voordat een offerte de deur uitgaat.", "label": "offerteproces", "target_route": "offerteproces", "kind": "positive"}
+{"text": "We zijn steeds aan het corrigeren omdat er iets fout staat in de offerte.", "label": "offerteproces", "target_route": "offerteproces", "kind": "positive"}
+{"text": "Iedere offerte bouwen we helemaal opnieuw op, dat kost enorm veel tijd.", "label": "offerteproces", "target_route": "offerteproces", "kind": "positive"}
+{"text": "Klanten bellen ons regelmatig omdat de offerte nog niet binnen is.", "label": "offerteproces", "target_route": "offerteproces", "kind": "positive"}
+{"text": "We werken de offertes nog steeds handmatig uit in een Word-sjabloon.", "label": "offerteproces", "target_route": "offerteproces", "kind": "positive"}
+{"text": "We hebben net een hele mooie nieuwe offerte binnengehaald, dat ging supersnel.", "label": "negative", "target_route": "offerteproces", "kind": "negative", "notes": "positief geframed, geen pijn"}
+{"text": "Ja ja, dat herken ik, maar bij ons gaat het eigenlijk prima met offertes.", "label": "negative", "target_route": "offerteproces", "kind": "negative", "notes": "bevestiging + expliciete ontkenning"}
+{"text": "We typen de klantgegevens nog drie keer over in verschillende systemen.", "label": "handmatig_werk", "target_route": "offerteproces", "kind": "negative", "notes": "cross-route foil: handmatig_werk"}
+{"text": "Wat bedoel je precies met een offerte, kun je dat toelichten?", "label": "negative", "target_route": "offerteproces", "kind": "negative", "notes": "generieke vraag/rambling"}
+{"text": "Onze rapportages kosten ons elke maand enorm veel uren om op te stellen.", "label": "rapportage", "target_route": "offerteproces", "kind": "negative", "notes": "cross-route foil: rapportage"}
+{"text": "We hebben simpelweg te weinig handen aan het bed om alles op te pakken.", "label": "capaciteit", "target_route": "capaciteit", "kind": "positive"}
+{"text": "Ons team draait al maanden op zijn tandvlees, iedereen zit vol.", "label": "capaciteit", "target_route": "capaciteit", "kind": "positive"}
+{"text": "We moeten regelmatig opdrachten afzeggen omdat we de mensen er niet voor hebben.", "label": "capaciteit", "target_route": "capaciteit", "kind": "positive"}
+{"text": "De planning loopt vast omdat er te weinig capaciteit is ingepland.", "label": "capaciteit", "target_route": "capaciteit", "kind": "positive"}
+{"text": "We groeien harder dan we personeel kunnen aannemen.", "label": "capaciteit", "target_route": "capaciteit", "kind": "positive"}
+{"text": "We hebben net twee nieuwe mensen aangenomen en zitten nu prima in ons vel.", "label": "negative", "target_route": "capaciteit", "kind": "negative", "notes": "ontkenning, positieve staat"}
+{"text": "Nieuwe medewerkers hebben maanden nodig voordat ze zelfstandig kunnen werken.", "label": "onboarding", "target_route": "capaciteit", "kind": "negative", "notes": "cross-route foil: onboarding"}
+{"text": "Oké, duidelijk, ik snap helemaal wat je bedoelt.", "label": "negative", "target_route": "capaciteit", "kind": "negative", "notes": "bevestiging/backchannel"}
+{"text": "We groeien hard en hebben net een mooie nieuwe klant binnengehaald.", "label": "negative", "target_route": "capaciteit", "kind": "negative", "notes": "groei zonder pijn"}
+{"text": "Het kost ons dagen om de juiste rapportagecijfers boven tafel te krijgen.", "label": "rapportage", "target_route": "capaciteit", "kind": "negative", "notes": "cross-route foil: rapportage"}
+{"text": "Bij bestaande klanten laten we volgens mij nog kansen liggen voor extra diensten.", "label": "cross_sell", "target_route": "cross_sell", "kind": "positive"}
+{"text": "We verkopen eigenlijk nooit iets extra's aan klanten die we al hebben.", "label": "cross_sell", "target_route": "cross_sell", "kind": "positive"}
+{"text": "Er is geen systematiek om klanten te wijzen op andere producten die ze kunnen gebruiken.", "label": "cross_sell", "target_route": "cross_sell", "kind": "positive"}
+{"text": "We weten niet goed wie van onze klanten nog potentieel heeft voor een upgrade.", "label": "cross_sell", "target_route": "cross_sell", "kind": "positive"}
+{"text": "Accountmanagers benaderen bestaande klanten nauwelijks actief voor meerverkoop.", "label": "cross_sell", "target_route": "cross_sell", "kind": "positive"}
+{"text": "We hebben eigenlijk amper nieuwe klanten, de pipeline is vrij leeg.", "label": "lead_generation", "target_route": "cross_sell", "kind": "negative", "notes": "cross-route foil: lead_generation"}
+{"text": "Precies, dat is ook wat ik bedoel, helemaal mee eens.", "label": "negative", "target_route": "cross_sell", "kind": "negative", "notes": "bevestiging"}
+{"text": "We bellen elke week nieuwe leads op om ze warm te maken.", "label": "lead_generation", "target_route": "cross_sell", "kind": "negative", "notes": "cross-route foil: lead_generation, actieve outreach"}
+{"text": "Onze bestaande klanten zijn super tevreden en kopen vanzelf al meer bij.", "label": "negative", "target_route": "cross_sell", "kind": "negative", "notes": "ontkenning"}
+{"text": "We krijgen veel te vaak dezelfde supportvraag van klanten binnen.", "label": "klantenservice", "target_route": "cross_sell", "kind": "negative", "notes": "cross-route foil: klantenservice"}
+{"text": "Onze pipeline is eigenlijk altijd vrij leeg, we moeten harder werven.", "label": "lead_generation", "target_route": "lead_generation", "kind": "positive"}
+{"text": "Nieuwe klanten komen bijna alleen via via, we doen zelf weinig aan acquisitie.", "label": "lead_generation", "target_route": "lead_generation", "kind": "positive"}
+{"text": "Er komen simpelweg te weinig nieuwe aanvragen bij ons binnen.", "label": "lead_generation", "target_route": "lead_generation", "kind": "positive"}
+{"text": "Zonder een paar goede referrals staat de salesfunnel vrijwel stil.", "label": "lead_generation", "target_route": "lead_generation", "kind": "positive"}
+{"text": "We zijn veel te afhankelijk van mond-tot-mondreclame voor nieuwe klanten.", "label": "lead_generation", "target_route": "lead_generation", "kind": "positive"}
+{"text": "We hebben een volle pijplijn, we kunnen het qua capaciteit amper aan.", "label": "capaciteit", "target_route": "lead_generation", "kind": "negative", "notes": "cross-route foil: capaciteit"}
+{"text": "Bij bestaande klanten laten we nog behoorlijk wat kansen liggen voor extra verkoop.", "label": "cross_sell", "target_route": "lead_generation", "kind": "negative", "notes": "cross-route foil: cross_sell"}
+{"text": "Nou ja, dat is ook wel een goede vraag eigenlijk.", "label": "negative", "target_route": "lead_generation", "kind": "negative", "notes": "rambling"}
+{"text": "We hebben zonet een mooie nieuwe order binnengehaald via een referral.", "label": "negative", "target_route": "lead_generation", "kind": "negative", "notes": "positief, geen pijn"}
+{"text": "De reactietijd naar klanten toe is bij ons gewoon te lang op dit moment.", "label": "klantenservice", "target_route": "lead_generation", "kind": "negative", "notes": "cross-route foil: klantenservice"}
+{"text": "Als onze projectleider ziek is, ligt het werk stil want alleen hij weet hoe het moet.", "label": "kennisontsluiting", "target_route": "kennisontsluiting", "kind": "positive"}
+{"text": "Veel kennis zit gewoon in de hoofden van een paar mensen, nergens vastgelegd.", "label": "kennisontsluiting", "target_route": "kennisontsluiting", "kind": "positive"}
+{"text": "Er is geen documentatie, dus nieuwe collega's moeten alles mondeling vragen.", "label": "kennisontsluiting", "target_route": "kennisontsluiting", "kind": "positive"}
+{"text": "We zijn te afhankelijk van één specialist die alle procesknowhow heeft.", "label": "kennisontsluiting", "target_route": "kennisontsluiting", "kind": "positive"}
+{"text": "Kennis gaat gewoon verloren zodra iemand het bedrijf verlaat.", "label": "kennisontsluiting", "target_route": "kennisontsluiting", "kind": "positive"}
+{"text": "We hebben net een uitgebreide kennisbank opgezet, dat werkt heel goed.", "label": "negative", "target_route": "kennisontsluiting", "kind": "negative", "notes": "ontkenning"}
+{"text": "Nieuwe collega's zijn best lang bezig voordat ze zelfstandig kunnen werken.", "label": "onboarding", "target_route": "kennisontsluiting", "kind": "negative", "notes": "cross-route foil: onboarding"}
+{"text": "Klopt, dat herken ik helemaal.", "label": "negative", "target_route": "kennisontsluiting", "kind": "negative", "notes": "bevestiging"}
+{"text": "Onze data staat verspreid over allemaal losse systemen die niet matchen.", "label": "data_kwaliteit", "target_route": "kennisontsluiting", "kind": "negative", "notes": "cross-route foil: data_kwaliteit"}
+{"text": "Hoeveel mensen zitten er ongeveer in jullie team?", "label": "negative", "target_route": "kennisontsluiting", "kind": "negative", "notes": "generieke vraag"}
+{"text": "Klanten wachten soms dagen voordat ze antwoord krijgen op hun vraag.", "label": "klantenservice", "target_route": "klantenservice", "kind": "positive"}
+{"text": "We krijgen continu dezelfde vragen binnen en lossen ze steeds weer opnieuw op.", "label": "klantenservice", "target_route": "klantenservice", "kind": "positive"}
+{"text": "Er is geen overzicht van welke klantvragen nog openstaan.", "label": "klantenservice", "target_route": "klantenservice", "kind": "positive"}
+{"text": "De reactietijd naar klanten toe is eigenlijk veel te lang.", "label": "klantenservice", "target_route": "klantenservice", "kind": "positive"}
+{"text": "Klachten raken soms zoek tussen de verschillende afdelingen.", "label": "klantenservice", "target_route": "klantenservice", "kind": "positive"}
+{"text": "We reageren binnen een uur op elke klantvraag, dat gaat eigenlijk prima.", "label": "negative", "target_route": "klantenservice", "kind": "negative", "notes": "ontkenning"}
+{"text": "We hebben geen goed dashboard om onze cijfers in één keer te zien.", "label": "rapportage", "target_route": "klantenservice", "kind": "negative", "notes": "cross-route foil: rapportage"}
+{"text": "Even kijken hoor, ik moet dat er even bij pakken.", "label": "negative", "target_route": "klantenservice", "kind": "negative", "notes": "rambling"}
+{"text": "We laten nog kansen liggen om extra diensten te verkopen aan bestaande klanten.", "label": "cross_sell", "target_route": "klantenservice", "kind": "negative", "notes": "cross-route foil: cross_sell"}
+{"text": "Ja dat klopt, daar ben ik het helemaal mee eens.", "label": "negative", "target_route": "klantenservice", "kind": "negative", "notes": "bevestiging"}
+{"text": "We voeren dezelfde gegevens nog in drie verschillende systemen handmatig in.", "label": "handmatig_werk", "target_route": "handmatig_werk", "kind": "positive"}
+{"text": "Er gaat heel veel tijd naar kopiëren en plakken tussen systemen.", "label": "handmatig_werk", "target_route": "handmatig_werk", "kind": "positive"}
+{"text": "We werken voor veel processen nog gewoon in Excel-sheetjes.", "label": "handmatig_werk", "target_route": "handmatig_werk", "kind": "positive"}
+{"text": "Iemand typt de gegevens nog een keer helemaal over voordat we verder kunnen.", "label": "handmatig_werk", "target_route": "handmatig_werk", "kind": "positive"}
+{"text": "Veel van ons werk is nog puur handmatig, zonder enige automatisering.", "label": "handmatig_werk", "target_route": "handmatig_werk", "kind": "positive"}
+{"text": "Het grootste deel van ons proces is inmiddels volledig geautomatiseerd.", "label": "negative", "target_route": "handmatig_werk", "kind": "negative", "notes": "ontkenning"}
+{"text": "Het maken van een offerte kost bij ons nog steeds enorm veel tijd.", "label": "offerteproces", "target_route": "handmatig_werk", "kind": "negative", "notes": "cross-route foil: offerteproces"}
+{"text": "Wat bedoel je daar precies mee, kun je dat toelichten?", "label": "negative", "target_route": "handmatig_werk", "kind": "negative", "notes": "rambling"}
+{"text": "Onze CRM-data klopt eigenlijk nooit helemaal met de rest van de systemen.", "label": "data_kwaliteit", "target_route": "handmatig_werk", "kind": "negative", "notes": "cross-route foil: data_kwaliteit"}
+{"text": "Oké duidelijk, dat is helder.", "label": "negative", "target_route": "handmatig_werk", "kind": "negative", "notes": "bevestiging"}
+{"text": "Onze CRM-data klopt gewoon niet, overal staan andere gegevens.", "label": "data_kwaliteit", "target_route": "data_kwaliteit", "kind": "positive"}
+{"text": "Er zit geen enkele lijn in hoe we klantgegevens vastleggen.", "label": "data_kwaliteit", "target_route": "data_kwaliteit", "kind": "positive"}
+{"text": "We hebben geen single source of truth voor onze klantinformatie.", "label": "data_kwaliteit", "target_route": "data_kwaliteit", "kind": "positive"}
+{"text": "In het ene systeem staat iets anders dan in het andere systeem.", "label": "data_kwaliteit", "target_route": "data_kwaliteit", "kind": "positive"}
+{"text": "We kunnen onze data eigenlijk niet vertrouwen als basis voor beslissingen.", "label": "data_kwaliteit", "target_route": "data_kwaliteit", "kind": "positive"}
+{"text": "Onze data staat inmiddels netjes op één centrale plek en klopt goed.", "label": "negative", "target_route": "data_kwaliteit", "kind": "negative", "notes": "ontkenning"}
+{"text": "We voeren gegevens nog drie keer over in verschillende systemen.", "label": "handmatig_werk", "target_route": "data_kwaliteit", "kind": "negative", "notes": "cross-route foil: handmatig_werk"}
+{"text": "Nou, dat is inderdaad een goede vraag.", "label": "negative", "target_route": "data_kwaliteit", "kind": "negative", "notes": "rambling"}
+{"text": "Het kost ons dagen om een fatsoenlijk rapport op te leveren aan het management.", "label": "rapportage", "target_route": "data_kwaliteit", "kind": "negative", "notes": "cross-route foil: rapportage"}
+{"text": "Juist ja, dat snap ik helemaal.", "label": "negative", "target_route": "data_kwaliteit", "kind": "negative", "notes": "bevestiging"}
+{"text": "Het kost ons letterlijk dagen om een goed rapportage-overzicht te maken.", "label": "rapportage", "target_route": "rapportage", "kind": "positive"}
+{"text": "We hebben geen dashboard waarin we in één oogopslag de cijfers zien.", "label": "rapportage", "target_route": "rapportage", "kind": "positive"}
+{"text": "Het management vraagt om cijfers die we niet snel genoeg kunnen aanleveren.", "label": "rapportage", "target_route": "rapportage", "kind": "positive"}
+{"text": "We weten eigenlijk nooit precies hoe we er financieel voorstaan.", "label": "rapportage", "target_route": "rapportage", "kind": "positive"}
+{"text": "Rapporteren doen we nog met losse Excel-bestanden die we handmatig samenvoegen.", "label": "rapportage", "target_route": "rapportage", "kind": "positive"}
+{"text": "We hebben een mooi dashboard waarin alle cijfers realtime te zien zijn.", "label": "negative", "target_route": "rapportage", "kind": "negative", "notes": "ontkenning"}
+{"text": "Onze data klopt gewoon niet, in elk systeem staat iets anders.", "label": "data_kwaliteit", "target_route": "rapportage", "kind": "negative", "notes": "cross-route foil: data_kwaliteit"}
+{"text": "Even denken hoor, dat moet ik even nagaan.", "label": "negative", "target_route": "rapportage", "kind": "negative", "notes": "rambling"}
+{"text": "We zijn steeds aan het corrigeren omdat er iets fout staat in de offerte.", "label": "offerteproces", "target_route": "rapportage", "kind": "negative", "notes": "cross-route foil: offerteproces"}
+{"text": "Dat klopt ja, daar ben ik het helemaal mee eens.", "label": "negative", "target_route": "rapportage", "kind": "negative", "notes": "bevestiging"}
+{"text": "Nieuwe collega's zijn maanden bezig voordat ze echt zelfstandig kunnen werken.", "label": "onboarding", "target_route": "onboarding", "kind": "positive"}
+{"text": "We hebben geen vast inwerkprogramma, iedereen doet het net anders.", "label": "onboarding", "target_route": "onboarding", "kind": "positive"}
+{"text": "Het opleiden van nieuw personeel kost ons enorm veel tijd.", "label": "onboarding", "target_route": "onboarding", "kind": "positive"}
+{"text": "De kennisoverdracht bij een nieuwe medewerker duurt gewoon te lang.", "label": "onboarding", "target_route": "onboarding", "kind": "positive"}
+{"text": "Nieuwe mensen weten vaak wekenlang niet goed waar ze moeten beginnen.", "label": "onboarding", "target_route": "onboarding", "kind": "positive"}
+{"text": "Nieuwe mensen draaien binnen een week volledig mee, dat gaat erg soepel.", "label": "negative", "target_route": "onboarding", "kind": "negative", "notes": "ontkenning"}
+{"text": "Als onze specialist er niet is, ligt het werk gewoon helemaal stil.", "label": "kennisontsluiting", "target_route": "onboarding", "kind": "negative", "notes": "cross-route foil: kennisontsluiting"}
+{"text": "Hoe lang duurt het implementatietraject ongeveer bij jullie?", "label": "negative", "target_route": "onboarding", "kind": "negative", "notes": "generieke vraag"}
+{"text": "We hebben simpelweg te weinig mensen om al het werk gedaan te krijgen.", "label": "capaciteit", "target_route": "onboarding", "kind": "negative", "notes": "cross-route foil: capaciteit"}
+{"text": "Precies, dat herken ik helemaal.", "label": "negative", "target_route": "onboarding", "kind": "negative", "notes": "bevestiging"}
+{"text": "We moeten aan steeds strengere regelgeving voldoen en lopen achter de feiten aan.", "label": "compliance", "target_route": "compliance", "kind": "positive"}
+{"text": "Onze documentatie voor de audit is eigenlijk nooit helemaal op orde.", "label": "compliance", "target_route": "compliance", "kind": "positive"}
+{"text": "We hebben geen goede audit trail van wie wat heeft goedgekeurd.", "label": "compliance", "target_route": "compliance", "kind": "positive"}
+{"text": "AVG-compliance is voor ons best een uitdaging om bij te houden.", "label": "compliance", "target_route": "compliance", "kind": "positive"}
+{"text": "We weten eigenlijk niet zeker of we overal compliant mee zijn.", "label": "compliance", "target_route": "compliance", "kind": "positive"}
+{"text": "Onze audit trail is inmiddels helemaal op orde, daar hebben we geen zorgen over.", "label": "negative", "target_route": "compliance", "kind": "negative", "notes": "ontkenning"}
+{"text": "Het kost ons flink wat budget om alles dit jaar bij te houden.", "label": "kosten", "target_route": "compliance", "kind": "negative", "notes": "cross-route foil: kosten"}
+{"text": "Oké, even kijken hoor, dat moet ik nagaan.", "label": "negative", "target_route": "compliance", "kind": "negative", "notes": "rambling"}
+{"text": "Onze CRM-data klopt gewoon niet, overal staan andere gegevens.", "label": "data_kwaliteit", "target_route": "compliance", "kind": "negative", "notes": "cross-route foil: data_kwaliteit"}
+{"text": "Ja dat snap ik, helemaal duidelijk.", "label": "negative", "target_route": "compliance", "kind": "negative", "notes": "bevestiging"}
+{"text": "Het is voor ons op dit moment gewoon te duur.", "label": "kosten", "target_route": "kosten", "kind": "positive"}
+{"text": "We hebben het budget er simpelweg niet voor.", "label": "kosten", "target_route": "kosten", "kind": "positive"}
+{"text": "Wat het ons concreet oplevert is nog onduidelijk, dus lastig te verantwoorden.", "label": "kosten", "target_route": "kosten", "kind": "positive"}
+{"text": "We geven al best veel uit aan tooling en zoeken juist besparing.", "label": "kosten", "target_route": "kosten", "kind": "positive"}
+{"text": "We moeten dit jaar flink bezuinigen op onze uitgaven.", "label": "kosten", "target_route": "kosten", "kind": "positive"}
+{"text": "Budget is voor ons dit jaar geen enkel probleem, dat hebben we ruim.", "label": "negative", "target_route": "kosten", "kind": "negative", "notes": "ontkenning"}
+{"text": "Het team zit propvol, we kunnen amper nog opdrachten aannemen.", "label": "capaciteit", "target_route": "kosten", "kind": "negative", "notes": "cross-route foil: capaciteit"}
+{"text": "Nou, dat is een interessante vraag eigenlijk.", "label": "negative", "target_route": "kosten", "kind": "negative", "notes": "rambling"}
+{"text": "Het maken van offertes kost ons nog steeds veel te veel tijd.", "label": "offerteproces", "target_route": "kosten", "kind": "negative", "notes": "cross-route foil: offerteproces"}
+{"text": "Juist ja, dat klopt helemaal.", "label": "negative", "target_route": "kosten", "kind": "negative", "notes": "bevestiging"}

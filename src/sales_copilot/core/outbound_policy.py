@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Literal
 from urllib.parse import urlparse
 
 from sales_copilot.core.pii_filter import redact_pii
@@ -130,6 +131,25 @@ def outbound_is_trusted_tenant() -> bool:
     use outbound_is_local() for that path.
     """
     return _destination_is_trusted_tenant(_env_provider())
+
+
+def tier_of(provider: str) -> Literal["local", "tenant", "public"]:
+    """Classify ``provider`` into the same three tiers ``klant.yaml``'s ``privacy`` field names.
+
+    Single source of truth for that classification (klantmap-als-eenheid D2's
+    privacy-poort reuses this instead of re-deriving the local/tenant/public
+    rules): ``"local"`` only for Ollama on a loopback address
+    (``outbound_is_local()``), ``"tenant"`` only for a BYO-tenant provider with
+    ``TRUST_OWN_TENANT`` set (``outbound_is_trusted_tenant()``), ``"public"``
+    for everything else -- including a remote Ollama or an azure/vertex tenant
+    without ``TRUST_OWN_TENANT``.
+    """
+    provider = (provider or "").strip().lower()
+    if _destination_is_local(provider):
+        return "local"
+    if _destination_is_trusted_tenant(provider):
+        return "tenant"
+    return "public"
 
 
 def apply_outbound_pii(text: str, *, provider: str, allow_local: bool = True) -> str:

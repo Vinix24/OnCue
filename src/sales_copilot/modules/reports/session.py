@@ -8,13 +8,14 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import aiosqlite
 import websockets
 from websockets.exceptions import ConnectionClosed
 
+from sales_copilot.audio.tap_health import TRANSCRIPT_MARKER_TYPE
 from sales_copilot.core.config import SlidesConfig, WebSocketConfig, env, env_bool, env_int, load_env
 from sales_copilot.core.session_store import DetectionRecord, SessionStore
 from sales_copilot.modules.slides.case_db import SQLiteCaseDB
@@ -54,6 +55,11 @@ class SessionData:
     phase_transitions: list[dict[str, object]]
     coaching_alerts: list[dict[str, object]]
     summaries: list[dict[str, object]]
+    # Track 3 (deep insight lane): every `insight` payload published on the
+    # `insights` channel during the session (PR-D2). Excludes `ask` messages
+    # (input, not output) and `insight_budget_exhausted` notices (not an
+    # insight) -- both filtered in `_handle_insight`.
+    insights: list[dict[str, object]] = field(default_factory=list)
     # Phase 3 Free post-call scorecard (design doc section 9). `script_coverage`
     # is the persisted-checkpoint reduction ({covered, total, missing_required})
     # or None when no checkpoint exists for the session; the counts come from
@@ -197,6 +203,7 @@ class SessionTracker:
         checkpoint_interval_seconds: int | None = None,
         session_store: SessionStore | None = None,
         session_id: str | None = None,
+        client_slug: str | None = None,
         script_config_path: str | None = None,
         objection_response_window_ms: int | None = None,
     ) -> None:
@@ -225,6 +232,11 @@ class SessionTracker:
 
         self._session_store = session_store
         self._requested_session_id = session_id
+        # klantmap-als-eenheid D3: the client this session is linked to (or
+        # None, "geen klant"), already resolved server-side by D2's
+        # hub_core._apply_klant_config -- recorded on the sessions row here so
+        # purge_session/retention can find it without re-resolving klant.yaml.
+        self._client_slug = client_slug
         # Phase 3: same script-point config the detector's ScriptTracker uses,
         # so the scorecard's total/missing-required match what was tracked.
         self._script_config_path = (
@@ -256,6 +268,7 @@ class SessionTracker:
         self._summaries: list[dict[str, object]] = []
         self._objections: list[dict[str, object]] = []
         self._opportunities: list[dict[str, object]] = []
+        self._insights: list[dict[str, object]] = []
         self._last_phase: str | None = None
 
     async def start_session(self) -> None:
@@ -273,6 +286,7 @@ class SessionTracker:
             "summary": self._handle_summary,
             "objections": self._handle_objection,
             "buying-signals": self._handle_buying_signal,
+            "insights": self._handle_insight,
         }
 
         for channel, handler in channels.items():
@@ -343,6 +357,7 @@ class SessionTracker:
                 phase_transitions=list(self._phase_transitions),
                 coaching_alerts=list(self._coaching_alerts),
                 summaries=list(self._summaries),
+                insights=list(self._insights),
                 script_coverage=script_coverage,
                 objection_count=len(objections),
                 objection_responded_count=_count_responded_objections(
@@ -404,10 +419,13 @@ class SessionTracker:
         self._summaries = []
         self._objections = []
         self._opportunities = []
+        self._insights = []
         self._last_phase = None
         if self._session_store is not None:
             try:
-                self._session_store.create_session(self._session_id)
+                self._session_store.create_session(
+                    self._session_id, client_slug=self._client_slug
+                )
             except Exception:
                 logger.exception("session_store.create_session failed for %s", self._session_id)
 
@@ -433,6 +451,9 @@ class SessionTracker:
 
     async def _handle_transcript(self, payload: object) -> None:
         if not isinstance(payload, dict):
+            return
+        if payload.get("type") == TRANSCRIPT_MARKER_TYPE:
+            await self._handle_transcript_marker(payload)
             return
         if payload.get("type") != "transcript":
             return
@@ -466,6 +487,31 @@ class SessionTracker:
             speaker,
             captured,
         )
+
+    async def _handle_transcript_marker(self, payload: dict[str, object]) -> None:
+        """Record "the audio stopped here" as a transcript line of its own.
+
+        Speaker ``system`` on purpose: the talk-time totals count only ``self``
+        and ``prospect``, so the marker reads in the transcript without shifting
+        a single percentage point in the report.
+        """
+
+        text = payload.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return
+        start_ms = payload.get("start_ms")
+        if not isinstance(start_ms, (int, float)):
+            start_ms = 0
+        entry = {
+            "text": text,
+            "speaker": "system",
+            "start_ms": int(start_ms),
+            "end_ms": int(start_ms),
+            "is_final": True,
+        }
+        async with self._lock:
+            self._transcript.append(entry)
+        logger.warning("Transcript marker recorded at %sms: %s", int(start_ms), text)
 
     async def _handle_pain_points(self, payload: object) -> None:
         if not isinstance(payload, dict):
@@ -545,6 +591,21 @@ class SessionTracker:
         async with self._lock:
             self._summaries.append(dict(payload))
 
+    async def _handle_insight(self, payload: object) -> None:
+        """Track 3 (deep insight lane): only `insight` payloads land in the report.
+
+        `ask` messages are the vraag-box's input (already echoed back as an
+        `insight` of type `antwoord` once `InsightEngine` answers), and
+        `insight_budget_exhausted` is a management notice, not an insight -- both
+        excluded here so the post-call report section is insights only.
+        """
+        if not isinstance(payload, dict):
+            return
+        if payload.get("type") != "insight":
+            return
+        async with self._lock:
+            self._insights.append(dict(payload))
+
     async def _persist_session(self, session: SessionData) -> None:
         db = SQLiteCaseDB(self._db_path)
         await db.initialize()
@@ -586,6 +647,7 @@ class SessionTracker:
                             "snapshots": session.talk_time_snapshots,
                             "coaching_alerts": session.coaching_alerts,
                             "summaries": session.summaries,
+                            "insights": session.insights,
                             # Phase 3: the scorecard data persists with the
                             # session even when the report UI section is
                             # hidden (the phase's rollback invariant).

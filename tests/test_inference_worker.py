@@ -9,6 +9,7 @@ import pytest
 from sales_copilot.core.config import WebSocketConfig
 from sales_copilot.modules.transcriber.inference_queue import InferenceQueueItem, SharedInferenceQueue
 from sales_copilot.modules.transcriber.inference_worker import InferenceWorker
+from sales_copilot.modules.transcriber.normalize import NormalizationLists
 
 _HIGH = 0
 _LOW = 1
@@ -251,6 +252,55 @@ async def test_worker_empty_queue_stop_event_exits_quickly(
     )
 
     await asyncio.wait_for(worker.run(stop_event), timeout=1.0)
+
+
+async def test_worker_publishes_normalized_text(caplog: pytest.LogCaptureFixture) -> None:
+    backend = _FakeBackend(text="we werken met HupSpot vandaag")
+    worker = _make_worker(backend)
+    worker._normalization_lists = NormalizationLists(  # noqa: SLF001
+        enabled=True, terms=(), variants={"HupSpot": "HubSpot"}
+    )
+    ws = _FakeWs()
+    worker._ws = ws  # noqa: SLF001
+
+    with caplog.at_level("DEBUG", logger="sales_copilot.modules.transcriber.inference_worker"):
+        await worker._process_item(_item(_HIGH, "prospect", 1))  # noqa: SLF001
+
+    final = json.loads(ws.sent[-1])
+    assert final["text"] == "we werken met HubSpot vandaag"
+    # Payload schema is unchanged: no second text field carrying the original.
+    assert set(final.keys()) == {"type", "text", "speaker", "start_ms", "end_ms", "is_final"}
+    assert "HupSpot" not in json.dumps(final)
+    # The original wording only ever reaches the local DEBUG log, never a payload.
+    assert any("HupSpot" in record.getMessage() for record in caplog.records)
+
+
+async def test_worker_dedup_uses_normalized_text(caplog: pytest.LogCaptureFixture) -> None:
+    """Two chunks that normalize to the same text must be deduplicated."""
+
+    class _AlternatingBackend(_FakeBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self._texts = ["HupSpot gesprek", "Ruffspot gesprek"]
+
+        async def transcribe(self, audio: np.ndarray) -> str:
+            self.calls.append(audio)
+            return self._texts[len(self.calls) - 1]
+
+    backend = _AlternatingBackend()
+    worker = _make_worker(backend)
+    worker._normalization_lists = NormalizationLists(  # noqa: SLF001
+        enabled=True, terms=(), variants={"HupSpot": "HubSpot", "Ruffspot": "HubSpot"}
+    )
+    ws = _FakeWs()
+    worker._ws = ws  # noqa: SLF001
+
+    await worker._process_item(_item(_HIGH, "prospect", 1))  # noqa: SLF001
+    await worker._process_item(_item(_HIGH, "prospect", 2))  # noqa: SLF001
+
+    messages = [json.loads(m) for m in ws.sent]
+    final_events = [m for m in messages if m["type"] == "transcript"]
+    assert len(final_events) == 1, "Both chunks normalize to the same text; the second is a dedup, not a new final."
 
 
 async def test_worker_run_processes_high_priority_before_low(

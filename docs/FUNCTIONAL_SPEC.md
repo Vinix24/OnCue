@@ -12,7 +12,7 @@ OnCue is an AI assistant that listens in live during a video call and
 coaches you in real time. It transcribes the conversation and detects pain points and
 objections from the prospect, so you can respond at the right moment.
 
-Everything runs on your own computer: macOS (default) or Windows (experimental).
+Everything runs on your own computer: macOS (default) or Windows.
 Your call recording does not go to an external service unless you configure that yourself.
 
 ---
@@ -21,10 +21,22 @@ Your call recording does not go to an external service unless you configure that
 
 Before you click Start Call, you fill in a short setup via the dashboard:
 
-- **Prospect name and company name** for the report
+- **Client** (optional): pick an existing client folder from a list. The prospect
+  company, industry, glossary terms, and privacy setting for that client come from
+  its `klant.yaml` file, so you don't retype them for a repeat conversation. See
+  "Client folders" below.
+- **Prospect name and company name** for the report (filled in automatically when
+  you pick a client, or typed by hand otherwise)
 - **Language** (Dutch, English, or German): the AI uses the correct pain point routes
 - **Transcription backend** (whisper.cpp — default, macOS + Windows — or mlx-whisper on Apple Silicon)
-- **Modules on/off**: talk-time, detection, suggestions, summary
+- **Modules on/off**: talk-time, detection, suggestions, summary. Detection is
+  the AI master switch: with it off the call still records, transcribes and
+  tracks talk-time, but no pain points, objections or buying signals are
+  detected. Some presets turn it off on purpose — `discovery` and
+  `coaching_only` are coaching-only by design — so the dashboard shows a
+  standing indicator whenever detection is off for this call, on the setup
+  screen and during the call. You should never have to wonder why nothing is
+  appearing.
 - **Context document** (optional): upload a PDF or text file with background information
   about the prospect. The AI takes this into account when making suggestions.
 - **Preset** (optional): save a combination of settings as a preset for
@@ -32,6 +44,52 @@ Before you click Start Call, you fill in a short setup via the dashboard:
 
 Click **Start Call** when you're ready. The system preloads the Whisper model
 (5 seconds of warmup for the default large-v3-turbo model) and starts listening.
+
+If you would rather check everything is ready before the prospect joins, run
+the preflight from the repo:
+
+```bash
+bash scripts/oncue_chain.sh check
+```
+
+It reports, per line, whether the backend is up and which checkout owns it,
+whether your venv carries every command this version declares, whether an MCP
+host is registered, whether exactly one meeting app is running
+(that gates automatic call start, not the tap itself, which follows the whole
+system output mix), whether
+detection will be on for the next call, and whether the log files are writable.
+Anything that is not OK comes with the command that fixes it. `up` does the
+same and then starts what is missing, so the only thing left for you is
+starting the call itself.
+
+### Client folders
+
+A client folder is a folder on your own machine (under the configured
+`KLANTEN_ROOT`) that can optionally hold a `klant.yaml` file naming the
+client's company, industry, contact people, and glossary terms, so you don't
+retype them every time you talk to the same client. `klant.yaml` can also set:
+
+- A **privacy ceiling** (`local`, `tenant`, or `public`): if the LLM provider
+  configured for this install is more permissive than the client allows, the
+  call is refused before anything is captured, rather than silently sending
+  that client's conversation somewhere it shouldn't go.
+- A **retention window** for that client's own sessions, separate from the
+  global retention setting.
+
+Every call linked to a client is archived into a `gesprekken/` (conversations)
+subfolder inside that client's folder, so a client's call history lives
+together with everything else you keep about them. Deleting a session (the
+GDPR purge, see [PRIVACY.md](PRIVACY.md)) removes only that session's own
+archived conversation and its own saved notes — never another session's.
+
+If your client folder lives inside a folder that a cloud-sync app (iCloud
+Drive, Dropbox, or a similar service) watches, the setup screen warns you: the
+content in that folder — including transcripts and contact names — will be
+synchronized to that cloud service. This is a warning, not a block; the choice
+of where to keep client folders stays yours.
+
+A client folder without a `klant.yaml` keeps working exactly as before: you
+type the company name by hand. Client folders are a Free-tier feature.
 
 ---
 
@@ -180,6 +238,7 @@ In short:
 | Local SQLite storage + case database | yes | yes |
 | Optional Supabase sync | yes | yes |
 | Consent tracking + retention + GDPR purge | yes | yes |
+| Client folders (`klant.yaml`): linked prospect info, retention, privacy ceiling | yes | yes |
 | Presentation automation (`presentation.dynamic_slides`) | no | yes |
 | Telephony audio capture / iPhone relay (`audio.calltap`) | no | yes |
 | Central tamper-evident audit, hashes only (`compliance.central_audit`) | no | yes |
@@ -187,6 +246,7 @@ In short:
 | Live coaching guidance (`coaching.live`) | no | yes |
 | Sales-script / methodology tracking (`coaching.script_tracking`) | no | yes |
 | Curated objection-response playbook (`coaching.response_playbook`) | no | yes |
+| Report delivery to a webhook/CRM endpoint (`reports.delivery.endpoint`) | no | yes |
 
 Pro is available via [oncueassistant.com](https://oncueassistant.com).
 Pro features are proprietary extensions installed as a separate package on
@@ -206,7 +266,7 @@ the same open-source core.
 | Screens | 1 (works, but not ideal) | 2 |
 | Audio routing | BlackHole (fallback, free, macOS 10.14+) | AudioTee (default, whole-system tap, macOS 14.2+) |
 
-**Windows (experimental):**
+**Windows:**
 
 | Requirement | Minimum | Recommended |
 |---|---|---|
@@ -216,7 +276,7 @@ the same open-source core.
 | Screens | 1 (works, but not ideal) | 2 |
 | Audio routing | WASAPI loopback via `soundcard` (automatic, no virtual device needed) | — |
 
-Windows support is experimental: transcription runs only via whisper.cpp
+Windows is supported: transcription runs only via whisper.cpp
 (mlx-whisper is Apple-only and therefore not available on Windows), and
 telephony capture (`CallTapStream`, the iPhone-relay/FaceTime tap) is not
 available — WASAPI loopback cannot isolate a single phone call from the
@@ -236,7 +296,7 @@ bash scripts/install.sh   # installs dependencies (venv + whisper.cpp)
 bash scripts/start.sh        # starts the system
 ```
 
-This is the macOS installation. Windows (experimental) has its own
+This is the macOS installation. Windows has its own
 installation path — see the [README](../README.md) for the exact steps.
 
 Then open two browser tabs (or one per screen):

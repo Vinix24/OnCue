@@ -145,3 +145,78 @@ def test_append_detection_unknown_session_raises_integrity_error(tmp_path: Path)
     det = _make_detection("nonexistent-session")
     with pytest.raises(sqlite3.IntegrityError):
         store.append_detection(det)
+
+
+# ---------------------------------------------------------------------------
+# klantmap-als-eenheid D3: client_slug column + migration
+# ---------------------------------------------------------------------------
+
+
+def test_create_session_with_client_slug_round_trips(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions.db")
+    store.create_session("linked-sess", client_slug="acme-corp")
+
+    assert store.get_client_slug("linked-sess") == "acme-corp"
+
+
+def test_create_session_without_client_slug_reads_back_none(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions.db")
+    store.create_session("unlinked-sess")
+
+    assert store.get_client_slug("unlinked-sess") is None
+
+
+def test_get_client_slug_unknown_session_returns_none(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions.db")
+    assert store.get_client_slug("does-not-exist") is None
+
+
+def test_find_unfinished_sessions_reports_client_slug(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions.db")
+    store.create_session("open-linked", client_slug="acme-corp")
+
+    unfinished = store.find_unfinished_sessions()
+
+    assert unfinished[0].client_slug == "acme-corp"
+
+
+def test_migration_adds_client_slug_to_pre_d3_database(tmp_path: Path) -> None:
+    """A database created before klantmap-als-eenheid D3 has no client_slug
+    column. Opening it through SessionStore must add it (additive migration),
+    leave existing rows readable with client_slug=None, and allow a
+    subsequent create_session(client_slug=...) to work."""
+    db_path = tmp_path / "pre_d3.db"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                start_ts REAL NOT NULL,
+                end_ts REAL,
+                profile TEXT NOT NULL DEFAULT 'sales',
+                transcript_path TEXT
+            );
+            CREATE TABLE detections (
+                session_id TEXT NOT NULL,
+                ts REAL NOT NULL,
+                type TEXT NOT NULL,
+                subcat TEXT,
+                confidence REAL NOT NULL,
+                text TEXT
+            );
+            """
+        )
+        conn.execute(
+            "INSERT INTO sessions (id, start_ts, profile) VALUES (?, ?, ?)",
+            ("pre-d3-sess", time.time(), "sales"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    store = SessionStore(db_path)
+
+    assert store.get_client_slug("pre-d3-sess") is None
+    store.create_session("post-migration-sess", client_slug="acme-corp")
+    assert store.get_client_slug("post-migration-sess") == "acme-corp"

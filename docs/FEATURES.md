@@ -1,6 +1,6 @@
 # OnCue features
 
-OnCue is a real-time coaching assistant for sales and recruitment calls. It runs on macOS (Windows is experimental via WASAPI loopback) and keeps the audio layer local. During a call it transcribes speech, detects pain points and objections, tracks talk-time ratios, and shows coaching suggestions on a private dashboard. Pro adds a set of licensed capabilities (see the tier matrix below).
+OnCue is a real-time coaching assistant for sales and recruitment calls. It runs on macOS (Windows is supported via WASAPI loopback) and keeps the audio layer local. During a call it transcribes speech, detects pain points and objections, tracks talk-time ratios, and shows coaching suggestions on a private dashboard. Pro adds a set of licensed capabilities (see the tier matrix below).
 
 The primary users are Dutch B2B sales professionals, recruiters, and coaches who want live call support without sending conversations to a third-party SaaS.
 
@@ -26,6 +26,8 @@ Feature entitlement is enforced in code by `FeaturePolicy` (`src/sales_copilot/a
 | Per-session consent tracking (`CONSENT_TRACKING_ENABLED`) | Yes | Yes |
 | Configurable retention + auto-purge (`DATA_RETENTION_DAYS`) | Yes | Yes |
 | GDPR Art. 17 purge-session CLI | Yes | Yes |
+| Client folders (`klant.yaml`): linked prospect info, per-client retention, privacy ceiling, cloud-sync-folder warning | Yes | Yes |
+| Report delivery to a local directory (`REPORT_DELIVERY_DIR`) | Yes | Yes |
 | Presentation automation (`presentation.dynamic_slides`) | No | Yes |
 | Telephony audio capture, iPhone-relay / FaceTime (`audio.calltap`) | No | Yes |
 | Central tamper-evident audit with hashes only (`compliance.central_audit`) | No | Yes |
@@ -33,6 +35,7 @@ Feature entitlement is enforced in code by `FeaturePolicy` (`src/sales_copilot/a
 | Live coaching guidance (`coaching.live`) | No | Yes |
 | Sales-script / methodology tracking (`coaching.script_tracking`) | No | Yes |
 | Curated objection-response playbook (`coaching.response_playbook`) | No | Yes |
+| Report delivery to a webhook/CRM endpoint (`reports.delivery.endpoint`) | No | Yes |
 | HubSpot / CRM sync | Roadmap | Roadmap |
 | Team dashboard + shared case library | Roadmap | Roadmap |
 
@@ -47,6 +50,7 @@ Feature entitlement is enforced in code by `FeaturePolicy` (`src/sales_copilot/a
 - `coaching.live` — live coaching-guidance channel; suppressed without entitlement (`src/sales_copilot/websocket/hub_core.py`, `src/sales_copilot/auth/feature_policy.py`).
 - `coaching.script_tracking` — sales-script / methodology tracking; gated WebSocket channel (`src/sales_copilot/websocket/hub_core.py`).
 - `coaching.response_playbook` — curated objection-response playbook; the Free tier falls back to a locked teaser (`src/sales_copilot/auth/feature_policy.py`).
+- `reports.delivery.endpoint` — HTTP delivery of the finished post-call report to a customer-configured webhook/CRM endpoint (`src/sales_copilot/modules/reports/delivery.py`). Delivery to a local directory (`REPORT_DELIVERY_DIR`) is a separate sink and stays Free in both tiers; on Free, a configured endpoint is skipped with one `WARNING` per process and the directory sink still runs.
 
 A future curated content pack and shared team case library are on the roadmap but are not license-gated today.
 
@@ -64,6 +68,12 @@ The Free tier is the full open-source copilot engine. You get:
 - Post-call JSON and Markdown reports.
 - Sample case slides via `scripts/seed_cases.py`.
 - Sales, coach, and recruitment presets.
+- Client folders (`klant.yaml`): couple a client's company, industry, contact people
+  and glossary terms to a folder, with an optional per-client privacy ceiling
+  (`local`/`tenant`/`public`) enforced against the configured LLM provider before a
+  call starts, an optional per-client retention window, a warning when the client
+  folder root lives under a cloud-synced location (iCloud Drive, Dropbox, or a
+  File-Provider cloud-storage mount), and an automatic `gesprekken/` call archive.
 - Choice of 7 LLM providers (Gemini, OpenRouter, Groq, OpenAI, Ollama, Vertex AI, Azure OpenAI), including fully local Ollama.
 
 The Free tier is AGPL-3.0. Self-hosting is required; there is no managed cloud service.
@@ -83,6 +93,7 @@ Pro unlocks the license-gated capabilities enforced by `FeaturePolicy`:
 7. **Live coaching guidance** (`coaching.live`). Live in-call coaching prompts on a dedicated channel, suppressed without entitlement.
 8. **Sales-script / methodology tracking** (`coaching.script_tracking`). Tracks adherence to a configured sales script or methodology.
 9. **Curated objection-response playbook** (`coaching.response_playbook`). Curated responses to detected objections; the Free tier shows a locked teaser instead.
+10. **Report delivery to a webhook/CRM endpoint** (`reports.delivery.endpoint`). Sends the finished post-call report to a customer-configured webhook or CRM endpoint; delivery to a local directory stays Free in both tiers.
 
 Pro is a commercial license. Contact info@vincentvandeth.nl for terms.
 

@@ -63,6 +63,17 @@ async def test_session_tracker_accumulates_payloads(tmp_path) -> None:
             "key_moments": [],
         }
     )
+    await tracker._handle_insight(
+        {
+            "type": "insight",
+            "insight_type": "doorvraag",
+            "text": "Wat weet de klant al over Lime CRM?",
+            "grounding": "prospect noemde Lime CRM",
+            "speculation": "hoog",
+            "ttl_s": 120,
+            "timestamp_ms": 12000,
+        }
+    )
 
     data = await tracker.get_session_data()
 
@@ -77,6 +88,44 @@ async def test_session_tracker_accumulates_payloads(tmp_path) -> None:
     assert data.phase_transitions[1]["phase"] == "pitch"
     assert len(data.coaching_alerts) == 1
     assert len(data.summaries) == 1
+    assert len(data.insights) == 1
+    assert data.insights[0]["insight_type"] == "doorvraag"
+
+
+@pytest.mark.asyncio
+async def test_session_tracker_insight_handler_filters_non_insight_payloads(tmp_path) -> None:
+    """Only `insight` payloads land in the report -- `ask` (input) and
+    `insight_budget_exhausted` (a management notice) are excluded."""
+    tracker = SessionTracker(
+        db_path=tmp_path / "cases.db",
+        now_iso=lambda: "2026-08-04T00:00:00+00:00",
+        now_ms=lambda: 1,
+    )
+    tracker._start_state()
+
+    await tracker._handle_insight({"type": "ask", "text": "zwaktes van Lime CRM?"})
+    await tracker._handle_insight(
+        {"type": "insight_budget_exhausted", "calls_used": 30, "max_calls": 30}
+    )
+    await tracker._handle_insight(
+        {
+            "type": "insight",
+            "insight_type": "antwoord",
+            "text": "Lime CRM mist een native koppeling.",
+            "grounding": "vraag: zwaktes van Lime CRM?",
+            "speculation": "laag",
+            "ttl_s": 60,
+            "question": "zwaktes van Lime CRM?",
+            "timestamp_ms": 5000,
+        }
+    )
+    await tracker._handle_insight("not-a-dict")
+
+    data = await tracker.get_session_data()
+
+    assert len(data.insights) == 1
+    assert data.insights[0]["insight_type"] == "antwoord"
+    assert data.insights[0]["question"] == "zwaktes van Lime CRM?"
 
 
 @pytest.mark.asyncio
@@ -169,6 +218,53 @@ async def test_session_tracker_accepts_transcript_with_null_speaker(tmp_path) ->
     assert len(data.transcript) == 1
     assert data.transcript[0]["speaker"] == "unknown"
     assert data.transcript[0]["text"] == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_session_tracker_records_audio_loss_marker(tmp_path) -> None:
+    """A saved transcript must say the audio stopped, not imply the speaker did."""
+
+    tracker = SessionTracker(db_path=tmp_path / "cases.db")
+    tracker._start_state()  # noqa: SLF001
+    await tracker._handle_transcript(  # noqa: SLF001
+        {
+            "type": "transcript",
+            "text": "Hoeveel offertes maakt u per week?",
+            "speaker": "self",
+            "start_ms": 0,
+            "end_ms": 900,
+        }
+    )
+    await tracker._handle_transcript(  # noqa: SLF001
+        {
+            "type": "transcript_marker",
+            "marker": "audio_signal_lost",
+            "stream": "prospect",
+            "speaker": "system",
+            "text": "[audio ontbreekt vanaf hier: de prospect-tap levert geen signaal meer.]",
+            "start_ms": 960000,
+            "end_ms": 960000,
+        }
+    )
+
+    data = await tracker.get_session_data()
+    assert len(data.transcript) == 2
+    marker = data.transcript[1]
+    assert marker["speaker"] == "system"
+    assert marker["start_ms"] == 960000
+    assert marker["end_ms"] == 960000
+    assert "audio ontbreekt" in marker["text"]
+
+
+@pytest.mark.asyncio
+async def test_session_tracker_drops_empty_marker(tmp_path) -> None:
+    tracker = SessionTracker(db_path=tmp_path / "cases.db")
+    tracker._start_state()  # noqa: SLF001
+    await tracker._handle_transcript(  # noqa: SLF001
+        {"type": "transcript_marker", "text": "   ", "start_ms": 10}
+    )
+    data = await tracker.get_session_data()
+    assert data.transcript == []
 
 
 @pytest.mark.asyncio

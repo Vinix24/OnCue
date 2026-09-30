@@ -60,8 +60,26 @@ responsible for the legal basis, configuration, region, contracts, and use.
 **What never leaves the machine:**
 
 - Raw audio (mic stream and system stream)
-- Full transcripts
 - Session recordings (WAV files)
+- Full transcripts — *except* when the deep-insight lane is explicitly enabled for that conversation (see below), or when report delivery is configured (see below); with both off (default), full transcripts never leave the machine
+
+> **Deep-insight lane (opt-in, default off).** The deep-insight lane is a separate outbound class for frontier-grade analysis. When an operator explicitly enables it for a specific conversation, the full session transcript is sent to an operator-configured frontier or enterprise destination (BYO-tenant cloud, a public frontier API, or an MCP host). The transcript is always PII-redacted through the existing `outbound_policy` seam before it leaves — the same redaction the detection tracks apply to their fragments. The lane is off by default; no conversation sends a full transcript unless the operator turned the lane on for that call. See `docs/ARCHITECTURE_BOUNDARIES.md` ("Deep-insight lane outbound class").
+
+> **Report delivery (opt-in, default off).** OnCue can be used as a trigger for a
+> customer's own automation: when a call ends, the finished report can be handed to a
+> directory the operator names or an HTTP endpoint the operator names
+> (`REPORT_DELIVERY_DIR` / `REPORT_DELIVERY_ENDPOINT`). Both destinations are the
+> **operator's own configured infrastructure**, not an OnCue or third-party service —
+> this is different in kind from the deep-insight lane above. It carries the same
+> content as the local `data/reports/` file, including the full transcript, and by
+> default is **not** PII-redacted (`REPORT_REDACT_PII=false`): the point of the
+> feature is handing the operator's own automation their own words verbatim so it can
+> act on them (e.g. extract a name or company for a CRM). Set `REPORT_REDACT_PII=true`
+> to redact both the local file and anything delivered by these sinks — there is no
+> separate redaction toggle for delivery. Both sinks are off by default; no report
+> leaves the machine via this path unless the operator configured a destination. See
+> `docs/ARCHITECTURE_BOUNDARIES.md` ("Trigger delivery outbound class") and
+> `docs/MODULE4.md` ("Report Delivery").
 
 **What optionally goes to an LLM provider:**
 
@@ -82,7 +100,7 @@ Set `LLM_PROVIDER=ollama` in `.env` combined with a local Ollama model
 |---|---|---|
 | Audio (mic + system) | Locally on your Mac | Session duration (buffer), WAV in `data/sessions/` if `RECORD_AUDIO=true` |
 | Transcript fragments (prospect speech) | Local (Whisper), optionally to LLM provider for detection | Session duration for buffers; post-call report in `data/sessions/` |
-| Full transcript | Local in post-call report | Until you delete it (in `data/sessions/`) |
+| Full transcript | Local in post-call report; optionally to the deep-insight lane destination (opt-in, PII-redacted); optionally to an operator-configured report-delivery directory/endpoint (opt-in, unredacted by default, see `REPORT_REDACT_PII`) | Until you delete it (in `data/sessions/`) |
 | Talk-time statistics | Local in post-call report | Until you delete it |
 | API keys | Local in `.env` (gitignored) | Not logged, not sent |
 | Case database | Local SQLite or optionally Supabase | Until you delete it or delete the Supabase project |

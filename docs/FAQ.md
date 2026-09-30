@@ -82,7 +82,7 @@ By default, OnCue taps the entire system output mix via AudioTee: a Core Audio p
 2. Restart the backend with `bash scripts/stop.sh && bash scripts/start.sh`.
 3. Verify with:
 ```bash
-grep -i "calltap\|audiotee_call\|avconferenced" data/logs/runtime.log | tail -20
+grep -i "calltap\|audiotee_call\|avconferenced" data/logs/copilot.log | tail -20
 ```
 **When this does NOT work:** If `avconferenced` is not found, is iPhone Continuity actually calling actively (not WiFi-call emulation)? A Bluetooth headset is not an obstacle in this mode.
 
@@ -233,7 +233,7 @@ python scripts/verify_audio.py
 2. Then start the call again from setup (not via browser back/forward).
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'start_call|transcrib|talk|pain|websocket'
+tail -n 120 data/logs/copilot.log | rg -i 'start_call|transcrib|talk|pain|websocket'
 ```
 **When this does NOT work:** Does this keep happening on main? Add a log + timestamp in GitHub Discussions or email `info@vincentvandeth.nl`.
 
@@ -252,7 +252,7 @@ Step-by-step diagnosis and fix: [TROUBLESHOOTING.md — Dashboard "Start Call fa
 2. Then start the call again from setup (not via browser back/forward).
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'start_call|transcrib|talk|pain|websocket'
+tail -n 120 data/logs/copilot.log | rg -i 'start_call|transcrib|talk|pain|websocket'
 ```
 **When this does NOT work:** Does this keep happening on main? Add a log + timestamp in GitHub Discussions or email `info@vincentvandeth.nl`.
 
@@ -266,7 +266,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'start_call|transcrib|talk|pain|websoc
 2. Then start the call again from setup (not via browser back/forward).
 3. Verify it works with:
 ```bash
-tail -n 150 data/logs/runtime.log | rg -i 'start_call|call_start|talk-time'
+tail -n 150 data/logs/copilot.log | rg -i 'start_call|call_start|talk-time'
 ```
 **When this does NOT work:** Does this keep happening on main? Add a log + timestamp in GitHub Discussions or email `info@vincentvandeth.nl`.
 
@@ -290,7 +290,7 @@ Step-by-step diagnosis and fix: [TROUBLESHOOTING.md — No transcription appeari
 2. Then start the call again from setup (not via browser back/forward).
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'start_call|transcrib|talk|pain|websocket'
+tail -n 120 data/logs/copilot.log | rg -i 'start_call|transcrib|talk|pain|websocket'
 ```
 **When this does NOT work:** Does this keep happening on main? Add a log + timestamp in GitHub Discussions or email `info@vincentvandeth.nl`.
 
@@ -304,7 +304,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'start_call|transcrib|talk|pain|websoc
 2. Then start the call again from setup (not via browser back/forward).
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'start_call|transcrib|talk|pain|websocket'
+tail -n 120 data/logs/copilot.log | rg -i 'start_call|transcrib|talk|pain|websocket'
 ```
 **When this does NOT work:** Does this keep happening on main? Add a log + timestamp in GitHub Discussions or email `info@vincentvandeth.nl`.
 
@@ -318,7 +318,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'start_call|transcrib|talk|pain|websoc
 2. Then start the call again from setup (not via browser back/forward).
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'start_call|transcrib|talk|pain|websocket'
+tail -n 120 data/logs/copilot.log | rg -i 'start_call|transcrib|talk|pain|websocket'
 ```
 **When this does NOT work:** Does this keep happening on main? Add a log + timestamp in GitHub Discussions or email `info@vincentvandeth.nl`.
 
@@ -332,7 +332,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'start_call|transcrib|talk|pain|websoc
 2. Then start the call again from setup (not via browser back/forward).
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'start_call|transcrib|talk|pain|websocket'
+tail -n 120 data/logs/copilot.log | rg -i 'start_call|transcrib|talk|pain|websocket'
 ```
 **When this does NOT work:** Does this keep happening on main? Add a log + timestamp in GitHub Discussions or email `info@vincentvandeth.nl`.
 
@@ -367,7 +367,7 @@ Step-by-step diagnosis and fix: [TROUBLESHOOTING.md — Transcription labels You
 2. Restore audio routing and start a short 20-30 second test call.
 3. Verify it works with:
 ```bash
-tail -n 200 data/logs/runtime.log | rg -i 'single-stream|fallback|speaker|prospect|jij'
+tail -n 200 data/logs/copilot.log | rg -i 'single-stream|fallback|speaker|prospect|jij'
 ```
 **When this does NOT work:** If labels keep flipping despite good routing: email `info@vincentvandeth.nl` with a log fragment.
 
@@ -381,7 +381,7 @@ tail -n 200 data/logs/runtime.log | rg -i 'single-stream|fallback|speaker|prospe
 2. Restore audio routing and start a short 20-30 second test call.
 3. Verify it works with:
 ```bash
-tail -n 200 data/logs/runtime.log | rg -i 'single-stream|fallback|speaker|prospect|jij'
+tail -n 200 data/logs/copilot.log | rg -i 'single-stream|fallback|speaker|prospect|jij'
 ```
 **When this does NOT work:** If labels keep flipping despite good routing: email `info@vincentvandeth.nl` with a log fragment.
 
@@ -395,7 +395,7 @@ tail -n 200 data/logs/runtime.log | rg -i 'single-stream|fallback|speaker|prospe
 2. Restore audio routing and start a short 20-30 second test call.
 3. Verify it works with:
 ```bash
-tail -n 200 data/logs/runtime.log | rg -i 'single-stream|fallback|speaker|prospect|jij'
+tail -n 200 data/logs/copilot.log | rg -i 'single-stream|fallback|speaker|prospect|jij'
 ```
 **When this does NOT work:** If labels keep flipping despite good routing: email `info@vincentvandeth.nl` with a log fragment.
 
@@ -409,7 +409,7 @@ tail -n 200 data/logs/runtime.log | rg -i 'single-stream|fallback|speaker|prospe
 2. Restore audio routing and start a short 20-30 second test call.
 3. Verify it works with:
 ```bash
-tail -n 200 data/logs/runtime.log | rg -i 'single-stream|fallback|speaker|prospect|jij'
+tail -n 200 data/logs/copilot.log | rg -i 'single-stream|fallback|speaker|prospect|jij'
 ```
 **When this does NOT work:** If labels keep flipping despite good routing: email `info@vincentvandeth.nl` with a log fragment.
 
@@ -425,7 +425,7 @@ tail -n 200 data/logs/runtime.log | rg -i 'single-stream|fallback|speaker|prospe
 2. Restart the backend.
 3. Verify with:
 ```bash
-grep -i "whisper\|transcrib\|segment\|backend" data/logs/runtime.log | tail -30
+grep -i "whisper\|transcrib\|segment\|backend" data/logs/copilot.log | tail -30
 ```
 **When this does NOT work:** If whisper.cpp also delivers no transcripts, the cause is audio (empty stream) rather than the backend. Follow the audio steps in Category 2.
 
@@ -439,7 +439,7 @@ grep -i "whisper\|transcrib\|segment\|backend" data/logs/runtime.log | tail -30
 2. Check the model choice and temporarily switch to `large-v3-turbo` as a baseline.
 3. Verify it works with:
 ```bash
-tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
+tail -n 150 data/logs/copilot.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 ```
 **When this does NOT work:** If transcription stays structurally poor: follow [docs/FINETUNING_GUIDE.md](FINETUNING_GUIDE.md).
 
@@ -453,7 +453,7 @@ tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 2. Check the model choice and temporarily switch to `large-v3-turbo` as a baseline.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'warmup|first|transcrib'
+tail -n 120 data/logs/copilot.log | rg -i 'warmup|first|transcrib'
 ```
 **When this does NOT work:** If transcription stays structurally poor: follow [docs/FINETUNING_GUIDE.md](FINETUNING_GUIDE.md).
 
@@ -467,7 +467,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'warmup|first|transcrib'
 2. Check the model choice and temporarily switch to `large-v3-turbo` as a baseline.
 3. Verify it works with:
 ```bash
-tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
+tail -n 150 data/logs/copilot.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 ```
 **When this does NOT work:** If transcription stays structurally poor: follow [docs/FINETUNING_GUIDE.md](FINETUNING_GUIDE.md).
 
@@ -481,7 +481,7 @@ tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 2. Only go to `large-v3` if quality matters more than latency (heavier model, ~3 GB RAM, ~30s warmup).
 3. Verify it works with:
 ```bash
-tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
+tail -n 150 data/logs/copilot.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 ```
 **When this does NOT work:** If transcription stays structurally poor: follow [docs/FINETUNING_GUIDE.md](FINETUNING_GUIDE.md).
 
@@ -495,7 +495,7 @@ tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 2. Check the model choice and temporarily switch to `large-v3-turbo` as a baseline.
 3. Verify it works with:
 ```bash
-tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
+tail -n 150 data/logs/copilot.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 ```
 **When this does NOT work:** If transcription stays structurally poor: follow [docs/FINETUNING_GUIDE.md](FINETUNING_GUIDE.md).
 
@@ -509,7 +509,7 @@ tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 2. Check the model choice and temporarily switch to `large-v3-turbo` as a baseline.
 3. Verify it works with:
 ```bash
-tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
+tail -n 150 data/logs/copilot.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 ```
 **When this does NOT work:** If transcription stays structurally poor: follow [docs/FINETUNING_GUIDE.md](FINETUNING_GUIDE.md).
 
@@ -523,7 +523,7 @@ tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 2. Check the model choice and temporarily switch to `large-v3-turbo` as a baseline.
 3. Verify it works with:
 ```bash
-tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
+tail -n 150 data/logs/copilot.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 ```
 **When this does NOT work:** If transcription stays structurally poor: follow [docs/FINETUNING_GUIDE.md](FINETUNING_GUIDE.md).
 
@@ -537,7 +537,7 @@ tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 2. Check the model choice and temporarily switch to `large-v3-turbo` as a baseline.
 3. Verify it works with:
 ```bash
-tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
+tail -n 150 data/logs/copilot.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 ```
 **When this does NOT work:** If transcription stays structurally poor: follow [docs/FINETUNING_GUIDE.md](FINETUNING_GUIDE.md).
 
@@ -553,7 +553,7 @@ tail -n 150 data/logs/runtime.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 2. Test with a known working combination and then restart the backend.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
+tail -n 120 data/logs/copilot.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
 ```
 **When this does NOT work:** If the API provider keeps failing: temporarily test Ollama locally or email `info@vincentvandeth.nl`.
 
@@ -567,7 +567,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauth
 2. Test with a known working combination and then restart the backend.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
+tail -n 120 data/logs/copilot.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
 ```
 **When this does NOT work:** If the API provider keeps failing: temporarily test Ollama locally or email `info@vincentvandeth.nl`.
 
@@ -581,7 +581,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauth
 2. Test with a known working combination and then restart the backend.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
+tail -n 120 data/logs/copilot.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
 ```
 **When this does NOT work:** If the API provider keeps failing: temporarily test Ollama locally or email `info@vincentvandeth.nl`.
 
@@ -595,7 +595,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauth
 2. Test with a known working combination and then restart the backend.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
+tail -n 120 data/logs/copilot.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
 ```
 **When this does NOT work:** If the API provider keeps failing: temporarily test Ollama locally or email `info@vincentvandeth.nl`.
 
@@ -609,7 +609,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauth
 2. Test with a known working combination and then restart the backend.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
+tail -n 120 data/logs/copilot.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
 ```
 **When this does NOT work:** If the API provider keeps failing: temporarily test Ollama locally or email `info@vincentvandeth.nl`.
 
@@ -623,7 +623,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauth
 2. Test with a known working combination and then restart the backend.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
+tail -n 120 data/logs/copilot.log | rg -i 'provider|model|llm|timeout|401|unauthorized'
 ```
 **When this does NOT work:** If the API provider keeps failing: temporarily test Ollama locally or email `info@vincentvandeth.nl`.
 
@@ -639,7 +639,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'provider|model|llm|timeout|401|unauth
 2. After Start Call, check the logs to confirm the chosen config was actually applied.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'config|start_call|modules|provider|model'
+tail -n 120 data/logs/copilot.log | rg -i 'config|start_call|modules|provider|model'
 ```
 **When this does NOT work:** If setup state doesn't stay consistent: report the exact steps in GitHub Discussions.
 
@@ -653,7 +653,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'config|start_call|modules|provider|mo
 2. After Start Call, check the logs to confirm the chosen config was actually applied.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'config|start_call|modules|provider|model'
+tail -n 120 data/logs/copilot.log | rg -i 'config|start_call|modules|provider|model'
 ```
 **When this does NOT work:** If setup state doesn't stay consistent: report the exact steps in GitHub Discussions.
 
@@ -667,7 +667,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'config|start_call|modules|provider|mo
 2. After Start Call, check the logs to confirm the chosen config was actually applied.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'config|start_call|modules|provider|model'
+tail -n 120 data/logs/copilot.log | rg -i 'config|start_call|modules|provider|model'
 ```
 **When this does NOT work:** If setup state doesn't stay consistent: report the exact steps in GitHub Discussions.
 
@@ -681,7 +681,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'config|start_call|modules|provider|mo
 2. After Start Call, check the logs to confirm the chosen config was actually applied.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'config|start_call|modules|provider|model'
+tail -n 120 data/logs/copilot.log | rg -i 'config|start_call|modules|provider|model'
 ```
 **When this does NOT work:** If setup state doesn't stay consistent: report the exact steps in GitHub Discussions.
 
@@ -695,7 +695,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'config|start_call|modules|provider|mo
 2. After Start Call, check the logs to confirm the chosen config was actually applied.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'config|start_call|modules|provider|model'
+tail -n 120 data/logs/copilot.log | rg -i 'config|start_call|modules|provider|model'
 ```
 **When this does NOT work:** If setup state doesn't stay consistent: report the exact steps in GitHub Discussions.
 
@@ -709,7 +709,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'config|start_call|modules|provider|mo
 2. After Start Call, check the logs to confirm the chosen config was actually applied.
 3. Verify it works with:
 ```bash
-tail -n 80 data/logs/runtime.log | rg -i 'provider|model|config'
+tail -n 80 data/logs/copilot.log | rg -i 'provider|model|config'
 ```
 **When this does NOT work:** If setup state doesn't stay consistent: report the exact steps in GitHub Discussions.
 
@@ -725,7 +725,7 @@ tail -n 80 data/logs/runtime.log | rg -i 'provider|model|config'
 2. Record the retention period and consent text in your own sales process.
 3. Verify it works with:
 ```bash
-ls -la data/sessions data/reports && tail -n 80 data/logs/runtime.log | rg -i 'provider|ollama|gemini|openai|groq'
+ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|gemini|openai|groq'
 ```
 **When this does NOT work:** For legally binding statements: consult your privacy lawyer.
 
@@ -739,7 +739,7 @@ ls -la data/sessions data/reports && tail -n 80 data/logs/runtime.log | rg -i 'p
 2. Record the retention period and consent text in your own sales process.
 3. Verify it works with:
 ```bash
-ls -la data/sessions data/reports && tail -n 80 data/logs/runtime.log | rg -i 'provider|ollama|gemini|openai|groq'
+ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|gemini|openai|groq'
 ```
 **When this does NOT work:** For legally binding statements: consult your privacy lawyer.
 
@@ -753,7 +753,7 @@ ls -la data/sessions data/reports && tail -n 80 data/logs/runtime.log | rg -i 'p
 2. Record the retention period and consent text in your own sales process.
 3. Verify it works with:
 ```bash
-ls -la data/sessions data/reports && tail -n 80 data/logs/runtime.log | rg -i 'provider|ollama|gemini|openai|groq'
+ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|gemini|openai|groq'
 ```
 **When this does NOT work:** For legally binding statements: consult your privacy lawyer.
 
@@ -767,7 +767,7 @@ ls -la data/sessions data/reports && tail -n 80 data/logs/runtime.log | rg -i 'p
 2. Record the retention period and consent text in your own sales process.
 3. Verify it works with:
 ```bash
-ls -la data/sessions data/reports && tail -n 80 data/logs/runtime.log | rg -i 'provider|ollama|gemini|openai|groq'
+ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|gemini|openai|groq'
 ```
 **When this does NOT work:** For legally binding statements: consult your privacy lawyer.
 
@@ -781,7 +781,7 @@ ls -la data/sessions data/reports && tail -n 80 data/logs/runtime.log | rg -i 'p
 2. Record the retention period and consent text in your own sales process.
 3. Verify it works with:
 ```bash
-ls -la data/sessions data/reports && tail -n 80 data/logs/runtime.log | rg -i 'provider|ollama|gemini|openai|groq'
+ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|gemini|openai|groq'
 ```
 **When this does NOT work:** For legally binding statements: consult your privacy lawyer.
 
@@ -819,9 +819,9 @@ ls -lt data/reports | head -n 5
 ### Q: Does this work on Windows / Linux / iPad?
 
 **What you see:** You want to know whether OnCue also runs outside macOS.
-**Why this happens:** macOS is the stable main platform; Windows is a separate, experimental track with its own audio-capture path (WASAPI instead of AudioTee/BlackHole). Linux and iPad/iOS are not (yet) on the map.
+**Why this happens:** macOS is the stable main platform; Windows is a separate track with its own audio-capture path (WASAPI instead of AudioTee/BlackHole). Linux and iPad/iOS are not (yet) on the map.
 **Status per platform:**
-1. **Windows (experimental):** yes, via WASAPI loopback capture — no virtual audio device needed, unlike BlackHole on macOS. `pip install ".[windows]"` gives you only the audio capture; for LLM-driven pain-point detection you also need a provider extra, e.g. `pip install ".[windows,detector,gemini]"` (`litellm` recently moved behind the separate `[llm]` extra because it needs Rust/Cargo to build on Windows). Verified 2026-07-14 in a Windows 11 VM with a real audio-hardware probe (95/95 real frames, not mocked) — not yet tested on physical Windows hardware during a live call. See [INSTALL.md#windows](../INSTALL.md#windows).
+1. **Windows:** yes, via WASAPI loopback capture — no virtual audio device needed, unlike BlackHole on macOS. `pip install ".[windows]"` gives you only the audio capture; for LLM-driven pain-point detection you also need a provider extra, e.g. `pip install ".[windows,detector,gemini]"` (`litellm` recently moved behind the separate `[llm]` extra because it needs Rust/Cargo to build on Windows). Verified 2026-07-14 in a Windows 11 VM with a real audio-hardware probe (95/95 real frames, not mocked) — not yet tested on physical Windows hardware during a live call. See [INSTALL.md#windows](../INSTALL.md#windows).
 2. **Linux:** on the roadmap, no supported audio-capture backend yet.
 3. **iPad / iOS:** not planned — the architecture (macOS Core Audio process-tap, Windows WASAPI loopback, local whisper.cpp) requires a desktop OS.
 **When this does NOT work:** For Windows-specific problems: see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#problem-wasapi-loopback-capture-geeft-geen-audio-windows) or open a [GitHub issue](https://github.com/Vinix24/OnCue/issues). For macOS-only features (telephony capture) that you're missing on Windows: that's deliberate, see the Architecture section in the README.
@@ -862,7 +862,23 @@ ls -lt data/reports | head -n 5
 Step-by-step diagnosis and fix: [TROUBLESHOOTING.md — Port 8760 already in use](TROUBLESHOOTING.md#problem-port-8760-already-in-use).
 
 <a id="faq-data-logs-runtime-log-is-leeg-bevat-errors"></a>
-### Q: `data/logs/runtime.log` is empty / contains errors
+### Q: The log is empty / contains errors — and which log is it?
+
+There are two, and they are not interchangeable.
+
+- **`data/logs/copilot.log`** is the application log. Every module writes to it
+  through `core/logging.py`, on every launch route, always. This is the one you
+  want in almost every case.
+- **`data/logs/runtime.log`** is only the captured stdout of the backend
+  process, and only when you started it with `bash scripts/start.sh` or through
+  the launchd autostart agent. Start OnCue by double-clicking `Start OnCue.app`
+  and this file is never written at all, so an empty or months-old
+  `runtime.log` is normal rather than a symptom.
+- **`data/logs/mcp-bridge.log`** exists once you have used the MCP bridge (Pro).
+
+If `copilot.log` itself is empty, the backend never started. Run
+`bash scripts/oncue_chain.sh check`: it reports whether the hub is up, which
+checkout owns it, and whether these log files are present and writable.
 
 Step-by-step diagnosis and fix: [TROUBLESHOOTING.md — Module crashes silently](TROUBLESHOOTING.md#problem-module-crashes-silently).
 
@@ -876,7 +892,7 @@ Step-by-step diagnosis and fix: [TROUBLESHOOTING.md — Module crashes silently]
 2. Read the runtime log from the first ERROR and fix exactly that cause.
 3. Verify it works with:
 ```bash
-lsof -nP -iTCP:8760 -sTCP:LISTEN && tail -n 150 data/logs/runtime.log
+lsof -nP -iTCP:8760 -sTCP:LISTEN && tail -n 150 data/logs/copilot.log
 ```
 **When this does NOT work:** If you can't get it stable within 15 minutes: email `info@vincentvandeth.nl` with the log and steps.
 
@@ -890,7 +906,7 @@ lsof -nP -iTCP:8760 -sTCP:LISTEN && tail -n 150 data/logs/runtime.log
 2. Fully restart the backend so old model state doesn't linger.
 3. Verify it works with:
 ```bash
-lsof -nP -iTCP:8760 -sTCP:LISTEN && tail -n 150 data/logs/runtime.log
+lsof -nP -iTCP:8760 -sTCP:LISTEN && tail -n 150 data/logs/copilot.log
 ```
 **When this does NOT work:** If you can't get it stable within 15 minutes: email `info@vincentvandeth.nl` with the log and steps.
 
@@ -904,7 +920,7 @@ lsof -nP -iTCP:8760 -sTCP:LISTEN && tail -n 150 data/logs/runtime.log
 2. Read the runtime log from the first ERROR and fix exactly that cause.
 3. Verify it works with:
 ```bash
-lsof -nP -iTCP:8760 -sTCP:LISTEN && tail -n 150 data/logs/runtime.log
+lsof -nP -iTCP:8760 -sTCP:LISTEN && tail -n 150 data/logs/copilot.log
 ```
 **When this does NOT work:** If you can't get it stable within 15 minutes: email `info@vincentvandeth.nl` with the log and steps.
 
@@ -918,7 +934,7 @@ lsof -nP -iTCP:8760 -sTCP:LISTEN && tail -n 150 data/logs/runtime.log
 2. Fully restart the backend so old model state doesn't linger.
 3. Verify it works with:
 ```bash
-tail -n 120 data/logs/runtime.log | rg -i 'not supported|model|provider'
+tail -n 120 data/logs/copilot.log | rg -i 'not supported|model|provider'
 ```
 **When this does NOT work:** If you can't get it stable within 15 minutes: email `info@vincentvandeth.nl` with the log and steps.
 
@@ -932,7 +948,7 @@ tail -n 120 data/logs/runtime.log | rg -i 'not supported|model|provider'
 2. Read the runtime log from the first ERROR and fix exactly that cause.
 3. Verify it works with:
 ```bash
-tail -n 150 data/logs/runtime.log | rg -i 'model switch|/new|provider|state'
+tail -n 150 data/logs/copilot.log | rg -i 'model switch|/new|provider|state'
 ```
 **When this does NOT work:** If you can't get it stable within 15 minutes: email `info@vincentvandeth.nl` with the log and steps.
 

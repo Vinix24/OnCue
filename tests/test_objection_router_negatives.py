@@ -118,17 +118,44 @@ def test_real_opportunity_still_classifies_with_negatives_enabled() -> None:
     assert match.category == "koopsignaal"
 
 
-def test_pain_point_router_unaffected_by_negative_class() -> None:
-    """PainPointRouter is a separate class/instance from ObjectionRouter and
-    must not be touched by the negative-class structural fix."""
+def test_pain_point_router_also_gets_the_negative_class_by_default() -> None:
+    """Structural fix extended 2026-09-05: PainPointRouter is a separate
+    class/instance from ObjectionRouter but gets the SAME negative-class fix,
+    wired the same way (INCLUDE_NEGATIVES / config/negatives.yaml), because
+    the same live over-match was reproduced there ("een maand of vijf, zes"
+    classified as pain point `rapportage` at a hardcoded 0.95). This
+    supersedes the old assumption that PainPointRouter was untouched by the
+    negative class — see scripts/eval_pain_point_precision.py."""
     config = DetectorConfig()
     router = PainPointRouter(config)
 
-    assert not hasattr(router, "_negative_categories")
-    assert len(router.routes) == 12
+    assert router._include_negatives is True
+    assert router._negative_categories == NEGATIVE_ROUTE_NAMES
+    assert len(router.routes) == 13  # 12 pain points + the shared negative route
+    assert "negative" in {route.name for route in router.routes}
+
+    # A real pain point still classifies correctly with the negative class live.
     match = router.classify("we zitten uren aan offertes")
     assert match is not None
     assert match.category == "offerteproces"
+
+
+def test_pain_point_router_omits_negative_route_when_disabled() -> None:
+    config = DetectorConfig(include_negatives=False)
+    router = PainPointRouter(config)
+
+    assert router._include_negatives is False
+    assert router._negative_categories == frozenset()
+    assert len(router.routes) == 12
+    assert "negative" not in {route.name for route in router.routes}
+
+
+def test_pain_point_router_negative_toggle_overrides_config() -> None:
+    config = DetectorConfig(include_negatives=True)
+    router = PainPointRouter(config, include_negatives=False)
+
+    assert router._include_negatives is False
+    assert "negative" not in {route.name for route in router.routes}
 
 
 @pytest.mark.asyncio

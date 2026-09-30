@@ -15,6 +15,12 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import numpy as np
 
+from sales_copilot.audio.tap_health import (
+    TapHealth,
+    TapHealthTracker,
+    describe_silent_stream,
+    stream_tap_health,
+)
 from sales_copilot.core.paths import resolve_app_resource
 
 if TYPE_CHECKING:
@@ -105,6 +111,14 @@ class AudioConfig:
     # Playback speed multiplier for the replay path (REPLAY_SPEED): 1.0 plays
     # the recording back at real-time pace, 2.0 at double speed.
     replay_speed: float = 1.0
+    # WASAPI loopback endpoint override (AUDIO_WASAPI_ENDPOINT_NAME, Windows
+    # only). None (default) follows whatever Windows currently calls the
+    # default playback device -- see WasapiLoopbackStream, which also
+    # re-attaches when that default changes mid-call. A name matches
+    # case-insensitively against soundcard.all_speakers() by substring; when
+    # set but no endpoint matches, the stream warns once and falls back to the
+    # default device instead of failing the call.
+    wasapi_endpoint_name: str | None = None
 
 
 @runtime_checkable
@@ -244,22 +258,66 @@ def _find_pid(process_name: str) -> int | None:
     return _find_pid_exact(process_name) or _find_pid_fuzzy(process_name)
 
 
-# Common macOS meeting apps for the FREE-tier AudioTee video-prospect tap,
+# Common meeting apps for the FREE-tier AudioTee/WASAPI video-prospect tap,
 # checked in this order by resolve_meeting_app_target(). Google Meet has no
 # dedicated desktop app, so it is detected via its host browser process
-# instead; Teams and Zoom ship their own macOS app processes.
-MEETING_APP_CANDIDATES: tuple[str, ...] = ("Google Chrome", "Microsoft Teams", "zoom.us")
+# instead; Teams and Zoom ship their own app processes.
+#
+# macOS process names (as reported by ``pgrep -x``) differ from Windows image
+# names (as reported by ``tasklist``), so the candidate list is platform-aware
+# -- see _default_meeting_app_candidates(), which dispatches on ``sys.platform``
+# the same way ``_find_pid_win32``/``_find_pid_posix`` already do for the PID
+# lookup itself. Teams ships two Windows image names depending on which client
+# generation is installed (classic ``Teams.exe`` vs. the newer ``ms-teams.exe``
+# rewrite), so both are listed as separate candidates; matching stays exact
+# for both, same as macOS -- if a user somehow runs both at once that is
+# treated as the same "ambiguous" case as any other two candidates running
+# together.
+_MEETING_APP_CANDIDATES_MACOS: tuple[str, ...] = ("Google Chrome", "Microsoft Teams", "zoom.us")
+_MEETING_APP_CANDIDATES_WIN32: tuple[str, ...] = ("chrome.exe", "Teams.exe", "ms-teams.exe", "Zoom.exe")
+
+
+def _default_meeting_app_candidates(*, platform: str = sys.platform) -> tuple[str, ...]:
+    """Return the platform-appropriate default meeting-app candidate list.
+
+    ``platform`` is injectable so tests can exercise the win32 branch on
+    macOS CI, mirroring ``normalize_capture_method``/``resolve_prospect_source``
+    below.
+    """
+
+    if platform == "win32":
+        return _MEETING_APP_CANDIDATES_WIN32
+    return _MEETING_APP_CANDIDATES_MACOS
+
+
+# Backward-compatible module-level constant, resolved once at import time for
+# the actual running platform -- this is what AutostartMonitorConfig's dataclass
+# field default (and any other caller that just wants "the current platform's
+# candidates") picks up.
+MEETING_APP_CANDIDATES: tuple[str, ...] = _default_meeting_app_candidates()
 
 
 def resolve_meeting_app_target(
-    candidates: Sequence[str] = MEETING_APP_CANDIDATES,
+    candidates: Sequence[str] | None = None,
+    *,
+    platform: str = sys.platform,
 ) -> tuple[str | None, int | None, list[str]]:
     """Detect which known meeting app is running, so AudioTee needs no manual config.
 
-    Checks each candidate process name with an exact-match ``pgrep -x`` --
-    deliberately not the fuzzy fallback in ``_find_pid``, since a broad
-    substring match here would make unrelated helper processes look like
-    "another app is open" and defeat the ambiguity check below.
+    Checks each candidate process name with an exact-match ``pgrep -x``/
+    ``tasklist`` lookup (via ``_find_pid_exact``, which itself dispatches on
+    ``sys.platform``) -- deliberately not the fuzzy fallback in ``_find_pid``,
+    since a broad substring match here would make unrelated helper processes
+    look like "another app is open" and defeat the ambiguity check below.
+
+    ``candidates`` defaults to the platform-appropriate
+    ``_default_meeting_app_candidates(platform=platform)`` -- macOS process
+    names on darwin, Windows image names on win32. Pass an explicit sequence
+    to override the platform default entirely; an explicit value always wins,
+    it is never merged with or replaced by the platform default. ``platform``
+    is injectable for tests; it only affects which default candidates are
+    chosen, not the underlying PID lookup (that still dispatches on the real
+    ``sys.platform`` inside ``_find_pid_exact``).
 
     Returns ``(process_name, pid, running_candidates)``:
 
@@ -272,10 +330,13 @@ def resolve_meeting_app_target(
     Known caveat: matching by process name only confirms the app is open, not
     that it is actively in a meeting. For Chrome specifically this cannot
     distinguish "running Google Meet" from "running anything unrelated", and
-    tapping the main "Google Chrome" process may not carry tab audio if
-    Chrome renders it through a helper/utility subprocess instead -- this has
-    not been verified against a real Google Meet call.
+    tapping the main "Google Chrome"/``chrome.exe`` process may not carry tab
+    audio if Chrome renders it through a helper/utility subprocess instead --
+    this has not been verified against a real Google Meet call.
     """
+
+    if candidates is None:
+        candidates = _default_meeting_app_candidates(platform=platform)
 
     running: list[tuple[str, int]] = []
     for name in candidates:
@@ -387,8 +448,7 @@ def resolve_prospect_source(
         return "blackhole"
     if platform == "win32" and source == "audiotee_call":
         logger.warning(
-            "prospect_source='audiotee_call' (phone-call tap) is not available on Windows; "
-            "falling back to 'blackhole'."
+            "prospect_source='audiotee_call' (phone-call tap) is not available on Windows; falling back to 'blackhole'."
         )
         return "blackhole"
     return source  # type: ignore[return-value]
@@ -485,6 +545,44 @@ def get_default_input_device() -> dict[str, Any] | None:
     return None
 
 
+def resolve_mic_device(raw: int | str | None) -> int | str | None:
+    """Normalize a configured ``MIC_INPUT_DEVICE`` value before it reaches PortAudio.
+
+    An unset ``MIC_INPUT_DEVICE`` reaches here as ``""``, not ``None``:
+    ``.env.example`` ships the key with no value, and ``os.getenv`` returns that
+    empty string rather than falling back to a default. sounddevice/PortAudio
+    treats a *string* device argument as a name-substring query, and ``""`` is a
+    substring of every device name -- so as soon as more than one input device
+    is present, opening the stream raises ``"Multiple input devices found for
+    ''"`` instead of using the default. Blank is normalized to ``None`` here,
+    which sounddevice already resolves correctly to PortAudio's own default
+    input device (unaffected by this function, and how ``device=None`` already
+    behaved before ``MIC_INPUT_DEVICE`` existed).
+
+    An explicit ``int`` index or non-blank device-name string is returned
+    unchanged.
+    """
+    if isinstance(raw, str) and not raw.strip():
+        return None
+    return raw
+
+
+def describe_available_input_devices() -> str:
+    """Best-effort listing of input devices, for an actionable error message.
+
+    Used only after PortAudio has already failed to open a mic stream with the
+    resolved (non-ambiguous) device value, so a device-enumeration failure here
+    must not shadow the original error -- it degrades to a note instead.
+    """
+    try:
+        input_devices = [d for d in list_audio_devices() if int(d.get("max_input_channels", 0) or 0) > 0]
+    except Exception:
+        return "(could not enumerate audio devices)"
+    if not input_devices:
+        return "(no input devices found)"
+    return "\n".join(f"  [{d['index']}] {d['name']}" for d in input_devices)
+
+
 def check_device_health(device_name: str) -> tuple[bool, float]:
     """Record 2s from device, return (has_audio, mean_level)."""
 
@@ -538,10 +636,12 @@ class MicStream:
     def __init__(self, config: AudioConfig, *, queue_maxsize: int = 100, device: int | str | None = None) -> None:
         self._config = config
         self._device = device
+        self._resolved_device: int | str | None = None
         self._queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=queue_maxsize)
         self._stream = None
         self._lock = threading.Lock()
         self._chunks_received = 0
+        self._health = TapHealthTracker()
 
     @property
     def chunks_received(self) -> int:
@@ -549,7 +649,13 @@ class MicStream:
 
     @property
     def device_label(self) -> str:
-        return "default" if self._device is None else str(self._device)
+        value = self._resolved_device if self._resolved_device is not None else self._device
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "default"
+        return str(value)
+
+    def tap_health(self) -> TapHealth:
+        return self._health.snapshot()
 
     def start(self) -> None:
         with self._lock:
@@ -560,23 +666,40 @@ class MicStream:
 
             def callback(indata: np.ndarray, frames: int, time_info: object, status: object) -> None:
                 self._chunks_received += 1
+                if self._health.observe(indata):
+                    logger.info(
+                        "Mic stream carrying signal: device=%s first audible frame after %s chunks.",
+                        self.device_label,
+                        self._chunks_received,
+                    )
                 _drop_oldest_and_put(self._queue, indata.copy())
 
             _reinit_portaudio_and_register(sd)
             try:
+                # Resolve blank/ambiguous MIC_INPUT_DEVICE before it reaches
+                # PortAudio -- see resolve_mic_device()'s docstring.
+                self._resolved_device = resolve_mic_device(self._device)
                 self._stream = sd.InputStream(
                     samplerate=self._config.sample_rate,
                     channels=self._config.channels,
                     dtype=self._config.dtype,
                     blocksize=self._config.chunk_size,
                     callback=callback,
-                    device=self._device,
+                    device=self._resolved_device,
                 )
                 self._stream.start()
-            except Exception:
+            except Exception as exc:
                 self._stream = None
                 _unregister_stream()
+                self._health.mark_attach_failed("InputStream kon niet openen")
+                if self._resolved_device is None:
+                    raise RuntimeError(
+                        f"Could not open the default microphone ({exc}). Available input "
+                        f"devices:\n{describe_available_input_devices()}\n"
+                        "Set MIC_INPUT_DEVICE in .env to one of the indices above."
+                    ) from exc
                 raise
+            self._health.mark_attached(f"mic:{self.device_label}")
 
     def stop(self) -> None:
         with self._lock:
@@ -636,6 +759,7 @@ class AudioTeeStream:
         self._setup_failure_emitted = False
         self._stderr_lines: list[str] = []
         self._stderr_lock = threading.Lock()
+        self._health = TapHealthTracker()
 
     @property
     def chunks_received(self) -> int:
@@ -646,6 +770,18 @@ class AudioTeeStream:
         if self._tap_all:
             return "audiotee:all"
         return f"audiotee:{self._config.target_process or 'unknown'}"
+
+    def tap_health(self) -> TapHealth:
+        """Report whether this tap is attached, and whether audio is flowing.
+
+        This is the seam that tells "the tap never opened" apart from "the tap
+        is open and the source is silent". Both used to look identical from
+        outside the stream: ``_degraded`` was private and only consulted during
+        ``start()``, and ``chunks_received`` counted frames without ever looking
+        at what was inside them.
+        """
+
+        return self._health.snapshot()
 
     def start(self) -> None:
         """Start the AudioTee tap, either whole-system (tap_all) or targeted.
@@ -669,11 +805,10 @@ class AudioTeeStream:
                 return
 
             if not os.path.exists(self._config.audiotee_path):
-                self._emit_warning(
-                    f"AudioTee-binary niet gevonden ({self._config.audiotee_path}); "
-                    "prospect-tap kan niet starten."
+                self._fail_start(
+                    f"AudioTee-binary niet gevonden ({self._config.audiotee_path}); prospect-tap kan niet starten.",
+                    "binary ontbreekt",
                 )
-                self._degraded = True
                 return
 
             chunk_duration_s = self._config.chunk_size / float(self._config.sample_rate)
@@ -687,20 +822,20 @@ class AudioTeeStream:
 
             if not self._tap_all:
                 if not self._config.target_process:
-                    self._emit_warning(
+                    self._fail_start(
                         "Geen doelproces ingesteld voor de AudioTee-prospect-tap en geen "
-                        "meeting-app automatisch gedetecteerd."
+                        "meeting-app automatisch gedetecteerd.",
+                        "geen doelproces",
                     )
-                    self._degraded = True
                     return
 
                 pid = _find_pid(self._config.target_process)
                 if pid is None:
-                    self._emit_warning(
+                    self._fail_start(
                         f"Meeting-app '{self._config.target_process}' niet (meer) gevonden. "
-                        "Open de app en start het gesprek opnieuw."
+                        "Open de app en start het gesprek opnieuw.",
+                        f"doelproces '{self._config.target_process}' niet gevonden",
                     )
-                    self._degraded = True
                     return
 
                 args += ["--include-processes", str(pid)]
@@ -723,16 +858,25 @@ class AudioTeeStream:
                     bufsize=0,
                 )
             except OSError:
-                self._emit_warning(f"Kon AudioTee niet starten ({self._config.audiotee_path}).")
-                self._degraded = True
+                self._fail_start(
+                    f"Kon AudioTee niet starten ({self._config.audiotee_path}).",
+                    "subprocess kon niet starten",
+                )
                 return
 
             if proc.stdout is None or proc.stderr is None:
-                self._emit_warning("AudioTee-subprocess heeft geen stdout/stderr pipes.")
-                self._degraded = True
+                self._fail_start(
+                    "AudioTee-subprocess heeft geen stdout/stderr pipes.",
+                    "geen stdout/stderr pipes",
+                )
                 return
 
             self._proc = proc
+            # From here the tap is attached: the subprocess is running and its
+            # stdout is ours. Whether audio actually flows through it is a
+            # separate question, answered by tap_health() rather than by this
+            # branch -- that separation is the whole point.
+            self._health.mark_attached(self.device_label)
 
             # Start the stderr drainer before the stdout reader: an immediate
             # setup failure makes stdout hit EOF right away, and
@@ -759,7 +903,7 @@ class AudioTeeStream:
         while not self._stop_event.is_set():
             chunk = self._proc.stdout.read(bytes_per_chunk)
             if not chunk:
-                self._maybe_emit_setup_failure()
+                self._handle_stdout_eof()
                 break
             buffer.extend(chunk)
             if len(buffer) < bytes_per_chunk:
@@ -769,13 +913,24 @@ class AudioTeeStream:
             del buffer[:bytes_per_chunk]
 
             frame = np.frombuffer(raw, dtype=input_dtype).reshape((-1, self._config.channels))
+            # The signal measurement is always taken on the normalized float32
+            # view, whatever dtype the consumer asked for: an int16 frame would
+            # sit thousands of times above a float32 silence floor and make every
+            # tap look like it is carrying audio.
+            normalized = frame.astype(np.float32) / 32768.0
 
             if self._config.dtype == "float32":
-                frame = frame.astype(np.float32) / 32768.0
+                frame = normalized
             else:
                 frame = frame.astype(np.dtype(self._config.dtype))
 
             self._chunks_received += 1
+            if self._health.observe(normalized):
+                logger.info(
+                    "AudioTee tap carrying signal: target=%s first audible frame after %s chunks.",
+                    self.device_label,
+                    self._chunks_received,
+                )
             _drop_oldest_and_put(self._queue, frame)
 
     def _drain_stderr_loop(self) -> None:
@@ -789,10 +944,65 @@ class AudioTeeStream:
             text = data.decode("utf-8", "replace").strip()
             if not text:
                 continue
+            # Logged as well as buffered. The ring below is only ever read when
+            # the subprocess dies, so a tap that keeps running while its device
+            # or route changes underneath it discarded every line AudioTee wrote
+            # about it. That is why nothing in data/ explained the 2026-09-10
+            # call, and why the log now carries the tap's own account of it.
+            logger.info("AudioTee: %s", text)
             with self._stderr_lock:
                 self._stderr_lines.append(text)
                 if len(self._stderr_lines) > 20:
                     self._stderr_lines.pop(0)
+
+    def _handle_stdout_eof(self) -> None:
+        """React to the AudioTee subprocess closing its stdout.
+
+        Two very different facts share this one code path, and until now only
+        the first was ever reported:
+
+        * The subprocess exited **before delivering any audio** -- a failed tap
+          setup. Handled by ``_maybe_emit_setup_failure``.
+        * The subprocess exited **after** delivering audio -- the tap was
+          working and is now gone mid-call. That produced no warning at all,
+          because the setup-failure path deliberately skips any stream that
+          once delivered a chunk. From the operator's seat it looked exactly
+          like a room that had gone quiet.
+
+        A requested ``stop()`` sets ``_stop_event`` first, so neither case fires
+        on an orderly shutdown.
+        """
+
+        if self._stop_event.is_set():
+            return
+        if self._chunks_received > 0:
+            self._handle_unexpected_detach()
+            return
+        self._maybe_emit_setup_failure()
+
+    def _handle_unexpected_detach(self) -> None:
+        """Report a tap that delivered audio and then died on its own."""
+
+        if self._setup_failure_emitted:
+            return
+        self._setup_failure_emitted = True
+        with self._stderr_lock:
+            diagnostic = " | ".join(self._stderr_lines[-3:])
+        self._health.mark_detached(diagnostic or "subprocess gestopt", already_warned=True)
+        self._degraded = True
+        detail = f" (audiotee: {diagnostic})" if diagnostic else ""
+        self._emit_warning(
+            f"De AudioTee-tap ({self.device_label}) is tijdens het gesprek gestopt na "
+            f"{self._chunks_received} frames{detail}. Er komt geen prospect-audio meer binnen. "
+            "Stop het gesprek en start het opnieuw."
+        )
+
+    def _fail_start(self, message: str, detail: str) -> None:
+        """Record and report a tap that never attached."""
+
+        self._emit_warning(message)
+        self._degraded = True
+        self._health.mark_attach_failed(detail)
 
     def _maybe_emit_setup_failure(self) -> None:
         """Warn once when the subprocess exits before delivering any audio.
@@ -822,6 +1032,8 @@ class AudioTeeStream:
             process_label = "alle processen"
         else:
             process_label = self._config.target_process or "onbekend proces"
+        self._health.mark_attach_failed(diagnostic or "subprocess stopte voor het eerste frame")
+        self._degraded = True
         self._emit_warning(_audiotee_setup_failure_message(process_label, diagnostic))
 
     def _resolve_excluded_pids(self) -> set[int]:
@@ -848,6 +1060,23 @@ class AudioTeeStream:
             self._on_warning({"type": "audio_warning", "stream": "prospect", "message": message})
         except Exception:
             logger.warning("on_warning callback raised for AudioTee tap", exc_info=True)
+
+    def reattach(self) -> None:
+        """Force a clean stop/start cycle: the fix for a tap that is attached
+        but delivers nothing except digital silence (``ATTACHED_SIGNAL_LOST``).
+
+        That state has no dying subprocess to react to -- the tap is still
+        open, it just stopped carrying anything real, most likely because
+        macOS moved the audio route out from under it. ``start()`` already
+        re-resolves the target process from scratch on every call, which is
+        exactly what a route change needs. Safe to call while attached: it
+        does not raise, matching every other public method on this stream.
+        """
+
+        logger.info("Reattaching AudioTee tap (%s): stopping and restarting.", self.device_label)
+        self.stop()
+        self._setup_failure_emitted = False
+        self.start()
 
     def stop(self) -> None:
         with self._lock:
@@ -922,17 +1151,27 @@ async def check_streams_liveness(
         if not isinstance(received, int) or received > 0:
             continue
         device_label = getattr(stream, "device_label", "unknown")
-        logger.warning("Mic stream silent/dead: device=%s stream=%s", device_label, label)
+        # Same symptom, two causes that need opposite responses. Without the
+        # attach state this warning blamed the microphone even when the real
+        # answer was "the tap never opened", which is how an hour goes into
+        # debugging a tap that was never broken.
+        health = stream_tap_health(stream)
+        reason = describe_silent_stream(label, device_label, health)
+        tap_state = "unknown" if health is None else health.state.value
+        logger.warning(
+            "Stream silent/dead: device=%s stream=%s tap=%s",
+            device_label,
+            label,
+            tap_state,
+        )
         silent.append(label)
         try:
             await broadcast_warning(
                 {
                     "type": "audio_warning",
                     "stream": label,
-                    "message": (
-                        f"Geen audio van {label}-stream (device={device_label}). "
-                        "Controleer je microfoon/audio-routing."
-                    ),
+                    "tap_state": tap_state,
+                    "message": reason,
                 }
             )
         except Exception:

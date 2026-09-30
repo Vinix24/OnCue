@@ -17,7 +17,6 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
 
-import httpx
 import websockets
 
 from sales_copilot.core.config import WebSocketConfig, env, env_float
@@ -240,6 +239,12 @@ class SampleAhaPlayer:
             await asyncio.sleep(min(0.1, remaining))
 
     def _end_call(self) -> None:
+        # Imported here, not at module scope: httpx is not a base/windows
+        # dependency, and this demo player (no mic, no Whisper model, no cloud
+        # LLM key required) must stay importable without it. Only this final
+        # fire-and-forget POST needs the client.
+        import httpx
+
         try:
             httpx.post(
                 f"http://{self._host}:{self._port}/api/end-call",

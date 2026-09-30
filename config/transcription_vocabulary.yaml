@@ -5,113 +5,83 @@
 # deployments can edit, replace or disable it via WHISPER_VOCABULARY_CONFIG /
 # WHISPER_VOCABULARY_ENABLED in .env.
 #
-# Scope of the default list: generic Dutch sales / B2B vocabulary that Whisper
-# often mis-hears because the terms are rare in generic training data. Keep it
-# compact: very long prompts slow inference and can increase hallucinations.
-# Re-measure WER after edits with scripts/benchmark_transcription.py.
+# HARD BUDGET — READ BEFORE ADDING TERMS
+# Whisper's decoder context is n_text_ctx = 448 tokens and it reserves half of
+# that for the prompt, minus one: 223 tokens. whisper.cpp keeps the LAST tokens
+# and silently drops the head (src/whisper.cpp:7097), so an over-budget list
+# loses its opening terms AND the framing sentence, with no warning in the log.
+# Measured 2026-08-25: the previous 97-term list rendered to 354 tokens, so 131
+# tokens were dropped every single inference — the entire framing sentence plus
+# Salesforce through "proof of concept". This list is 200 tokens, 23 to spare.
+#
+# Selection rule: only include terms Whisper would otherwise get WRONG. Ordinary
+# Dutch words it already transcribes correctly ("voorstel", "contract",
+# "management") spend budget and buy nothing. Prefer proper nouns, acronyms and
+# compound jargon. Re-measure after edits — see scripts/benchmark_transcription.py.
 
 enabled: true
 language: nl
 description: >
-  Default Dutch B2B / sales vocabulary used to bias local Whisper inference
-  without fine-tuning. Terms cover generic vendors, sales jargon, contract
-  language and common operational pain points.
+  Compact Dutch B2B / sales vocabulary used to bias local Whisper inference
+  without fine-tuning. Kept under Whisper's 223-token prompt budget so every
+  term in this file actually reaches the model.
 
-# Whisper's initial_prompt is free text. We render the terms as a short,
-# comma-separated Dutch phrase so the model sees them in context.
-prompt_prefix: "Nederlands zakelijke verkoopgesprek. Belangrijke termen:"
+prompt_prefix: "Nederlands zakelijke verkoopgesprek tussen Vincent en Steffy. Belangrijke termen:"
 
 terms:
-  # --- Software / tooling vendors (generic, commonly mentioned in NL B2B) ---
-  - Salesforce
-  - HubSpot
-  - Pipedrive
-  - Exact
+  # --- Eigennamen en producttermen uit deze omgeving ---
+  - OnCue
+  - Steffy
+  - Vincent
+  - SalesMinds
+  - copilot
+  - transcriptie
+  - live transcriptie
+
+  # --- NL-software die Whisper structureel verhaspelt ---
   - AFAS
   - Visma
   - Twinfield
   - Booqable
   - Simplicate
   - Teamleader
-  - ClickUp
-  - Asana
-  - Monday
-  - Microsoft Teams
-  - Zoom
-  - Google Workspace
+  - Exact
+  - Salesforce
+  - HubSpot
+  - Pipedrive
 
-  # --- Sales / commercial jargon ---
-  - offerte
-  - propositie
-  - voorstel
-  - lead
-  - leads
-  - prospect
-  - pipeline
-  - funnel
-  - forecast
+  # --- Acroniemen ---
   - CRM
   - ERP
-  - upsell
-  - cross-sell
-  - deal
-  - deals
-  - closing
-  - contract
-  - overeenkomst
-  - onboarding
-  - implementatie
-  - livegang
-  - proof of concept
-  - pilot
-  - business case
   - ROI
   - TCO
   - MRR
   - ARR
-  - churn
-  - retentie
-  - upsell
-  - verlenging
-  - licentie
-  - abonnement
-
-  # --- Operational / compliance pain points ---
-  - kasstroom
-  - liquiditeit
-  - voorraad
-  - voorraadbeheer
-  - logistiek
-  - inkoop
-  - inkoopproces
-  - verzuim
-  - ziekteverzuim
-  - productiviteit
-  - efficiëntie
-  - automatisering
-  - compliance
   - AVG
   - GDPR
-  - ISO
-  - facturatie
-  - debiteuren
-  - debiteurenbeheer
-  - crediteuren
-  - btw
-  - administratie
-  - accountantskantoor
-  - boekhouder
 
-  # --- Roles / stakeholders ---
-  - decision maker
-  - beslisser
+  # --- Sales-jargon dat Whisper mis hoort ---
+  - offerte
+  - propositie
+  - pijnpunt
+  - pijnpunten
+  - bezwaar
+  - bezwaren
+  - upsell
+  - cross-sell
+  - churn
+  - retentie
+  - onboarding
+  - implementatie
+  - livegang
+  - proof of concept
+  - business case
   - budgethouder
-  - gebruiker
-  - key user
-  - projectleider
-  - directie
-  - management
-  - afdeling
-  - sales
-  - accountmanager
-  - customer success
+
+  # --- Samengestelde termen uit operatie en finance ---
+  - ziekteverzuim
+  - debiteurenbeheer
+  - voorraadbeheer
+  - inkoopproces
+  - accountantskantoor
+  - compliance

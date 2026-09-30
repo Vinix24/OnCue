@@ -13,5 +13,5 @@ applicable copyright law. See LICENSE-COMMERCIAL.md.
 from __future__ import annotations
 
 # fmt: off
-_PROD_PUBKEY_HEX: str | None = "91f67cba8811dd6b9ae68e940f440660b0e8ed73f74640ba57da5b54c806c2f0"
+_PROD_PUBKEY_HEX: str | None = None
 # fmt: on

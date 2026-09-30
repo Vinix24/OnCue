@@ -1,0 +1,53 @@
+# Ground truth for tests/fixtures/entity_recall_demo/sample.wav.
+#
+# sample.wav is SYNTHETIC macOS `say` text-to-speech (voice Xander, nl_NL)
+# reading the invented sentence below. Nobody spoke these words; the name,
+# company, phone number, amount and date are all invented for this fixture,
+# mirroring scripts/benchmark_assets/README.md's convention for bundled
+# mock-speech audio. Not excerpted from any real call, transcript or
+# recording.
+#
+# Planted script (verbatim text given to `say`):
+#   "Goedemiddag, met Bram de Wit van Acme Industries. U kunt mij bereiken op
+#   nul zes, twaalf, vierendertig, zesenvijftig, achtenzeventig. We hebben een
+#   investering van twaalfduizend euro besproken, met een vervolgafspraak op
+#   negen september. Ik stuur u volgende week een voorstel."
+#
+# Regenerate with:
+#   say -v Xander -o tests/fixtures/entity_recall_demo/sample.wav \
+#       --file-format=WAVE --data-format=LEI16@16000 "<script above>"
+
+entities:
+  - type: company
+    value: "Acme Industries"
+    critical: true
+
+  - type: person
+    value: "Bram de Wit"
+    critical: true
+
+  - type: phone
+    value: "06 12 34 56 78"
+    variants:
+      - "0612345678"
+      - "06-12-34-56-78"
+    critical: true
+
+  - type: amount
+    value: "12.000 euro"
+    variants:
+      - "twaalfduizend euro"
+      - "12000 euro"
+    critical: false
+
+  - type: date
+    value: "9 september"
+    variants:
+      - "negen september"
+    critical: false
+
+  - type: agreement
+    value: "ik stuur u volgende week een voorstel"
+    variants:
+      - "ik stuur volgende week een voorstel"
+    critical: true

@@ -37,6 +37,10 @@ class SessionRecord:
     end_ts: float | None
     profile: str
     transcript_path: str | None
+    # klantmap-als-eenheid D3: the client this session is linked to (or None,
+    # "geen klant"). Nullable and additive -- rows created before this column
+    # existed read back as None, unchanged.
+    client_slug: str | None = None
 
 
 @dataclass(frozen=True)
@@ -84,6 +88,19 @@ class SessionStore:
             );
             CREATE INDEX IF NOT EXISTS idx_detections_session ON detections(session_id);
             """)
+            self._migrate_client_slug_column(conn)
+
+    def _migrate_client_slug_column(self, conn: sqlite3.Connection) -> None:
+        """Additive migration: add ``client_slug`` to a pre-D3 ``sessions`` table.
+
+        ``CREATE TABLE IF NOT EXISTS`` above never alters an existing table, so a
+        database created before klantmap-als-eenheid D3 needs this explicit
+        ``ALTER TABLE`` once. Existing rows read back with ``client_slug IS NULL``
+        (no client, unchanged from before this column existed).
+        """
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        if "client_slug" not in columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN client_slug TEXT")
 
     @contextmanager
     def _connect(self) -> Generator[sqlite3.Connection, None, None]:
@@ -104,12 +121,22 @@ class SessionStore:
         session_id: str,
         profile: str = "sales",
         transcript_path: str | None = None,
+        client_slug: str | None = None,
     ) -> None:
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, start_ts, profile, transcript_path) VALUES (?, ?, ?, ?)",
-                (session_id, time.time(), profile, transcript_path),
+                "INSERT INTO sessions (id, start_ts, profile, transcript_path, client_slug) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (session_id, time.time(), profile, transcript_path, client_slug),
             )
+
+    def get_client_slug(self, session_id: str) -> str | None:
+        """The client this session is linked to, or ``None`` (no client, or unknown session)."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT client_slug FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+        return row["client_slug"] if row and row["client_slug"] else None
 
     def end_session(self, session_id: str) -> None:
         with self._connect() as conn:
@@ -148,6 +175,7 @@ class SessionStore:
                 end_ts=r["end_ts"],
                 profile=r["profile"],
                 transcript_path=r["transcript_path"],
+                client_slug=r["client_slug"],
             )
             for r in rows
         ]

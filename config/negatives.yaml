@@ -1,7 +1,9 @@
-# Negatieve / "geen bezwaar" route-set. Live gewired in ObjectionRouter
-# wanneer INCLUDE_NEGATIVES=true (default). Vangt generieke, niet-bezwaar
-# prospect-speech (vragen, rambling, bevestigingen, budget/scope-signalen die
-# geen bezwaar zijn) af zodat die niet als bezwaar wordt weggezet.
+# Negatieve / "geen bezwaar" route-set. Live gewired in zowel ObjectionRouter
+# als PainPointRouter wanneer INCLUDE_NEGATIVES=true (default, beide routers
+# lezen dezelfde DetectorConfig.include_negatives / negatives_config). Vangt
+# generieke, niet-bezwaar / niet-pijnpunt prospect-speech (vragen, rambling,
+# bevestigingen, getallen/tijdspannes, budget/scope-signalen) af zodat die
+# niet als bezwaar of pijnpunt wordt weggezet.
 #
 # Structurele precision-fix voor ObjectionRouter over-matching (precision
 # ~0.28): zie scripts/eval_objection_precision.py
@@ -10,6 +12,17 @@
 # (_REPRESENTATIVE_NEGATIVES / _REPRESENTATIVE_NEAR_MISSES), waar deze route
 # als gesimuleerde "negative"-klasse de precision-fix al aantoonde. Deze file
 # productioniseert die simulatie als een echte, live route.
+#
+# Dezelfde structurele fix is op 2026-09-05 doorgetrokken naar PainPointRouter
+# nadat "een maand of vijf, zes" live als pijnpunt `rapportage` classificeerde
+# met een hardcoded 0.95 (PainPointRouter._keyword_match's oude score>=2-bar
+# werd door één enkel gedeeld token gehaald). Zie
+# scripts/eval_pain_point_precision.py en
+# src/sales_copilot/modules/detector/eval_mining.py
+# (_REPRESENTATIVE_PAIN_POINT_NEAR_MISSES / _REPRESENTATIVE_PAIN_POINT_NEGATIVES).
+# De "Pijnpunt-domein" sectie onderaan is toegevoegd voor dat pijnpunt-domein
+# specifiek; de rest van het bestand overlapt genuine met beide domeinen
+# (dezelfde live transcript-speech raakt beide routers).
 #
 # Schema mirrort config/objections.yaml 1-op-1 zodat dit drop-in bruikbaar is
 # voor dezelfde semantic-router (PainPointRouter / ObjectionRouter-lader).
@@ -50,3 +63,15 @@ routes:
       - dat klopt ja
       - even kijken hoor
       - nou ja dat is een goede vraag
+      # Pijnpunt-domein: getallen/tijdspannes, bevestigingen en vragen die een
+      # verkoopgesprek structureel bevat maar geen pijnpunt signaleren. Live
+      # over-match 2026-09-05: "een maand of vijf, zes" -> rapportage (0.95).
+      - een maand of vijf zes
+      - dat is ongeveer drie kwartier werk
+      - over een week of twee weten we meer
+      - we hebben er al drie jaar geleden naar gekeken
+      - ja dat klopt helemaal
+      - precies dat is ook wat ik bedoel
+      - wat bedoel je daar precies mee
+      - kun je dat nog even toelichten
+      - hoeveel mensen zitten er ongeveer in dat team

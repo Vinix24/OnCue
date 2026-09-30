@@ -126,3 +126,111 @@ def test_seed_app_support_defaults_is_no_op_in_dev(monkeypatch: pytest.MonkeyPat
     # is_frozen_app is False by default; the function should return immediately.
     paths.seed_app_support_defaults()
     assert paths.is_frozen_app() is False
+
+
+# --- Installed (non-editable) package mode -----------------------------------
+#
+# A plain `pip install .` has no pyproject.toml reachable from paths.py (only
+# the sales_copilot package itself is copied into site-packages), and is not
+# frozen either. Simulated here via monkeypatch on the module-private
+# _find_repo_root() rather than by faking a whole site-packages tree.
+
+
+def test_installed_package_root_is_two_parents_up() -> None:
+    assert paths._installed_package_root() == Path(paths.__file__).resolve().parent.parent  # noqa: SLF001
+
+
+def test_installed_mode_resolves_resources_inside_the_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(paths, "_find_repo_root", lambda: None)
+
+    expected = paths._installed_package_root() / "_resources" / "dashboard" / "index.html"  # noqa: SLF001
+    assert paths.resolve_app_resource("dashboard/index.html") == expected
+
+
+def test_installed_mode_never_writes_app_support_inside_the_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: a plain `pip install .` must not write data/ into site-packages."""
+    monkeypatch.setattr(paths, "_find_repo_root", lambda: None)
+
+    base = paths.resolve_app_support()
+    package_root = paths._installed_package_root()  # noqa: SLF001
+    assert base != package_root
+    assert package_root not in base.parents
+    assert base not in package_root.parents
+
+
+def test_installed_mode_macos_uses_application_support(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(paths, "_find_repo_root", lambda: None)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    assert paths.resolve_app_support() == tmp_path / "Library" / "Application Support" / "SalesCopilot"
+
+
+def test_installed_mode_windows_uses_localappdata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(paths, "_find_repo_root", lambda: None)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+
+    assert paths.resolve_app_support() == tmp_path / "AppData" / "Local" / "SalesCopilot"
+
+
+def test_installed_mode_windows_falls_back_without_localappdata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(paths, "_find_repo_root", lambda: None)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+    assert paths.resolve_app_support() == tmp_path / "AppData" / "Local" / "SalesCopilot"
+
+
+def test_installed_mode_linux_uses_xdg_data_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(paths, "_find_repo_root", lambda: None)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
+
+    assert paths.resolve_app_support() == tmp_path / "xdg-data" / "SalesCopilot"
+
+
+def test_installed_mode_linux_falls_back_without_xdg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(paths, "_find_repo_root", lambda: None)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    assert paths.resolve_app_support() == tmp_path / ".local" / "share" / "SalesCopilot"
+
+
+def test_seed_app_support_defaults_seeds_installed_package_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An installed (non-editable) package also seeds config/data on first run."""
+    fake_package_root = tmp_path / "site-packages" / "sales_copilot"
+    resources = fake_package_root / "_resources"
+    (resources / "config").mkdir(parents=True)
+    (resources / "config" / "pain_points.yaml").write_text("test: yes\n", encoding="utf-8")
+    (resources / "data" / "samples").mkdir(parents=True)
+    (resources / "data" / "samples" / "sample-aha.json").write_text("{}", encoding="utf-8")
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+
+    monkeypatch.setattr(paths, "_find_repo_root", lambda: None)
+    monkeypatch.setattr(paths, "_installed_package_root", lambda: fake_package_root)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    paths.seed_app_support_defaults()
+    base = paths.resolve_app_support()
+    assert (base / "config" / "pain_points.yaml").exists()
+    assert (base / "data" / "samples" / "sample-aha.json").exists()

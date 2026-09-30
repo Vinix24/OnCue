@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import signal
 import socket
 import sys
@@ -15,6 +14,7 @@ import uuid
 import webbrowser
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import websockets
@@ -28,6 +28,8 @@ from sales_copilot.auth.startup_check import LicenseStatus, check_license_at_sta
 from sales_copilot.core.audit_ledger import get_audit_writer
 from sales_copilot.core.config import (
     CallConfig,
+    DetectorConfig,
+    InsightConfig,
     TranscriberConfig,
     WebSocketConfig,
     build_module_configs,
@@ -42,7 +44,11 @@ from sales_copilot.core.consent import (
     record_consent,
     should_soft_nudge,
 )
-from sales_copilot.core.context_docs import resolve_context_doc_ids, write_session_context_manifest
+from sales_copilot.core.context_docs import (
+    parse_client_slug_from_payload,
+    resolve_context_doc_ids,
+    write_session_context_manifest,
+)
 from sales_copilot.core.logging import configure_logging
 from sales_copilot.core.paths import (
     ensure_app_support_tree,
@@ -59,6 +65,49 @@ from sales_copilot.websocket.hub import run_hub
 from sales_copilot.websocket.hub_auth import channel_ws_url
 
 logger = logging.getLogger(__name__)
+
+
+def _start_or_signal_recording(
+    record_audio: bool,
+    session_id: str,
+    record_dir: Path,
+    *,
+    sample_rate: int,
+    flush_seconds: float,
+) -> str | None:
+    """Start call-audio recording when enabled, or say plainly that it is off.
+
+    RECORD_AUDIO defaults to false (privacy-first: this product records sales
+    calls, so recording is opt-in, not silently on). An operator who never
+    sets it must still get an explicit signal either way -- previously only
+    the "recording started" path logged anything, so an operator relying on
+    the default got no confirmation their calls were never being saved.
+    Returns the session id to pass to ``stop_session_recording()`` at call end,
+    or ``None`` when recording did not start.
+    """
+    if not record_audio:
+        logger.info(
+            "RECORD_AUDIO=false: this call's audio is not being saved to disk "
+            "(live transcription/pain-point detection are unaffected). Set "
+            "RECORD_AUDIO=true in .env to record calls for later review."
+        )
+        return None
+
+    try:
+        start_session_recording(
+            session_id,
+            record_dir,
+            sample_rate=sample_rate,
+            flush_seconds=flush_seconds,
+        )
+        logger.info(
+            "RECORD_AUDIO=true: recording this call's audio to %s.",
+            record_dir / session_id,
+        )
+        return session_id
+    except Exception as exc:
+        logger.warning("AudioRecorder start failed: %s", exc)
+        return None
 
 
 async def _eager_warmup_at_startup() -> None:
@@ -154,6 +203,37 @@ def open_front_door(
     return url
 
 
+_MODULE_SOURCE_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    ("talk_time", ("talk_time",), "enable_talk_time"),
+    ("transcriber", ("transcriber", "transcript"), "enable_transcriber"),
+    ("detector", ("pain_points",), "enable_detector"),
+    ("reports", ("post_call_report",), "enable_reports"),
+)
+
+
+def _module_source(
+    payload: dict[str, Any],
+    modules: dict[str, Any],
+    modules_keys: tuple[str, ...],
+    legacy_key: str,
+) -> str:
+    """Describe where a module's enable/disable flag came from.
+
+    A start_call payload can set a module explicitly via ``modules.<key>``
+    (current dashboard shape) or the legacy top-level ``enable_<module>``
+    flag; anything else falls through to the hardcoded default in
+    ``_parse_call_config``. Used so a disabled module's origin is visible in
+    the log instead of a silent name-drop from the "Enabled modules" line --
+    on 2026-09-05 a detector-off call left zero trace anywhere.
+    """
+    for key in modules_keys:
+        if key in modules:
+            return f"modules.{key}={modules[key]!r}, explicit in start_call payload"
+    if legacy_key in payload:
+        return f"payload.{legacy_key}={payload[legacy_key]!r}, explicit in start_call payload"
+    return "defaulted (no explicit flag in start_call payload)"
+
+
 def _parse_call_config(payload: dict[str, Any]) -> CallConfig:
     document_ids = payload.get("context_doc_ids")
     if not isinstance(document_ids, list):
@@ -193,6 +273,11 @@ def _parse_call_config(payload: dict[str, Any]) -> CallConfig:
             "Detector is enabled but transcriber is disabled; detector will not receive "
             "transcript input unless another source injects via the transcript channel."
         )
+    if not enable_detector:
+        logger.warning(
+            "Detector is disabled for this call; no pain-point detection will run (%s).",
+            _module_source(payload, modules, ("pain_points",), "enable_detector"),
+        )
     data = {
         "screens": screens,
         "enable_talk_time": modules.get("talk_time", payload.get("enable_talk_time", True)),
@@ -219,6 +304,11 @@ def _parse_call_config(payload: dict[str, Any]) -> CallConfig:
         "llm_model": llm_payload.get("model", payload.get("llm_model")),
         "preset_name": payload.get("preset_name", payload.get("preset")),
         "context_docs": context_docs,
+        "client_slug": parse_client_slug_from_payload(payload),
+        # klantmap-als-eenheid D2: set server-side by hub_core.extract_start_call_config
+        # from the selected client's klant.yaml (aflevering: lokaal). None (no client, or
+        # no aflevering set) means the existing global report-delivery-sinks behaviour.
+        "aflevering": payload.get("aflevering") if isinstance(payload.get("aflevering"), str) else None,
     }
     transcribe_self_live_raw = transcript_payload.get("transcribe_self_live")
     if isinstance(transcribe_self_live_raw, bool):
@@ -313,6 +403,31 @@ def _enabled_modules(call_config: CallConfig) -> list[str]:
     return modules
 
 
+def _disabled_modules(config_payload: dict[str, Any], call_config: CallConfig) -> list[str]:
+    """Complement of ``_enabled_modules``: every known module that is off, with why.
+
+    A name missing from "Enabled modules" is easy to miss -- this always logs
+    the complement, "none" included, so a disabled module never again looks
+    identical to one that was simply never started.
+    """
+    modules = config_payload.get("modules")
+    if not isinstance(modules, dict):
+        modules = {}
+    enabled_flags = {
+        "talk_time": call_config.enable_talk_time,
+        "transcriber": call_config.enable_transcriber,
+        "detector": call_config.enable_detector,
+        "reports": call_config.enable_reports,
+    }
+    disabled = []
+    for name, modules_keys, legacy_key in _MODULE_SOURCE_SPECS:
+        if enabled_flags[name]:
+            continue
+        source = _module_source(config_payload, modules, modules_keys, legacy_key)
+        disabled.append(f"{name} ({source})")
+    return disabled
+
+
 async def _emit_config_event(
     ws_config: WebSocketConfig,
     event_type: str,
@@ -342,30 +457,48 @@ def _build_provider_client(provider: str) -> None:
 
 async def _health_check_providers(
     call_config: CallConfig,
+    detector_config: DetectorConfig,
+    insight_config: InsightConfig,
     ws_config: WebSocketConfig,
 ) -> None:
-    """Try to instantiate the configured LLM provider client at start_call time.
+    """Try to instantiate the configured LLM provider client(s) at start_call time.
 
     Publishes a module_warning coaching event immediately on failure so the
-    operator knows something is wrong before the detector crashes silently.
+    operator knows something is wrong before the detector/insight engine
+    crashes silently. Checks the detector's resolved provider and, separately,
+    the deep-insight provider (when INSIGHT_ENABLED) since INSIGHT_PROVIDER may
+    differ from LLM_PROVIDER. Both checks are gated on ``enable_detector``: the
+    insight engine only ever runs nested inside the detector module (see
+    ``modules/detector/__main__.py``), so there is nothing to health-check for
+    either when the detector itself is disabled.
     """
     if not call_config.enable_detector:
         return
-    provider = (call_config.llm_provider or os.getenv("LLM_PROVIDER", "openrouter") or "").lower()
-    if not provider:
-        return
+
+    provider = (detector_config.llm_provider or "").lower()
+    if provider:
+        await _health_check_one_provider(provider, "detector", ws_config)
+
+    if insight_config.enabled:
+        insight_provider = (insight_config.llm_provider or provider or "").lower()
+        if insight_provider:
+            await _health_check_one_provider(insight_provider, "insight", ws_config)
+
+
+async def _health_check_one_provider(provider: str, module: str, ws_config: WebSocketConfig) -> None:
     try:
         await asyncio.to_thread(_build_provider_client, provider)
     except Exception as exc:
         logger.error(
-            "Provider health-check failed at start_call: provider=%s exc_type=%s msg=%s",
+            "Provider health-check failed at start_call: module=%s provider=%s exc_type=%s msg=%s",
+            module,
             provider,
             type(exc).__name__,
             str(exc)[:300],
         )
         payload: dict[str, Any] = {
             "type": "module_warning",
-            "module": "detector",
+            "module": module,
             "warning": f"LLM provider '{provider}' init failed: {str(exc)[:200]}",
             "at_ms": int(time.time() * 1000),
         }
@@ -374,7 +507,7 @@ async def _health_check_providers(
             async with websockets.connect(url) as ws:
                 await ws.send(json.dumps(payload))
         except Exception:
-            logger.warning("Could not publish module_warning for provider health-check")
+            logger.warning("Could not publish module_warning for provider health-check (module=%s)", module)
 
 
 async def _guarded_task(
@@ -464,9 +597,11 @@ async def _run_call(
                         stop_event=stop_event,
                         register_signals=False,
                         detector_config=module_configs["detector"],
+                        insight_config=module_configs["insight"],
                         slides_config=module_configs["slides"],
                         context_docs=call_config.context_docs,
                         session_id=session_id,
+                        client_slug=call_config.client_slug,
                     ),
                     "detector",
                     crashed_modules,
@@ -488,6 +623,8 @@ async def _run_call(
                         prospect_company=call_config.prospect_company,
                         context_docs=call_config.context_docs,
                         session_id=session_id,
+                        client_slug=call_config.client_slug,
+                        aflevering=call_config.aflevering,
                     ),
                     "reports",
                     crashed_modules,
@@ -661,8 +798,10 @@ def main() -> None:
             call_config = _parse_call_config(config_payload)
             configs = build_module_configs(call_config)
             enabled = _enabled_modules(call_config)
+            disabled = _disabled_modules(config_payload, call_config)
             logger.info("Call preset: %s", call_config.preset_name or "custom")
             logger.info("Enabled modules: %s", ", ".join(enabled) if enabled else "none")
+            logger.info("Disabled modules: %s", ", ".join(disabled) if disabled else "none")
             logger.info("LLM provider: %s", configs["detector"].llm_provider)
             session_id = str(uuid.uuid4())
 
@@ -711,25 +850,19 @@ def main() -> None:
                 )
 
             write_session_context_manifest(session_id, call_config.context_docs)
-            recorder_session_id: str | None = None
-            if record_audio:
-                recorder_session_id = session_id
-                try:
-                    start_session_recording(
-                        recorder_session_id,
-                        record_dir,
-                        sample_rate=record_sample_rate,
-                        flush_seconds=record_flush,
-                    )
-                except Exception as exc:
-                    logger.warning("AudioRecorder start failed: %s", exc)
-                    recorder_session_id = None
+            recorder_session_id = _start_or_signal_recording(
+                record_audio,
+                session_id,
+                record_dir,
+                sample_rate=record_sample_rate,
+                flush_seconds=record_flush,
+            )
             await _emit_config_event(ws_config, "call_started")
             _write_audit_event(
                 "session_start",
                 {"session_id": session_id, "preset": call_config.preset_name},
             )
-            await _health_check_providers(call_config, ws_config)
+            await _health_check_providers(call_config, configs["detector"], configs["insight"], ws_config)
             try:
                 await _run_call(
                     stop_event,

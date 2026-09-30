@@ -70,12 +70,14 @@ _REPRESENTATIVE_NEGATIVES: list[dict[str, str]] = [
 ]
 
 
-def _load_objection_utterances(config_path: str | Path = "") -> list[dict[str, str]]:
-    """Load the canonical objection utterances and label them with their route."""
+def _load_route_utterances(path: str | Path) -> list[dict[str, str]]:
+    """Load utterances from any ``routes:`` yaml file and label them with their route.
+
+    Domain-agnostic: shared by the objection and pain-point seed builders below.
+    """
     from sales_copilot.core.config import load_yaml
 
-    path = Path(config_path) if config_path else resolve_app_path("config/objections.yaml")
-    data = load_yaml(path)
+    data = load_yaml(Path(path))
     rows: list[dict[str, str]] = []
     for route in data.get("routes", []):
         name = route["name"]
@@ -84,11 +86,69 @@ def _load_objection_utterances(config_path: str | Path = "") -> list[dict[str, s
     return rows
 
 
+def _load_objection_utterances(config_path: str | Path = "") -> list[dict[str, str]]:
+    """Load the canonical objection utterances and label them with their route."""
+    path = config_path or resolve_app_path("config/objections.yaml")
+    return _load_route_utterances(path)
+
+
+def _load_pain_point_utterances(config_path: str | Path = "") -> list[dict[str, str]]:
+    """Load the canonical pain-point utterances and label them with their route."""
+    path = config_path or resolve_app_path("config/pain_points.yaml")
+    return _load_route_utterances(path)
+
+
+# Representative near-misses for PainPointRouter: semantically close to a
+# pain-point route but not actually that pain point. Mirrors
+# _REPRESENTATIVE_NEAR_MISSES for the ObjectionRouter finding.
+_REPRESENTATIVE_PAIN_POINT_NEAR_MISSES: list[dict[str, str]] = [
+    # rapportage-adjacent but not a reporting complaint
+    {"text": "we hebben er al drie jaar geleden naar gekeken", "label": "negative", "source": "seed"},
+    # capaciteit-adjacent
+    {"text": "we hebben er net twee mensen bij aangenomen", "label": "negative", "source": "seed"},
+    # handmatig_werk-adjacent
+    {"text": "dat doen we grotendeels al geautomatiseerd", "label": "negative", "source": "seed"},
+    # kosten-adjacent
+    {"text": "het budget hebben we er al voor gereserveerd", "label": "negative", "source": "seed"},
+    # onboarding-adjacent
+    {"text": "nieuwe mensen zijn hier na twee weken al zelfstandig", "label": "negative", "source": "seed"},
+]
+
+# Pure negatives / neutral filler for the pain-point domain: the live
+# over-match this eval script was built to catch. "een maand of vijf, zes"
+# was tagged `rapportage` at a hardcoded 0.95 on 2026-09-05 via a single
+# shared 7+ char token clearing the old keyword score>=2 bar. Numbers, time
+# spans, confirmations, and questions are what an actual Dutch sales
+# conversation is full of without carrying a real pain-point signal.
+_REPRESENTATIVE_PAIN_POINT_NEGATIVES: list[dict[str, str]] = [
+    {"text": "een maand of vijf, zes", "label": "negative", "source": "seed"},
+    {"text": "dat is ongeveer drie kwartier werk", "label": "negative", "source": "seed"},
+    {"text": "over een week of twee weten we meer", "label": "negative", "source": "seed"},
+    {"text": "ja dat klopt helemaal", "label": "negative", "source": "seed"},
+    {"text": "precies dat is ook wat ik bedoel", "label": "negative", "source": "seed"},
+    {"text": "wat bedoel je daar precies mee", "label": "negative", "source": "seed"},
+    {"text": "kun je dat nog even toelichten", "label": "negative", "source": "seed"},
+    {"text": "hoeveel mensen zitten er ongeveer in dat team", "label": "negative", "source": "seed"},
+]
+
+
 def seed_records() -> list[dict[str, str]]:
-    """Build a small, representative seed eval set."""
+    """Build a small, representative seed eval set for ObjectionRouter."""
     records = _load_objection_utterances()
     records.extend(_REPRESENTATIVE_NEAR_MISSES)
     records.extend(_REPRESENTATIVE_NEGATIVES)
+    return records
+
+
+def pain_point_seed_records() -> list[dict[str, str]]:
+    """Build a small, representative seed eval set for PainPointRouter.
+
+    Mirrors ``seed_records()`` for the ObjectionRouter finding, scoped to the
+    pain-point routes and their near-miss/negative traps.
+    """
+    records = _load_pain_point_utterances()
+    records.extend(_REPRESENTATIVE_PAIN_POINT_NEAR_MISSES)
+    records.extend(_REPRESENTATIVE_PAIN_POINT_NEGATIVES)
     return records
 
 

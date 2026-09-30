@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import logging
 import stat
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sales_copilot.core.config import env_bool
+from sales_copilot.core.config import ReportDeliveryConfig, env_bool
 from sales_copilot.core.paths import resolve_app_path
 from sales_copilot.core.pii_filter import redact_pii
+from sales_copilot.modules.reports import delivery
+
+logger = logging.getLogger(__name__)
 
 REPORTS_DIR = resolve_app_path("data/reports")
 
@@ -56,6 +60,18 @@ class KeyMomentEntry:
 
 
 @dataclass(frozen=True)
+class InsightEntry:
+    """Track 3 (deep insight lane) report row -- one `insight` channel payload."""
+
+    insight_type: str
+    text: str
+    grounding: str
+    speculation: str
+    timestamp_ms: int
+    question: str | None = None
+
+
+@dataclass(frozen=True)
 class CallReport:
     session_id: str
     call_duration_ms: int
@@ -74,6 +90,17 @@ class CallReport:
     # Phase 3 Free post-call scorecard (counts + gaps); None on reports
     # generated before Phase 3 or without scorecard data.
     scorecard: dict[str, Any] | None = None
+    # Track 3 (deep insight lane, PR-D2): the session's deep insights, in
+    # publish order. Empty when the lane is off/not entitled.
+    insights: list[InsightEntry] = field(default_factory=list)
+    # Wall-clock ISO-8601 UTC timestamps (session.py's SessionData.started_at /
+    # .ended_at). None only for reports built outside the normal session
+    # lifecycle (e.g. direct construction in tests); the live pipeline always
+    # sets both. Added for report-delivery consumers (docs/MODULE4.md,
+    # "Report Delivery"): call_duration_ms alone has no wall-clock anchor, so a
+    # downstream automation could not tell "when" a call happened.
+    call_started_at: str | None = None
+    call_ended_at: str | None = None
 
 try:  # pragma: no cover - prefer PR-36 definitions when available
     from sales_copilot.modules.reports.session import (  # type: ignore
@@ -104,6 +131,15 @@ except Exception:  # pragma: no cover
         case_id: str | None = None
 
     @dataclass(frozen=True)
+    class InsightEvent:
+        insight_type: str
+        text: str
+        grounding: str
+        speculation: str
+        timestamp_ms: int
+        question: str | None = None
+
+    @dataclass(frozen=True)
     class TranscriptSegment:
         speaker: str
         text: str
@@ -126,6 +162,9 @@ except Exception:  # pragma: no cover
         conversation_summary: str | None = None
         key_moments: list[KeyMoment] = field(default_factory=list)
         scorecard: dict[str, Any] | None = None
+        insights: list[InsightEvent] = field(default_factory=list)
+        started_at: str | None = None
+        ended_at: str | None = None
 
 
 def _ensure_reports_dir() -> None:
@@ -234,6 +273,22 @@ def _key_moments(key_moments: list[Any]) -> list[KeyMomentEntry]:
     return entries
 
 
+def _insights(insights: list[Any]) -> list[InsightEntry]:
+    entries: list[InsightEntry] = []
+    for event in insights:
+        entries.append(
+            InsightEntry(
+                insight_type=event.insight_type,
+                text=event.text,
+                grounding=event.grounding,
+                speculation=event.speculation,
+                timestamp_ms=event.timestamp_ms,
+                question=getattr(event, "question", None),
+            )
+        )
+    return entries
+
+
 def _redact_field(value: str | None) -> str | None:
     """Redact PII in a single optional string field, preserving None."""
     if not value:
@@ -251,15 +306,32 @@ def _redact_report(report: CallReport) -> CallReport:
     redacted_transcript = [
         replace(entry, text=redact_pii(entry.text)[0]) for entry in report.full_transcript
     ]
+    redacted_insights = [
+        replace(
+            entry,
+            text=redact_pii(entry.text)[0],
+            grounding=redact_pii(entry.grounding)[0],
+            question=_redact_field(entry.question),
+        )
+        for entry in report.insights
+    ]
     return replace(
         report,
         prospect_name=_redact_field(report.prospect_name),
         prospect_company=_redact_field(report.prospect_company),
+        insights=redacted_insights,
         full_transcript=redacted_transcript,
     )
 
 
-def generate_report(session: SessionData) -> CallReport:
+def generate_report(session: SessionData, *, aflevering: str | None = None) -> CallReport:
+    """Build the call report and write it to disk.
+
+    ``aflevering`` is the selected client's ``klant.yaml`` delivery mode (klantmap-als-
+    eenheid D2). ``"lokaal"`` means the global ``ReportDeliveryConfig`` sinks (directory /
+    endpoint) are skipped entirely for this report, even when they are configured --
+    ``None`` (no client, or no ``aflevering`` set) keeps the existing global behaviour.
+    """
     call_duration_ms = max(0, session.call_end_ms - session.call_start_ms)
     total_self_ms, total_prospect_ms = _compute_talk_totals(session.speech_events)
     total_ms = total_self_ms + total_prospect_ms
@@ -282,6 +354,9 @@ def generate_report(session: SessionData) -> CallReport:
         total_prospect_pct=total_prospect_pct,
         full_transcript=_transcript(session.transcript),
         scorecard=getattr(session, "scorecard", None),
+        insights=_insights(getattr(session, "insights", [])),
+        call_started_at=getattr(session, "started_at", None),
+        call_ended_at=getattr(session, "ended_at", None),
     )
 
     _ensure_reports_dir()
@@ -291,8 +366,32 @@ def generate_report(session: SessionData) -> CallReport:
     # so unredacted PII is by-design. Set REPORT_REDACT_PII=true for compliance-strict
     # deployments. Consent-gating the write is the separate follow-up (backlog #12).
     disk_report = _redact_report(report) if env_bool("REPORT_REDACT_PII", False) else report
-    output_path.write_text(_to_json(disk_report), encoding="utf-8")
+    payload = _to_json(disk_report)
+    output_path.write_text(payload, encoding="utf-8")
     output_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+    # Customer-configured trigger delivery (docs/MODULE4.md, "Report Delivery"):
+    # both sinks default off, so this is a no-op for every install that has not
+    # opted in. Delivers exactly the payload just written to disk -- same
+    # redaction state, same shape -- never a second, differently-built copy.
+    # klantmap-als-eenheid D2: a client with ``aflevering: lokaal`` in klant.yaml opts
+    # this call OUT of the global sinks entirely, even when they are configured --
+    # the local disk write above already happened unconditionally.
+    if aflevering == "lokaal":
+        logger.info(
+            "Report delivery sinks skipped for session=%s: client aflevering=lokaal",
+            session.session_id,
+        )
+    else:
+        delivery_config = ReportDeliveryConfig.from_env()
+        delivery.deliver_report_in_background(
+            payload.encode("utf-8"),
+            filename,
+            delivery_config,
+            session_id=session.session_id,
+            local_report_path=output_path,
+        )
+
     return report
 
 

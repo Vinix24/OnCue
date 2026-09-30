@@ -198,7 +198,7 @@ Send this along right away, it saves a lot of time:
 - macOS version: `sw_vers -productVersion`
 - Device type: `uname -m`
 - Audio check output: `python scripts/verify_audio.py`
-- Latest runtime log lines: `tail -n 100 data/logs/runtime.log`
+- Latest runtime log lines: `tail -n 100 data/logs/copilot.log`
 - Exactly what you've already tried
 
 ## Phone calls (iPhone relay)

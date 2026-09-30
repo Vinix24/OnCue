@@ -22,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from sales_copilot.core import context_docs
 from sales_copilot.core.audit_ledger import get_audit_writer
 from sales_copilot.core.paths import resolve_app_path
 from sales_copilot.core.session_store import SessionStore
@@ -34,7 +35,12 @@ _DEFAULT_AUDIT_DIR = resolve_app_path(".vnx-data/audit")
 _DEFAULT_DATA_DIR = resolve_app_path("data/sessions")
 _DEFAULT_CASE_DB = resolve_app_path("data/cases.db")
 _DEFAULT_REPORTS_DIR = resolve_app_path("data/reports")
-_DEFAULT_UPLOADS_DIR = resolve_app_path("data/clients")
+# klantmap-als-eenheid: the klantenmap comes exclusively from
+# context_docs.UPLOAD_ROOT (honours the KLANTEN_ROOT env override, D1) --
+# NOT a second, independent resolve_app_path("data/clients") call, which
+# would silently point at the wrong folder (and miss the gesprekken/ archive
+# and dossier saves entirely) on an install with KLANTEN_ROOT set.
+_DEFAULT_UPLOADS_DIR = context_docs.UPLOAD_ROOT
 _DEFAULT_LEADS_FILE = resolve_app_path(".vnx-data/leads.ndjson")
 _SAFE_SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -64,6 +70,116 @@ def _count_sqlite_resources(db_path: Path, session_id: str) -> dict[str, int]:
             conn.close()
     except sqlite3.Error:
         return {"sessions": 0, "detections": 0}
+
+
+def _sessions_table_has_client_slug(conn: sqlite3.Connection) -> bool:
+    """Whether the ``sessions`` table has the klantmap-als-eenheid D3 column.
+
+    A database opened only through this raw ``sqlite3.connect`` (never through
+    ``SessionStore``, which runs the additive migration) may predate the
+    column -- checked explicitly rather than assumed, so a stale database
+    degrades to "no client link known" instead of raising.
+    """
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    except sqlite3.OperationalError:
+        return False
+    return "client_slug" in columns
+
+
+def _get_session_client_slug(db_path: Path, session_id: str) -> str | None:
+    """The client linked to ``session_id``, read BEFORE the session row is deleted."""
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            if not _sessions_table_has_client_slug(conn):
+                return None
+            row = conn.execute(
+                "SELECT client_slug FROM sessions WHERE id=?", (session_id,)
+            ).fetchone()
+            return row[0] if row and row[0] else None
+        except sqlite3.OperationalError:
+            return None
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+
+
+def _resolve_klant_dir_under_root(uploads_dir: Path, client_slug: str) -> Path | None:
+    """Resolve ``<uploads_dir>/<client_slug>``, refusing any escape of ``uploads_dir``.
+
+    Defense in depth: ``client_slug`` here always originates from our own
+    ``slugify_client_name``/``parse_client_slug_from_payload`` at write time, but a
+    hand-edited or legacy database row is not re-validated on the way in, so this
+    purge-side path is checked again before ever building a glob or a delete off it.
+    """
+    root = uploads_dir.resolve()
+    candidate = (root / client_slug).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
+
+
+def _purge_klant_archief(
+    uploads_dir: Path, client_slug: str | None, session_id: str, *, dry_run: bool
+) -> int:
+    """Remove this session's own ``gesprekken/<datum>-<session_id>/`` archive.
+
+    Only the archive directory named for THIS session is touched -- another
+    session's (or the client's manually-curated dossier material's) files in the
+    same client folder are never in scope here.
+    """
+    if not client_slug:
+        return 0
+    klant_dir = _resolve_klant_dir_under_root(uploads_dir, client_slug)
+    if klant_dir is None:
+        return 0
+    archive_root = klant_dir / "gesprekken"
+    if not archive_root.is_dir():
+        return 0
+    removed = 0
+    for entry in archive_root.glob(f"*-{session_id}"):
+        if not entry.is_dir():
+            continue
+        removed += sum(1 for path in entry.rglob("*") if path.is_file())
+        if not dry_run:
+            shutil.rmtree(entry)
+    return removed
+
+
+def _purge_klant_dossier_auto_save(
+    uploads_dir: Path, client_slug: str | None, session_id: str, *, dry_run: bool
+) -> int:
+    """Remove THIS session's own auto-saved dossier transcript, never a manual one.
+
+    ``write_dossier_transcript`` (core/context_docs.py) names its file
+    ``<timestamp>_<session_id>_transcript.md`` under ``<klant>/dossier/`` -- the
+    glob below matches only that exact, session-scoped pattern, so a client note
+    someone dropped into ``dossier/`` by hand (any other filename) is never a
+    candidate here, regardless of what a session's context-doc manifest may
+    separately reference (see ``_purge_context_uploads``'s own dossier/gesprekken
+    exclusion for that case).
+    """
+    if not client_slug:
+        return 0
+    klant_dir = _resolve_klant_dir_under_root(uploads_dir, client_slug)
+    if klant_dir is None:
+        return 0
+    dossier_dir = klant_dir / "dossier"
+    if not dossier_dir.is_dir():
+        return 0
+    removed = 0
+    for entry in dossier_dir.glob(f"*_{session_id}_transcript.md"):
+        if entry.is_file():
+            if not dry_run:
+                entry.unlink()
+            removed += 1
+    return removed
 
 
 def _purge_ndjson(path: Path, session_id: str, *, dry_run: bool) -> int:
@@ -188,6 +304,17 @@ def _purge_reports(reports_dir: Path, session_id: str, *, dry_run: bool) -> int:
     return removed
 
 
+#: Subfolders of a client folder that a session's context-doc manifest must
+#: never be allowed to delete through, even when a manifest path happens to
+#: resolve inside one. A manifest records whatever `document_id`/`context_doc_ids`
+#: a start-call payload named; `resolve_context_doc_ids` accepts ANY existing
+#: file under the upload root, including one a caller reused from a client's
+#: dossier or a previous call's archive rather than something freshly uploaded
+#: for this session -- so without this guard, erasing one session could delete
+#: another session's archived transcript, or a client's hand-curated dossier note.
+_CLIENT_SUBFOLDERS_EXEMPT_FROM_CONTEXT_PURGE = frozenset({"dossier", "gesprekken"})
+
+
 def _purge_context_uploads(
     data_dir: Path,
     uploads_dir: Path,
@@ -209,8 +336,13 @@ def _purge_context_uploads(
             continue
         path = Path(raw_path).resolve()
         try:
-            path.relative_to(root)
+            relative = path.relative_to(root)
         except ValueError:
+            continue
+        if (
+            len(relative.parts) >= 2
+            and relative.parts[1] in _CLIENT_SUBFOLDERS_EXEMPT_FROM_CONTEXT_PURGE
+        ):
             continue
         if path.is_file():
             if not dry_run:
@@ -244,7 +376,12 @@ def purge_session(
         "reports": 0,
         "context_uploads": 0,
         "supabase_rows": 0,
+        "klant_archief": 0,
+        "klant_dossier_auto_save": 0,
     }
+    # Read the client link BEFORE the sessions row is deleted below -- once
+    # gone, there is no other record of which klantmap this session belonged to.
+    client_slug = _get_session_client_slug(db_path, session_id)
 
     # SQLite
     if dry_run:
@@ -263,6 +400,12 @@ def purge_session(
     counts["reports"] = _purge_reports(reports_dir, session_id, dry_run=dry_run)
     counts["context_uploads"] = _purge_context_uploads(
         data_dir, uploads_dir, session_id, dry_run=dry_run
+    )
+    counts["klant_archief"] = _purge_klant_archief(
+        uploads_dir, client_slug, session_id, dry_run=dry_run
+    )
+    counts["klant_dossier_auto_save"] = _purge_klant_dossier_auto_save(
+        uploads_dir, client_slug, session_id, dry_run=dry_run
     )
 
     # Transcript, audio, metadata, and context manifest files
@@ -313,22 +456,42 @@ def purge_session(
     return counts
 
 
-def _get_sessions_before(db_path: Path, cutoff_ts: float) -> list[str]:
+def _get_sessions_before(
+    db_path: Path, cutoff_ts: float, *, exclude_client_slugs: set[str] | None = None
+) -> list[str]:
+    """Session ids with ``start_ts`` before ``cutoff_ts``.
+
+    ``exclude_client_slugs`` lets a caller (the retention sweep) keep a
+    client's own ``bewaren_dagen`` window fully in charge of that client's
+    sessions -- excluded here so this global cutoff can never additionally
+    purge (or double-purge) a session already governed by its own client's
+    window, regardless of whether that window is shorter or longer than this
+    one.
+    """
     if not db_path.exists():
         return []
     try:
         conn = sqlite3.connect(str(db_path))
         try:
-            rows = conn.execute(
-                "SELECT id FROM sessions WHERE start_ts < ?", (cutoff_ts,)
-            ).fetchall()
-            return [row[0] for row in rows]
+            if _sessions_table_has_client_slug(conn):
+                rows = conn.execute(
+                    "SELECT id, client_slug FROM sessions WHERE start_ts < ?", (cutoff_ts,)
+                ).fetchall()
+            else:
+                rows = [
+                    (row[0], None)
+                    for row in conn.execute(
+                        "SELECT id FROM sessions WHERE start_ts < ?", (cutoff_ts,)
+                    ).fetchall()
+                ]
         except sqlite3.OperationalError:
             return []
         finally:
             conn.close()
     except sqlite3.Error:
         return []
+    excluded = exclude_client_slugs or set()
+    return [row[0] for row in rows if not (row[1] and row[1] in excluded)]
 
 
 def purge_before_date(
@@ -341,8 +504,12 @@ def purge_before_date(
     case_db_path: Path = _DEFAULT_CASE_DB,
     reports_dir: Path = _DEFAULT_REPORTS_DIR,
     uploads_dir: Path = _DEFAULT_UPLOADS_DIR,
+    exclude_client_slugs: set[str] | None = None,
 ) -> dict[str, int]:
-    """Purge all sessions with start_ts before cutoff datetime."""
+    """Purge all sessions with start_ts before cutoff datetime.
+
+    ``exclude_client_slugs``: see ``_get_sessions_before``.
+    """
     totals: dict[str, int] = {
         "sessions": 0,
         "detections": 0,
@@ -352,8 +519,12 @@ def purge_before_date(
         "reports": 0,
         "context_uploads": 0,
         "supabase_rows": 0,
+        "klant_archief": 0,
+        "klant_dossier_auto_save": 0,
     }
-    session_ids = _get_sessions_before(db_path, cutoff.timestamp())
+    session_ids = _get_sessions_before(
+        db_path, cutoff.timestamp(), exclude_client_slugs=exclude_client_slugs
+    )
     for sid in session_ids:
         counts = purge_session(
             sid,
@@ -380,6 +551,8 @@ def _print_counts(counts: dict[str, int], dry_run: bool, session_id: str) -> Non
     print(f"  Case DB sessions deleted  : {counts['call_sessions']}")
     print(f"  Reports removed            : {counts['reports']}")
     print(f"  Context uploads removed    : {counts['context_uploads']}")
+    print(f"  Klant archief bestanden    : {counts['klant_archief']}")
+    print(f"  Klant dossier auto-save    : {counts['klant_dossier_auto_save']}")
     if counts["supabase_rows"]:
         print(f"  Supabase rows deleted     : {counts['supabase_rows']}")
     if dry_run:

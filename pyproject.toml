@@ -1,6 +1,6 @@
 [project]
 name = "live-sales-copilot"
-version = "0.9.0"
+version = "1.0.0rc1"
 description = "OnCue — open source real-time sales copilot: talk-time tracker, live transcriber, pain point detector, presentation automation"
 readme = "README.md"
 license = { text = "AGPL-3.0-only" }
@@ -35,15 +35,18 @@ dependencies = [
     "websockets>=14.0",
     "python-multipart>=0.0.27",
     "starlette>=1.0.1",
-    "aiohttp>=3.14.0",
+    "aiohttp>=3.14.3",
 
     # License verification (Ed25519 signature checks in sales_copilot.auth)
-    "cryptography>=43.0",
+    "cryptography>=50.0.0",
 
     # Configuration
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
     "pydantic>=2.10",
+
+    # MCP bridge (JSON-RPC over stdio, host-agnostic)
+    "mcp>=1.0",
 
     # Utilities
     "rich>=13.0",
@@ -54,6 +57,14 @@ dependencies = [
 # Apple Silicon: native MLX backend.
 transcriber = [
     "mlx-whisper>=0.4",
+    # whisper.cpp (modules/transcriber/backends/whisper_cpp_backend.py) is the
+    # documented default WHISPER_BACKEND on every platform, including macOS --
+    # mlx-whisper above is its fallback, not a replacement -- and that module
+    # imports httpx unconditionally. Declared explicitly here (this extra is
+    # the one a macOS live-transcription install without the detector/llm
+    # extras would use) rather than relying on mlx-whisper's own dependency
+    # chain to provide it.
+    "httpx>=0.27",
 ]
 # Other platforms: use whisper.cpp (built from vendor submodule, no Python dep).
 
@@ -74,6 +85,10 @@ detector = [
     # instructor pulls litellm transitively; on Windows litellm fails from sdist
     # (Rust/Cargo build). An explicit platform pin tells pip to prefer the wheel.
     "litellm>=1.83.10 ; sys_platform == 'win32'",
+    # tornado is transitive via semantic-router and aurelio-sdk. 6.5.7 carries
+    # three CVEs (GHSA-wwv5-g3v4-889x, GHSA-8423-8fgw-73vq, CVE-2026-82397),
+    # fixed in 6.5.8. Explicit floor so pip-audit gate 5 stays green.
+    "tornado>=6.5.8",
 ]
 
 # === MODULE 2b: Speaker Diarization (optional, opt-in) ===
@@ -84,6 +99,18 @@ diarization = [
     "pyannote.audio>=3.1",
     "torch>=2.1",
     "torchaudio>=2.1",
+    # pillow is transitive via pyannote.audio -> matplotlib. 12.2.0 carries six
+    # PYSEC advisories (PYSEC-2026-3453, -3454, -3493, -3494, -3495, -3496),
+    # fixed in 12.3.0. Explicit floor so pip-audit gate 5 stays green.
+    "pillow>=12.3.0",
+    # pytorch-lightning is transitive via pyannote.audio -> lightning. 2.6.5
+    # carries PYSEC-2026-3967, fixed in 2.6.6. Explicit floor so pip-audit
+    # gate 5 stays green.
+    "pytorch-lightning>=2.6.6",
+    # lightning (the umbrella package, separate from pytorch-lightning above)
+    # is transitive via pyannote.audio directly. 2.6.5 carries PYSEC-2026-3624,
+    # fixed in 2.6.6. Explicit floor so pip-audit gate 5 stays green.
+    "lightning>=2.6.6",
 ]
 
 # === MODULE 4: Slide Injector (case database) ===
@@ -93,6 +120,10 @@ slides = [
 slides-supabase = [
     "aiosqlite>=0.20",
     "supabase>=2.12",
+    # h2 is transitive via supabase -> httpx[http2]. 4.3.0 carries
+    # PYSEC-2026-3628, fixed in 4.4.1. Explicit floor so pip-audit gate 5
+    # stays green.
+    "h2>=4.4.1",
 ]
 
 # === LLM Providers (for Module 3) ===
@@ -112,7 +143,11 @@ gemini = [
     # structured-output call.
     "jsonref>=1.1",
 ]
-groq = ["groq>=0.15"]
+# httpx is also required directly by the WHISPER_BACKEND=groq audio-transcription
+# backend (modules/transcriber/backends/groq_backend.py), which calls the Groq
+# REST API without the groq SDK. Declared explicitly rather than relying on it
+# arriving transitively via the groq SDK's own dependency on it.
+groq = ["groq>=0.15", "httpx>=0.27"]
 openai = ["openai>=1.60"]
 ollama = ["ollama>=0.4"]
 
@@ -120,7 +155,19 @@ ollama = ["ollama>=0.4"]
 # cffi bindings over native WASAPI, lazily imported inside
 # WasapiLoopbackStream.start() behind sys.platform == "win32". The >=0.4.6
 # floor avoids the numpy>=2.3 fromstring breakage.
-windows = ["soundcard>=0.4.6"]
+windows = [
+    "soundcard>=0.4.6",
+    # whisper.cpp is the default WHISPER_BACKEND on Windows too, and
+    # modules/transcriber/backends/whisper_cpp_backend.py imports httpx
+    # unconditionally at module scope. Without it the module fails to import,
+    # WhisperCppBackend becomes unavailable, and create_backend() in
+    # modules/transcriber/backends/__init__.py would previously fall back
+    # silently to MlxWhisperBackend -- which cannot run on Windows at all
+    # (Apple Silicon only). That fallback now refuses instead of pretending to
+    # work; this dependency closes the gap that made it fire in the first
+    # place on a plain `pip install ".[windows]"`.
+    "httpx>=0.27",
+]
 
 # === Bundles ===
 # Module 1 only (talk-time tracker) — just core deps, no extras needed
@@ -149,6 +196,13 @@ dev = [
     # fastapi.testclient.TestClient (used across tests/conftest.py fixtures)
     # is backed by starlette.testclient, which requires httpx at runtime.
     "httpx>=0.27",
+    # tests/test_wheel_packaging.py builds a real wheel (python -m build
+    # --no-isolation) to prove dashboard/presentation/config actually land in
+    # it -- pre-installed here so that build stays fast (no isolated venv per
+    # test run) instead of only being pulled transiently by the [build-system]
+    # requirement.
+    "build>=1.0",
+    "hatchling>=1.27",
 ]
 
 [project.scripts]
@@ -170,6 +224,20 @@ packages = ["src/sales_copilot"]
 exclude = [
     "src/sales_copilot/auth/_dev_keys.py",
 ]
+
+# A normal (non-editable) `pip install .` only ships the sales_copilot package
+# itself -- dashboard/, presentation/ and config/ live outside src/ and are
+# invisible to `packages` above. Force-included here so mount_static_apps()
+# (dashboard/presentation) and seed_app_support_defaults() (config defaults,
+# sample data) have something to resolve at runtime; see
+# sales_copilot.core.paths for the matching resolution logic
+# (_installed_package_resources_dir() reads from this same _resources/ layout).
+# `pip install -e .` is unaffected -- it never uses the wheel's file layout.
+[tool.hatch.build.targets.wheel.force-include]
+"dashboard" = "sales_copilot/_resources/dashboard"
+"presentation" = "sales_copilot/_resources/presentation"
+"config" = "sales_copilot/_resources/config"
+"data/samples" = "sales_copilot/_resources/data/samples"
 
 [tool.hatch.build.targets.sdist]
 exclude = [

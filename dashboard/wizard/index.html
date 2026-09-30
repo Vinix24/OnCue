@@ -18,7 +18,7 @@
       <header class="wizard-header">
         <div>
           <div class="brand brand-with-logo">
-            <img src="../assets/vnx-logo.svg" alt="VNX Digital" />
+            <img src="../assets/oncue-mark.svg" alt="OnCue" />
             <span>OnCue</span>
           </div>
           <h1>First-run wizard</h1>
@@ -73,6 +73,30 @@
         </div>
       </section>
 
+      <section id="wizard-profile" class="card wizard-config" aria-label="Seller profile">
+        <div class="wizard-step-header">
+          <div class="wizard-step-number">📝</div>
+          <h2 class="wizard-step-title">Seller profile</h2>
+        </div>
+        <div class="wizard-config-body">
+          <p class="wizard-message">
+            What you already know and sell, and your method. Loaded into every deep-insight run
+            so it skips explaining what you already know and goes straight to the sharp
+            follow-up question.
+          </p>
+          <textarea
+            id="profile-textarea"
+            class="wizard-input wizard-textarea"
+            rows="8"
+            placeholder="e.g. I know the Dutch CRM market well, skip basic explanations. I sell... My method is..."
+          ></textarea>
+          <div class="wizard-field-row">
+            <button id="profile-save" class="wizard-btn wizard-btn-primary" type="button">Save</button>
+          </div>
+          <p class="wizard-message" id="profile-message">Not set yet.</p>
+        </div>
+      </section>
+
       <div id="wizard-steps" class="wizard-steps" role="list" aria-label="Wizard steps">
         <p class="wizard-message" id="loading-text">Loading wizard…</p>
       </div>
@@ -98,6 +122,9 @@
         const licenseInput = document.getElementById("license-input");
         const licenseSave = document.getElementById("license-save");
         const licenseMessage = document.getElementById("license-message");
+        const profileTextarea = document.getElementById("profile-textarea");
+        const profileSave = document.getElementById("profile-save");
+        const profileMessage = document.getElementById("profile-message");
 
         let stepsData = [];
         let stateData = { completed: [], results: {} };
@@ -417,9 +444,52 @@
           saveKey("/api/v1/wizard/set-license", licenseInput, licenseMessage)
         );
 
+        async function loadProfile() {
+          try {
+            const res = await fetch("/api/v1/profile");
+            if (!res.ok) throw new Error("profile " + res.status);
+            const data = await res.json();
+            profileTextarea.value = data.content || "";
+            setFieldMessage(
+              profileMessage,
+              data.exists ? "Saved ✓" : "Not set yet.",
+              data.exists ? true : null
+            );
+          } catch (err) {
+            console.error("Could not load seller profile.", err);
+          }
+        }
+
+        async function saveProfile() {
+          await getToken();
+          if (!token) {
+            setFieldMessage(profileMessage, "Could not fetch a session token. Reload the page.", false);
+            return;
+          }
+          setFieldMessage(profileMessage, "Saving…", null);
+          try {
+            const res = await fetch("/api/v1/profile", {
+              method: "POST",
+              headers: apiHeaders(),
+              body: JSON.stringify({ content: profileTextarea.value }),
+            });
+            const result = await res.json();
+            if (!res.ok || !result.ok) {
+              throw new Error(result.message || "Save failed");
+            }
+            setFieldMessage(profileMessage, result.message || "Saved.", true);
+          } catch (err) {
+            console.error(err);
+            setFieldMessage(profileMessage, String(err.message || err), false);
+          }
+        }
+
+        profileSave.addEventListener("click", saveProfile);
+
         restartBtn.addEventListener("click", restartWizard);
         loadData();
         loadConfig();
+        loadProfile();
       })();
     </script>
   </body>

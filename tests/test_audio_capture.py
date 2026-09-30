@@ -263,6 +263,139 @@ def test_check_device_health_returns_false_for_missing_device(monkeypatch) -> No
     assert level == 0.0
 
 
+@pytest.mark.parametrize("raw", ["", "   "])
+def test_resolve_mic_device_normalizes_blank_to_none(raw: str) -> None:
+    import sales_copilot.audio.capture as cap
+
+    assert cap.resolve_mic_device(raw) is None
+
+
+@pytest.mark.parametrize("raw", [0, 3, "BlackHole", "ULT WEAR"])
+def test_resolve_mic_device_passes_through_explicit_values(raw) -> None:  # noqa: ANN001
+    import sales_copilot.audio.capture as cap
+
+    assert cap.resolve_mic_device(raw) == raw
+
+
+def test_resolve_mic_device_passes_through_none() -> None:
+    import sales_copilot.audio.capture as cap
+
+    assert cap.resolve_mic_device(None) is None
+
+
+def test_micstream_blank_device_string_does_not_reach_portaudio(monkeypatch) -> None:
+    """Regression: MIC_INPUT_DEVICE="" must not crash with "Multiple input
+    devices found for ''" as soon as more than one input device is present.
+
+    .env.example ships MIC_INPUT_DEVICE with no value, so this is the value
+    every fresh install actually carries; the fake InputStream below records
+    whatever device value it was actually given.
+    """
+    import sales_copilot.audio.capture as cap
+
+    seen: dict[str, object] = {}
+
+    class _RecordingInputStream(_FakeInputStream):
+        def __init__(self, *, callback, device=None, **kwargs):  # noqa: ANN001
+            seen["device"] = device
+            super().__init__(callback=callback, **kwargs)
+
+    fake_sd = SimpleNamespace(InputStream=_RecordingInputStream)
+    monkeypatch.setattr(cap, "_import_sounddevice", lambda: fake_sd)
+
+    config = AudioConfig(sample_rate=16000, channels=1, dtype="float32", chunk_size=4, capture_method="mic")
+    stream = MicStream(config, device="")
+    stream.start()
+
+    # Never the raw "" -- that is exactly the value PortAudio treats as an
+    # ambiguous name-substring query.
+    assert seen["device"] is None
+    assert stream.device_label == "default"
+    stream.stop()
+
+
+def test_micstream_open_failure_with_default_device_lists_candidates(monkeypatch) -> None:
+    """When even the resolved default device fails to open, the error must be
+    actionable: list the available input devices and name the setting to fix.
+    """
+    import sales_copilot.audio.capture as cap
+
+    class _FailingInputStream:
+        def __init__(self, *, callback, **kwargs):  # noqa: ANN001
+            raise OSError("Invalid device")
+
+    fake_sd = SimpleNamespace(
+        InputStream=_FailingInputStream,
+        query_devices=lambda: [
+            {"name": "Webcam Microphone", "max_input_channels": 1, "max_output_channels": 0},
+            {"name": "Headset Microphone", "max_input_channels": 1, "max_output_channels": 0},
+        ],
+    )
+    monkeypatch.setattr(cap, "_import_sounddevice", lambda: fake_sd)
+
+    config = AudioConfig(sample_rate=16000, channels=1, dtype="float32", chunk_size=4, capture_method="mic")
+    stream = MicStream(config)  # device=None: the "let PortAudio pick" path
+
+    with pytest.raises(RuntimeError) as excinfo:
+        stream.start()
+
+    message = str(excinfo.value)
+    assert "MIC_INPUT_DEVICE" in message
+    assert "Webcam Microphone" in message
+    assert "Headset Microphone" in message
+
+
+def test_micstream_open_failure_with_explicit_device_is_not_enriched(monkeypatch) -> None:
+    """An explicit MIC_INPUT_DEVICE that fails to open must raise as before --
+    no device listing grafted onto an error the operator already knows how to
+    interpret (they chose that device on purpose).
+    """
+    import sales_copilot.audio.capture as cap
+
+    class _FailingInputStream:
+        def __init__(self, *, callback, **kwargs):  # noqa: ANN001
+            raise OSError("Invalid device")
+
+    fake_sd = SimpleNamespace(InputStream=_FailingInputStream)
+    monkeypatch.setattr(cap, "_import_sounddevice", lambda: fake_sd)
+
+    config = AudioConfig(sample_rate=16000, channels=1, dtype="float32", chunk_size=4, capture_method="mic")
+    stream = MicStream(config, device=7)
+
+    with pytest.raises(OSError, match="Invalid device"):
+        stream.start()
+
+
+def test_describe_available_input_devices_lists_only_input_capable(monkeypatch) -> None:
+    import sales_copilot.audio.capture as cap
+
+    fake_sd = SimpleNamespace(
+        query_devices=lambda: [
+            {"name": "Speakers", "max_input_channels": 0, "max_output_channels": 2},
+            {"name": "Webcam Mic", "max_input_channels": 1, "max_output_channels": 0},
+        ]
+    )
+    monkeypatch.setattr(cap, "_import_sounddevice", lambda: fake_sd)
+
+    description = cap.describe_available_input_devices()
+
+    assert "Webcam Mic" in description
+    assert "Speakers" not in description
+
+
+def test_describe_available_input_devices_degrades_on_enumeration_failure(monkeypatch) -> None:
+    import sales_copilot.audio.capture as cap
+
+    def _boom():
+        raise OSError("PortAudio not initialized")
+
+    fake_sd = SimpleNamespace(query_devices=_boom)
+    monkeypatch.setattr(cap, "_import_sounddevice", lambda: fake_sd)
+
+    # Must not raise -- this runs inside an already-failing except branch.
+    assert "could not enumerate" in cap.describe_available_input_devices()
+
+
 def test_managed_audio_stream_context_starts_and_stops() -> None:
     class _FakeStream:
         def __init__(self) -> None:
@@ -332,6 +465,114 @@ def test_resolve_meeting_app_target_ambiguous(monkeypatch) -> None:
 
 def test_meeting_app_candidates_priority_order() -> None:
     assert MEETING_APP_CANDIDATES == ("Google Chrome", "Microsoft Teams", "zoom.us")
+
+
+# --- Meeting-app candidates: platform-awareness (Windows vs. macOS) --------
+
+
+def test_default_meeting_app_candidates_macos() -> None:
+    import sales_copilot.audio.capture as cap
+
+    assert cap._default_meeting_app_candidates(platform="darwin") == (
+        "Google Chrome",
+        "Microsoft Teams",
+        "zoom.us",
+    )
+
+
+def test_default_meeting_app_candidates_win32() -> None:
+    import sales_copilot.audio.capture as cap
+
+    assert cap._default_meeting_app_candidates(platform="win32") == (
+        "chrome.exe",
+        "Teams.exe",
+        "ms-teams.exe",
+        "Zoom.exe",
+    )
+
+
+def test_resolve_meeting_app_target_windows_candidates_match_windows_running_list(monkeypatch) -> None:
+    import sales_copilot.audio.capture as cap
+
+    running = {"chrome.exe": 4242}
+    monkeypatch.setattr(cap, "_find_pid_exact", lambda name: running.get(name))
+
+    name, pid, found = cap.resolve_meeting_app_target(platform="win32")
+
+    assert name == "chrome.exe"
+    assert pid == 4242
+    assert found == ["chrome.exe"]
+
+
+def test_resolve_meeting_app_target_windows_running_list_does_not_match_macos_branch(monkeypatch) -> None:
+    """The same running-process fixture (Windows image names) matches nothing
+    when resolved on the macOS candidate branch -- the two platforms use
+    distinct, non-overlapping candidate lists, so auto-detection never
+    silently "works" with the wrong platform's names."""
+
+    import sales_copilot.audio.capture as cap
+
+    running = {"chrome.exe": 4242}
+    monkeypatch.setattr(cap, "_find_pid_exact", lambda name: running.get(name))
+
+    name, pid, found = cap.resolve_meeting_app_target(platform="darwin")
+
+    assert name is None
+    assert pid is None
+    assert found == []
+
+
+@pytest.mark.parametrize("teams_process", ["Teams.exe", "ms-teams.exe"])
+def test_resolve_meeting_app_target_windows_matches_either_teams_variant(monkeypatch, teams_process) -> None:
+    """Both the classic and the newer Teams client generation are checked as
+    separate candidates on Windows."""
+
+    import sales_copilot.audio.capture as cap
+
+    monkeypatch.setattr(cap, "_find_pid_exact", lambda name: 111 if name == teams_process else None)
+
+    name, pid, found = cap.resolve_meeting_app_target(platform="win32")
+
+    assert name == teams_process
+    assert pid == 111
+    assert found == [teams_process]
+
+
+def test_resolve_meeting_app_target_explicit_candidates_win_over_platform_default(monkeypatch) -> None:
+    """An explicitly passed candidate list always wins over the platform
+    default -- it is never merged with or silently replaced by it, mirroring
+    how an explicitly set TARGET_PROCESS_NAME wins over auto-detection."""
+
+    import sales_copilot.audio.capture as cap
+
+    monkeypatch.setattr(cap, "_find_pid_exact", lambda name: 999 if name == "CustomApp.exe" else None)
+
+    name, pid, found = cap.resolve_meeting_app_target(["CustomApp.exe"], platform="darwin")
+
+    assert name == "CustomApp.exe"
+    assert pid == 999
+    assert found == ["CustomApp.exe"]
+
+
+def test_find_pid_win32_exact_is_case_insensitive(monkeypatch) -> None:
+    """Windows' own ``tasklist /FI "IMAGENAME eq ..."`` filter matches
+    case-insensitively; our code never does its own (case-sensitive) string
+    comparison against the image name, it only parses the PID out of whatever
+    row the filter returns -- so a differently-cased running process name
+    still resolves correctly."""
+
+    def _fake_check_output(args, **kwargs) -> bytes:  # noqa: ANN003
+        filt = next(a for a in args if a.startswith("IMAGENAME eq "))
+        requested = filt.removeprefix("IMAGENAME eq ").lower()
+        if requested == "ms-teams.exe":
+            # Simulate tasklist reporting the actually-running process under a
+            # different case than what was requested.
+            return b'"MS-Teams.EXE","2468","Console","1","45,678 K"\r\n'
+        return b""
+
+    monkeypatch.setattr("sales_copilot.audio.capture.subprocess.check_output", _fake_check_output)
+    monkeypatch.setattr("sales_copilot.audio.capture.sys", SimpleNamespace(platform="win32"))
+    assert _find_pid_exact("ms-teams.exe") == 2468
 
 
 # --- DualAudioCapture: tap_all-minus-telephony vloer -------------------------
@@ -525,7 +766,13 @@ def test_audiotee_setup_failure_emits_actionable_permission_warning(monkeypatch,
 
 
 def test_audiotee_healthy_tap_never_emits_setup_failure_warning(monkeypatch, tmp_path) -> None:
-    """A tap that actually delivers audio must never trigger the setup-failure path."""
+    """A tap that actually delivers audio must never trigger the setup-failure path.
+
+    The fake pipe holds exactly one chunk and then ends, which is the signature
+    of a tap that worked and then died -- so a *detach* warning is expected and
+    correct here. What must not appear is the setup-failure message, because
+    "the tap never opened" and "the tap stopped mid-call" need different fixes.
+    """
 
     import sales_copilot.audio.capture as cap
 
@@ -570,7 +817,9 @@ def test_audiotee_healthy_tap_never_emits_setup_failure_warning(monkeypatch, tmp
         time.sleep(0.01)
 
     assert stream.chunks_received == 1
-    assert warnings == []
+    assert len(warnings) == 1
+    assert "Systeeminstellingen" not in warnings[0]["message"]
+    assert "tijdens het gesprek gestopt" in warnings[0]["message"]
 
     stream.stop()
 

@@ -110,6 +110,38 @@ if (transcriptPanel) {
     if (shouldAutoScroll) scrollToBottom();
   };
 
+  // "The audio stopped here", inline and in place. A warning in the coaching
+  // panel scrolls away; this row stays where the gap is, so reading back never
+  // suggests the speaker went quiet.
+  const addMarker = (payload) => {
+    if (!payload || typeof payload.text !== "string" || !payload.text.trim()) {
+      return;
+    }
+    const startMs = typeof payload.start_ms === "number" ? payload.start_ms : 0;
+    const row = document.createElement("div");
+    row.className = "transcript-row transcript-marker";
+    row.dataset.startMs = String(startMs);
+
+    const speaker = document.createElement("span");
+    speaker.className = "transcript-speaker marker";
+    speaker.textContent = window.t("transcript.marker_label");
+
+    const text = document.createElement("span");
+    text.className = "transcript-text";
+    text.textContent = payload.text;
+
+    const time = document.createElement("span");
+    time.className = "transcript-time";
+    time.textContent = formatTimestamp(startMs);
+
+    row.appendChild(speaker);
+    row.appendChild(text);
+    row.appendChild(time);
+    _insertRow(row, startMs);
+    pruneEntries();
+    if (shouldAutoScroll) scrollToBottom();
+  };
+
   const addEntry = (payload) => {
     if (!payload || payload.type !== "transcript") {
       return;
@@ -143,6 +175,8 @@ if (transcriptPanel) {
         const payload = JSON.parse(event.data);
         if (payload && payload.type === "partial_transcript") {
           handlePartialEntry(payload);
+        } else if (payload && payload.type === "transcript_marker") {
+          addMarker(payload);
         } else {
           addEntry(payload);
         }
@@ -170,7 +204,9 @@ if (transcriptPanel) {
   connect();
 
   window.swapTranscriptSpeakers = () => {
-    Array.from(transcriptPanel.querySelectorAll(".transcript-speaker")).forEach((speaker) => {
+    // [data-role] only: a marker row carries no speaker, and swapping the two
+    // sides must not relabel it as one of them.
+    Array.from(transcriptPanel.querySelectorAll(".transcript-speaker[data-role]")).forEach((speaker) => {
       const current = speaker.dataset.role === "prospect" ? "prospect" : "self";
       const next = current === "self" ? "prospect" : "self";
       speaker.dataset.role = next;

@@ -22,6 +22,12 @@ from sales_copilot.audio.capture import (
     make_audio_warning_broadcaster,
     resolve_prospect_source,
 )
+from sales_copilot.audio.tap_health import (
+    DEFAULT_HEARTBEAT_SECONDS,
+    DEFAULT_NO_FRAMES_WARN_SECONDS,
+    DEFAULT_SILENT_WARN_SECONDS,
+    monitor_tap_health,
+)
 from sales_copilot.core.config import (
     TalkTimeConfig,
     TranscriberConfig,
@@ -101,6 +107,7 @@ def _load_audio_config() -> AudioConfig:
         call_process_name=env("CALL_PROCESS_NAME", "avconferenced") or "avconferenced",
         replay_session_dir=env("REPLAY_SESSION_DIR"),
         replay_speed=env_float("REPLAY_SPEED", 1.0) or 1.0,
+        wasapi_endpoint_name=env("AUDIO_WASAPI_ENDPOINT_NAME"),
     )
 
 
@@ -141,11 +148,7 @@ def _use_blackhole_single_stream_fallback(audio_config: AudioConfig) -> bool:
     if audio_config.capture_method != "blackhole":
         return False
     try:
-        input_devices = [
-            device
-            for device in list_audio_devices()
-            if int(device.get("max_input_channels", 0) or 0) > 0
-        ]
+        input_devices = [device for device in list_audio_devices() if int(device.get("max_input_channels", 0) or 0) > 0]
     except Exception:
         return False
 
@@ -256,6 +259,15 @@ async def main(
     talk_time_config = TalkTimeConfig.from_env()
     audio_config = _load_audio_config()
     transcription_engine = _load_transcription_engine()
+    tap_heartbeat_seconds = env_float("AUDIO_TAP_HEARTBEAT_SECONDS", DEFAULT_HEARTBEAT_SECONDS) or (
+        DEFAULT_HEARTBEAT_SECONDS
+    )
+    tap_no_frames_warn_seconds = (
+        env_float("AUDIO_TAP_NO_FRAMES_WARN_SECONDS", DEFAULT_NO_FRAMES_WARN_SECONDS) or DEFAULT_NO_FRAMES_WARN_SECONDS
+    )
+    tap_silent_warn_seconds = env_float("AUDIO_TAP_SILENT_WARN_SECONDS", DEFAULT_SILENT_WARN_SECONDS) or (
+        DEFAULT_SILENT_WARN_SECONDS
+    )
 
     _print_banner(config, ws_config, transcription_engine)
 
@@ -319,21 +331,53 @@ async def main(
             logger.warning("Failed to emit system status event: %s", exc)
 
     liveness_checked = {"done": False}
+    tap_monitor_task: asyncio.Task[None] | None = None
 
     def _schedule_liveness_check() -> None:
+        nonlocal tap_monitor_task
         if liveness_checked["done"]:
             return
         liveness_checked["done"] = True
-        streams_and_labels = [
-            (stream, label) for stream, label in zip(streams, stream_speakers, strict=False) if label
-        ]
+        streams_and_labels = [(stream, label) for stream, label in zip(streams, stream_speakers, strict=False) if label]
         if not streams_and_labels:
             return
 
         async def _broadcast_warning(payload: dict[str, object]) -> None:
             await broadcast("coaching", payload)
 
-        asyncio.create_task(check_streams_liveness(streams_and_labels, _broadcast_warning))
+        async def _broadcast_marker(payload: dict[str, object]) -> None:
+            # The transcript channel, not coaching: a lost-audio marker has to
+            # end up in the saved transcript, where its absence is what misleads
+            # the reader afterwards.
+            await broadcast("transcript", payload)
+
+        async def _broadcast_status(payload: dict[str, object]) -> None:
+            # Same channel as audio_warning: the dashboard already listens on
+            # "coaching" for per-stream audio events.
+            await broadcast("coaching", payload)
+
+        async def _watch_streams() -> None:
+            # check_streams_liveness answers "did anything arrive in the first
+            # two seconds" exactly once. The tap monitor then keeps answering
+            # for the whole call, separating the states that used to look
+            # identical: a tap that never attached, a tap that is attached and
+            # delivering nothing, and a tap that is attached and delivering
+            # digital silence. Chained rather than parallel so a stream the
+            # warmup check already warned about is not reported twice.
+            silent = await check_streams_liveness(streams_and_labels, _broadcast_warning)
+            await monitor_tap_health(
+                streams_and_labels,
+                _broadcast_warning,
+                stop_event,
+                interval_seconds=tap_heartbeat_seconds,
+                no_frames_warn_seconds=tap_no_frames_warn_seconds,
+                silent_warn_seconds=tap_silent_warn_seconds,
+                already_reported=set(silent),
+                broadcast_marker=_broadcast_marker,
+                broadcast_status=_broadcast_status,
+            )
+
+        tap_monitor_task = asyncio.create_task(_watch_streams())
 
     if config.shared_queue_enabled:
         shared_backend = create_backend(backend_config)
@@ -454,9 +498,7 @@ async def main(
             await _warmup_backends_on_start_call()
 
         logger.info("Transcriber engine ready (%s).", transcription_engine)
-        run_tasks = [
-            asyncio.create_task(direct.run(stop_event, start_event=start_event)) for direct in direct_engines
-        ]
+        run_tasks = [asyncio.create_task(direct.run(stop_event, start_event=start_event)) for direct in direct_engines]
         config_listener_task = asyncio.create_task(
             _listen_config_events(
                 ws_config,
@@ -480,6 +522,8 @@ async def main(
         for task in run_tasks:
             task.cancel()
         config_listener_task.cancel()
+        if tap_monitor_task is not None:
+            tap_monitor_task.cancel()
         for task in run_tasks:
             try:
                 await task
@@ -489,6 +533,11 @@ async def main(
             await config_listener_task
         except asyncio.CancelledError:
             pass
+        if tap_monitor_task is not None:
+            try:
+                await tap_monitor_task
+            except asyncio.CancelledError:
+                pass
 
     logger.info("Shutdown complete.")
 

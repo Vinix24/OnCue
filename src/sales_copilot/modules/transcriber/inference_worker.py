@@ -11,6 +11,7 @@ from sales_copilot.core.config import WebSocketConfig
 from sales_copilot.modules.transcriber.backends.base import TranscriptionBackend
 from sales_copilot.modules.transcriber.engine import PartialTranscriptEvent, Speaker, TranscriptEvent
 from sales_copilot.modules.transcriber.inference_queue import InferenceQueueItem, SharedInferenceQueue
+from sales_copilot.modules.transcriber.normalize import get_default_normalization_lists, normalize
 from sales_copilot.websocket.hub_auth import channel_ws_url
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class InferenceWorker:
         self._inference_timeout_s = inference_timeout_s
         self._ws: websockets.ClientConnection | None = None
         self._last_published: dict[Speaker, str | None] = {}
+        self._normalization_lists = get_default_normalization_lists()
 
     async def run(self, stop_event: asyncio.Event) -> None:
         try:
@@ -84,6 +86,10 @@ class InferenceWorker:
             return
         if len(cleaned) < self._min_text_length:
             return
+
+        cleaned, replacements = normalize(cleaned, self._normalization_lists)
+        for source, target, rule in replacements:
+            logger.debug("transcript normalization: %r -> %r (rule=%s)", source, target, rule)
 
         last = self._last_published.get(item.speaker)
         if cleaned == last:

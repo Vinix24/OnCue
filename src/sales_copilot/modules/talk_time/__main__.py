@@ -54,6 +54,7 @@ def _load_audio_config() -> AudioConfig:
         call_process_name=env("CALL_PROCESS_NAME", "avconferenced") or "avconferenced",
         replay_session_dir=env("REPLAY_SESSION_DIR"),
         replay_speed=env_float("REPLAY_SPEED", 1.0) or 1.0,
+        wasapi_endpoint_name=env("AUDIO_WASAPI_ENDPOINT_NAME"),
     )
 
 

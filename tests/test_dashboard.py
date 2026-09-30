@@ -291,3 +291,254 @@ def test_opportunities_panel_present() -> None:
     assert "opportunities.js" in _DASHBOARD_HTML.read_text(encoding="utf-8"), (
         "opportunities.js script tag missing from dashboard HTML"
     )
+
+
+# ---------------------------------------------------------------------------
+# Autostart consent prompt structure
+# ---------------------------------------------------------------------------
+
+
+def test_autostart_consent_prompt_present() -> None:
+    """The autostart consent prompt container and its controls exist in the dashboard HTML."""
+    parser = _parse_dashboard()
+
+    assert "autostart-consent-prompt" in parser.elements, (
+        "autostart-consent-prompt missing from dashboard HTML"
+    )
+    prompt = parser.elements["autostart-consent-prompt"]
+    prompt_classes = prompt.get("class", "") or ""
+    assert "hidden" in prompt_classes, (
+        f"autostart-consent-prompt must be hidden by default; got: {prompt_classes!r}"
+    )
+    assert prompt.get("role") == "dialog", (
+        "autostart-consent-prompt must have role=dialog for accessibility"
+    )
+
+    assert "autostart-process-name" in parser.elements, (
+        "autostart-process-name missing — JS cannot render the detected process name"
+    )
+
+    assert "autostart-confirm-btn" in parser.elements, (
+        "autostart-confirm-btn missing — cannot bind confirm click handler"
+    )
+    assert parser.elements["autostart-confirm-btn"].get("tag") == "button"
+
+    assert "autostart-decline-btn" in parser.elements, (
+        "autostart-decline-btn missing — cannot bind decline click handler"
+    )
+    assert parser.elements["autostart-decline-btn"].get("tag") == "button"
+
+    assert "autostart-outcome" in parser.elements, (
+        "autostart-outcome missing — cannot show confirmation/decline result"
+    )
+    outcome = parser.elements["autostart-outcome"]
+    outcome_classes = outcome.get("class", "") or ""
+    assert "hidden" in outcome_classes, (
+        f"autostart-outcome must be hidden by default; got: {outcome_classes!r}"
+    )
+
+    html_text = _DASHBOARD_HTML.read_text(encoding="utf-8")
+    assert "autostart-consent.js" in html_text, (
+        "autostart-consent.js script tag missing from dashboard HTML"
+    )
+
+
+def test_autostart_consent_i18n_keys_exist() -> None:
+    """Every i18n key referenced by the autostart consent prompt exists in nl.json."""
+    import json
+
+    nl_path = _DASHBOARD_HTML.parent / "i18n" / "nl.json"
+    catalog = json.loads(nl_path.read_text(encoding="utf-8"))
+    autostart = catalog.get("autostart", {})
+
+    required_keys = [
+        "prompt_prefix",
+        "confirm_button",
+        "decline_button",
+        "confirmed",
+        "declined",
+        "process_phone_call",
+    ]
+    for key in required_keys:
+        assert key in autostart, f"autostart.{key} missing from nl.json i18n catalog"
+
+
+# ---------------------------------------------------------------------------
+# Stop UX: daily "Stop & rapport" vs rare "OnCue afsluiten"
+# ---------------------------------------------------------------------------
+#
+# Two actions both labelled "stop" did very different things: #end-call ends
+# the conversation (server stays up), the round ⏹ shuts the whole server down.
+# These tests pin the resolution: both actions remain present and reachable,
+# the server-stop is no longer the most prominent header button, no blocking
+# browser confirm() is used, and the shutdown screen + confirm modal exist as
+# real DOM elements instead of document.body innerHTML surgery.
+
+_STOP_CONTROL_JS = Path(__file__).parent.parent / "dashboard" / "js" / "stop-control.js"
+
+
+def test_both_stop_actions_present() -> None:
+    """Both the call-stop and the server-stop buttons exist in the dashboard."""
+    parser = _parse_dashboard()
+    assert "end-call" in parser.elements, (
+        "end-call (Stop & rapport) button missing — daily call-stop action gone"
+    )
+    assert parser.elements["end-call"].get("tag") == "button"
+    assert "stop-server-btn" in parser.elements, (
+        "stop-server-btn missing — server-stop action unreachable"
+    )
+    assert parser.elements["stop-server-btn"].get("tag") == "button"
+
+
+def test_server_stop_is_not_prominent() -> None:
+    """The server-stop button is a subtle secondary action, not the standout red .stop-btn.
+
+    It must reuse the generic icon-btn pattern (like theme-toggle and swap-speakers)
+    so the daily Stop & rapport action is never overshadowed by the rare, destructive
+    server-shutdown. The old prominent .stop-btn class must be gone.
+    """
+    parser = _parse_dashboard()
+    stop_btn = parser.elements["stop-server-btn"]
+    classes = (stop_btn.get("class") or "").split()
+    assert "icon-btn" in classes, (
+        f"stop-server-btn must use the generic icon-btn base so it is not the "
+        f"most prominent header button; got classes: {classes!r}"
+    )
+    assert "stop-btn" not in classes, (
+        f"stop-server-btn must not carry the prominent standalone .stop-btn class "
+        f"(it overshadowed the daily Stop & rapport action); got classes: {classes!r}"
+    )
+    # A subtle modifier keeps it recognisable as a stop without screaming.
+    assert "stop-btn--subtle" in classes, (
+        f"stop-server-btn should keep a subtle stop modifier; got classes: {classes!r}"
+    )
+
+
+def test_stop_control_has_no_blocking_confirm() -> None:
+    """stop-control.js must not use the blocking browser confirm()/alert()/prompt().
+
+    The dashboard uses in-page banners/modals instead (see autostart-consent,
+    license and pro-upgrade modals). A blocking dialog freezes the page and
+    does not match the rest of the UI.
+    """
+    src = _STOP_CONTROL_JS.read_text(encoding="utf-8")
+    # Strip comments before scanning so words like "confirm" appearing in a
+    # doc comment do not trip the check — only an actual call counts.
+    code_only = re.sub(r"//[^\n]*", "", src)
+    code_only = re.sub(r"/\*.*?\*/", "", code_only, flags=re.DOTALL)
+    forbidden = re.findall(r"(?<![A-Za-z0-9_])(confirm|alert|prompt)\s*\(", code_only)
+    assert not forbidden, (
+        f"stop-control.js uses a blocking browser dialog ({', '.join(forbidden)}): "
+        "use the in-dashboard confirm modal instead"
+    )
+
+
+def test_stop_control_does_not_surgery_body_innerhtml() -> None:
+    """stop-control.js must not overwrite document.body.innerHTML.
+
+    The shutdown state is a real DOM element (#stop-server-screen) styled like
+    the rest of the dashboard and including restart instructions. Overwriting
+    document.body inline lost all styling and told the user nothing about how
+    to come back.
+    """
+    src = _STOP_CONTROL_JS.read_text(encoding="utf-8")
+    assert "document.body.innerHTML" not in src, (
+        "stop-control.js overwrites document.body.innerHTML — use the #stop-server-screen "
+        "DOM element instead"
+    )
+
+
+def test_stop_server_confirm_modal_present() -> None:
+    """The server-stop confirm modal exists and is hidden by default, with its controls."""
+    parser = _parse_dashboard()
+
+    assert "stop-server-confirm-modal" in parser.elements, (
+        "stop-server-confirm-modal missing — stop-control.js cannot gate the shutdown"
+    )
+    modal = parser.elements["stop-server-confirm-modal"]
+    modal_classes = modal.get("class", "") or ""
+    assert "hidden" in modal_classes, (
+        f"stop-server-confirm-modal must be hidden by default; got: {modal_classes!r}"
+    )
+    assert modal.get("role") == "dialog", "confirm modal must have role=dialog"
+    assert modal.get("aria-modal") == "true", "confirm modal must be aria-modal=true"
+
+    assert "stop-server-confirm-btn" in parser.elements, (
+        "stop-server-confirm-btn missing — cannot bind the confirm handler"
+    )
+    assert parser.elements["stop-server-confirm-btn"].get("tag") == "button"
+    assert "stop-server-cancel-btn" in parser.elements, (
+        "stop-server-cancel-btn missing — cannot bind the cancel handler"
+    )
+    assert parser.elements["stop-server-cancel-btn"].get("tag") == "button"
+
+
+def test_stop_server_shutdown_screen_present() -> None:
+    """The shutdown screen exists, is hidden by default, and carries restart instructions."""
+    parser = _parse_dashboard()
+
+    assert "stop-server-screen" in parser.elements, (
+        "stop-server-screen missing — stop-control.js cannot show the shutdown state"
+    )
+    screen = parser.elements["stop-server-screen"]
+    screen_classes = screen.get("class", "") or ""
+    assert "hidden" in screen_classes, (
+        f"stop-server-screen must be hidden by default; got: {screen_classes!r}"
+    )
+    # Restart steps are i18n-bound list items inside the screen.
+    html_text = _DASHBOARD_HTML.read_text(encoding="utf-8")
+    assert "stop_server_done_restart_step1" in html_text, (
+        "shutdown screen must tell the user how to restart (step 1 missing)"
+    )
+    assert "stop_server_done_restart_step2" in html_text, (
+        "shutdown screen must tell the user to refresh the tab (step 2 missing)"
+    )
+
+
+def test_stop_server_i18n_keys_exist() -> None:
+    """Every i18n key referenced by the stop UX exists in both nl.json and en.json."""
+    import json
+
+    required_keys = [
+        "stop_server_title",
+        "stop_server_confirm_title",
+        "stop_server_confirm_message",
+        "stop_server_confirm_button",
+        "stop_server_cancel_button",
+        "stop_server_done_title",
+        "stop_server_done_message",
+        "stop_server_done_restart_heading",
+        "stop_server_done_restart_step1",
+        "stop_server_done_restart_step2",
+    ]
+    for lang in ("nl", "en"):
+        catalog_path = _DASHBOARD_HTML.parent / "i18n" / f"{lang}.json"
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+        header = catalog.get("header", {})
+        for key in required_keys:
+            assert key in header, f"header.{key} missing from {lang}.json i18n catalog"
+        # The old single-message key was split into a richer set; it must not
+        # linger as a duplicate that could be wired by accident.
+        assert "stop_server_confirm" not in header, (
+            f"stale header.stop_server_confirm key still in {lang}.json — was replaced "
+            "by stop_server_confirm_title/_message/_button"
+        )
+
+
+def test_end_call_tooltip_distinguishes_from_server_stop() -> None:
+    """The end-call button carries a tooltip that says it stops the call but keeps the server."""
+    parser = _parse_dashboard()
+    end_call = parser.elements["end-call"]
+    attr = end_call.get("data-i18n-attr") or ""
+    assert "setup.end_call_title" in attr, (
+        "end-call button must bind the setup.end_call_title tooltip so the label "
+        "self-explains the call-vs-server distinction"
+    )
+    # And the key must exist.
+    import json
+
+    nl_path = _DASHBOARD_HTML.parent / "i18n" / "nl.json"
+    catalog = json.loads(nl_path.read_text(encoding="utf-8"))
+    assert "end_call_title" in catalog.get("setup", {}), (
+        "setup.end_call_title missing from nl.json i18n catalog"
+    )

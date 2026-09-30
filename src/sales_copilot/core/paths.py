@@ -1,16 +1,27 @@
-"""Application path resolution helpers for dev and frozen macOS .app builds.
+"""Application path resolution helpers for dev, installed, and frozen macOS .app builds.
 
-In a repository checkout the project root (where ``pyproject.toml`` lives) is used
-as the base so existing dev behaviour and tests keep working. Inside a py2app
-frozen ``.app`` the base switches to ``~/Library/Application Support/SalesCopilot``
-so the app works regardless of the current working directory.
+Three modes, distinguished at runtime:
 
-Read-only bundled resources (dashboard, sample audio, binaries) are resolved
-against the ``Contents/Resources`` directory of the frozen bundle.
+- **Dev/editable checkout**: a ``pyproject.toml`` is found by walking up from
+  this source file (true for a repo clone and for ``pip install -e .``, since
+  the editable install still points back at the real repo tree). The project
+  root is used as the base, preserving the existing cwd-relative layout.
+- **Installed (non-editable) package**: a plain ``pip install .`` — no
+  ``pyproject.toml`` reachable from this file, because only the
+  ``sales_copilot`` package itself was copied into ``site-packages``. Writable
+  data goes to a per-OS user data directory (never ``site-packages`` itself —
+  that directory is not guaranteed writable and gets wiped on upgrade/reinstall);
+  read-only resources (dashboard, presentation, config defaults) are resolved
+  against a ``_resources`` directory shipped inside the installed package via
+  ``[tool.hatch.build.targets.wheel.force-include]`` in ``pyproject.toml``.
+- **Frozen py2app ``.app`` bundle**: ``sys.frozen`` is set. Writable data goes
+  to ``~/Library/Application Support/SalesCopilot``; read-only resources
+  resolve against the bundle's ``Contents/Resources`` directory.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -31,28 +42,70 @@ def _bundle_resources_dir() -> Path:
     return Path(sys.executable).resolve().parent.parent / "Resources"
 
 
-def _repo_root() -> Path:
-    """Locate the repository root by walking up from this source file."""
+def _find_repo_root() -> Path | None:
+    """Locate the repository root by walking up from this source file.
+
+    Returns ``None`` when no ``pyproject.toml`` is found -- the case for a
+    normal (non-editable) ``pip install``, where only the ``sales_copilot``
+    package is present on disk, with no attached repo checkout.
+    """
     here = Path(__file__).resolve()
     for parent in here.parents:
         if (parent / "pyproject.toml").exists():
             return parent
-    # Defensive fallback: src/sales_copilot/core/paths.py -> src/sales_copilot -> src -> repo
-    return here.parents[2]
+    return None
+
+
+def _installed_package_root() -> Path:
+    """Return the installed ``sales_copilot`` package directory.
+
+    ``paths.py`` lives at ``sales_copilot/core/paths.py``, so two parents up is
+    the package root -- ``.../site-packages/sales_copilot`` for a normal
+    install. Bundled read-only resources ship inside it at ``_resources/``
+    (see ``[tool.hatch.build.targets.wheel.force-include]``).
+    """
+    return Path(__file__).resolve().parent.parent
+
+
+def _installed_package_resources_dir() -> Path:
+    """Read-only resources bundled inside an installed (non-editable) package."""
+    return _installed_package_root() / "_resources"
+
+
+def _installed_package_data_dir() -> Path:
+    """Per-OS user data directory for a normal (non-editable, non-frozen) install.
+
+    Never ``site-packages`` itself: that directory is not guaranteed writable
+    (system Python, read-only volumes) and its contents are not preserved
+    across an upgrade or reinstall.
+    """
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / _APP_SUPPORT_DIR_NAME
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / _APP_SUPPORT_DIR_NAME
+    # Linux / other POSIX: XDG Base Directory spec.
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(base) / _APP_SUPPORT_DIR_NAME
 
 
 def resolve_app_support() -> Path:
     """Return the base directory for writable application data.
 
     - Frozen ``.app``: ``~/Library/Application Support/SalesCopilot``.
-    - Dev/repo checkout: the repository root.
+    - Dev/editable checkout: the repository root.
+    - Installed (non-editable) package: a per-OS user data directory --
+      never ``site-packages`` (see ``_installed_package_data_dir()``).
 
     The returned path is *not* created automatically; callers that need the
     directory should call ``ensure_app_support_tree()`` or create it themselves.
     """
     if is_frozen_app():
         return Path.home() / "Library" / "Application Support" / _APP_SUPPORT_DIR_NAME
-    return _repo_root()
+    repo_root = _find_repo_root()
+    if repo_root is not None:
+        return repo_root
+    return _installed_package_data_dir()
 
 
 def resolve_app_path(relative: str | Path) -> Path:
@@ -60,8 +113,8 @@ def resolve_app_path(relative: str | Path) -> Path:
 
     In dev this preserves the existing cwd-relative layout (e.g.
     ``config/pain_points.yaml`` resolves to ``<repo>/config/pain_points.yaml``);
-    in a frozen app it resolves to
-    ``~/Library/Application Support/SalesCopilot/config/pain_points.yaml``.
+    in a frozen app, or a normal installed package, it resolves under the
+    per-mode app-support base (see ``resolve_app_support()``).
     """
     rel = Path(relative)
     if rel.is_absolute():
@@ -72,16 +125,21 @@ def resolve_app_path(relative: str | Path) -> Path:
 def resolve_app_resource(relative: str | Path) -> Path:
     """Resolve a bundled read-only resource path.
 
-    In a frozen ``.app`` this points to ``Contents/Resources/<relative>`` so
-    static assets ship inside the signed bundle. In dev it falls back to the
-    repository root.
+    - Frozen ``.app``: ``Contents/Resources/<relative>``.
+    - Dev/editable checkout: the repository root.
+    - Installed (non-editable) package: the ``_resources/<relative>`` directory
+      shipped inside the installed package (see
+      ``_installed_package_resources_dir()``).
     """
     rel = Path(relative)
     if rel.is_absolute():
         raise ValueError(f"relative path required, got {relative!r}")
     if is_frozen_app():
         return _bundle_resources_dir() / rel
-    return _repo_root() / rel
+    repo_root = _find_repo_root()
+    if repo_root is not None:
+        return repo_root / rel
+    return _installed_package_resources_dir() / rel
 
 
 def ensure_app_support_tree() -> None:
@@ -97,6 +155,7 @@ def ensure_app_support_tree() -> None:
         "data/sessions",
         "data/reports",
         "data/clients",
+        "data/profile",
         "data/logs",
         "data/samples",
         "data/feedback",
@@ -116,11 +175,16 @@ def seed_app_support_defaults() -> None:
     """Copy bundled default config/data into the writable app-support tree.
 
     Idempotent: existing files are preserved so user edits are not overwritten.
-    This is a no-op in dev because config/data already live in the repo.
+    This is a no-op in a dev/editable checkout because config/data already live
+    in the repo; a frozen ``.app`` and a normal installed package both seed from
+    their respective bundled ``_resources``/``Contents/Resources`` tree.
     """
-    if not is_frozen_app():
+    if is_frozen_app():
+        resources = _bundle_resources_dir()
+    elif _find_repo_root() is None:
+        resources = _installed_package_resources_dir()
+    else:
         return
-    resources = _bundle_resources_dir()
     app_support = resolve_app_support()
     # Read-only defaults that the app needs to function even when the user has
     # not manually populated app support.

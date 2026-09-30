@@ -18,7 +18,6 @@ from sales_copilot.auth.email_capture import (
 )
 from sales_copilot.auth.license_key import (
     LICENSE_PREFIX,
-    LICENSE_SECRET_ENV,
     LicenseKey,
     _decode_key_bytes,
     generate_key,
@@ -287,9 +286,23 @@ def test_startup_check_missing_env_returns_grace(monkeypatch: pytest.MonkeyPatch
 
 
 def test_startup_check_valid_env_returns_valid(monkeypatch: pytest.MonkeyPatch) -> None:
-    key = generate_key(_EMAIL, _TIER, _SECRET)
-    monkeypatch.setenv(_LICENSE_ENV, key)
-    monkeypatch.setenv(LICENSE_SECRET_ENV, _SECRET)
+    # decode_and_verify is mocked here because generating a real key would
+    # require either the sunset legacy SC- HMAC path (LEGACY_HMAC_DEADLINE,
+    # license_format.py) or the server-side Ed25519 signer this client
+    # checkout does not hold. license_id="" mirrors what SC- keys decode to,
+    # so check_revoked() short-circuits to ENTITLED without a network call.
+    import sales_copilot.auth.startup_check as sc_module
+
+    monkeypatch.setenv(_LICENSE_ENV, "SCP-TEST-PLACEHOLDER")
+    valid_license = LicenseKey(
+        email="",
+        tier=_TIER,
+        issued_at=datetime.now(UTC) - timedelta(days=1),
+        expires_at=datetime.now(UTC) + timedelta(days=30),
+        signature="",
+    )
+    monkeypatch.setattr(sc_module, "decode_and_verify", lambda *_args, **_kwargs: valid_license)
+
     status, msg = check_license_at_startup()
     assert status == LicenseStatus.VALID
     assert "valid" in msg.lower()

@@ -1,6 +1,6 @@
 # OnCue: Doc Index
 
-**Last update:** 2026-07-26 (OSS launch curation: dedup, NL-default UI, role-tiered IA; freshness pass post-pilot-launch)
+**Last update:** 2026-09-05 (observability round: detector, MCP bridge and chain preflight documented; log paths corrected)
 
 Documentation index for the OnCue project. Start here if you don't know the docs yet.
 Docs are organized by **who you are**, not alphabetically: pick your tier below.

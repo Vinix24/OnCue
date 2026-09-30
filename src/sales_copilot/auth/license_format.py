@@ -67,6 +67,15 @@ FEATURE_SCRIPT_TRACKING = "coaching.script_tracking"
 FEATURE_SCRIPT_TRACKING_COMPUTE = "coaching.script_tracking.compute"
 FEATURE_SCRIPT_TRACKING_LIVE = "coaching.script_tracking.live"
 FEATURE_RESPONSE_PLAYBOOK = "coaching.response_playbook"
+# Track 3 (deep insight lane): minutes-latency, full-transcript analysis with a
+# frontier/BYO-tenant LLM. Pro/Enterprise only -- Free keeps track 1 (embeddings/
+# cards), a complete product on its own.
+FEATURE_DEEP_INSIGHTS = "coaching.deep_insights"
+FEATURE_MCP_BRIDGE = "system.mcp_bridge"
+# Operator decision 2026-09-28: delivering the post-call report to a
+# customer-configured webhook/CRM endpoint is Pro/Enterprise. Delivery to a
+# local directory (REPORT_DELIVERY_DIR) stays Free -- see delivery.py.
+FEATURE_REPORT_DELIVERY_ENDPOINT = "reports.delivery.endpoint"
 FEATURE_IDS = frozenset(
     {
         FEATURE_CALLTAP,
@@ -78,6 +87,9 @@ FEATURE_IDS = frozenset(
         FEATURE_SCRIPT_TRACKING_COMPUTE,
         FEATURE_SCRIPT_TRACKING_LIVE,
         FEATURE_RESPONSE_PLAYBOOK,
+        FEATURE_DEEP_INSIGHTS,
+        FEATURE_MCP_BRIDGE,
+        FEATURE_REPORT_DELIVERY_ENDPOINT,
     }
 )
 
@@ -96,6 +108,9 @@ PRO_FEATURES = frozenset(
         FEATURE_SCRIPT_TRACKING_COMPUTE,
         FEATURE_SCRIPT_TRACKING_LIVE,
         FEATURE_RESPONSE_PLAYBOOK,
+        FEATURE_DEEP_INSIGHTS,
+        FEATURE_MCP_BRIDGE,
+        FEATURE_REPORT_DELIVERY_ENDPOINT,
     }
 )
 ENTERPRISE_FEATURES = frozenset(
@@ -109,6 +124,9 @@ ENTERPRISE_FEATURES = frozenset(
         FEATURE_SCRIPT_TRACKING_COMPUTE,
         FEATURE_SCRIPT_TRACKING_LIVE,
         FEATURE_RESPONSE_PLAYBOOK,
+        FEATURE_DEEP_INSIGHTS,
+        FEATURE_MCP_BRIDGE,
+        FEATURE_REPORT_DELIVERY_ENDPOINT,
     }
 )
 

@@ -4,7 +4,7 @@ This document covers how OnCue connects to external systems, how to
 configure audio routing on macOS, and how to extend the system with custom
 backends.
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-08-04
 
 ---
 
@@ -342,19 +342,34 @@ SQL editor to create the `cases` and `call_sessions` tables.
 
 ## CRM integrations
 
-No out-of-the-box CRM integration is included in the open-source version.
+No out-of-the-box CRM integration is included in the open-source version, but OnCue
+can push the finished report to your own automation (n8n, Zapier, a custom script)
+without writing any code:
 
-The `post-call report` (JSON in `data/sessions/<id>/`) contains all structured
-data needed to push to a CRM manually or via a custom script:
+```bash
+# in .env — pick a directory, an endpoint, or both; both default off
+REPORT_DELIVERY_DIR=/Volumes/shared/oncue-reports
+REPORT_DELIVERY_ENDPOINT=https://n8n.example.com/webhook/your-token
+```
+
+- **Directory**: every report is atomically written into `REPORT_DELIVERY_DIR` under
+  the same filename as the local `data/reports/` copy — point an n8n "Local File
+  Trigger" (or any directory watcher) at it.
+- **HTTP endpoint**: one `POST` per report (JSON body, the report verbatim) to
+  `REPORT_DELIVERY_ENDPOINT`, with a timeout and a bounded number of retries. A
+  failure never loses the transcript — the local copy always exists — but it does
+  need the endpoint to come back before you can redeliver.
+
+The `post-call report` (also written locally to `data/reports/<timestamp>_<session_id>_report.json`)
+contains all structured data needed to push to a CRM:
 
 - Pain points detected (category, confidence, trigger phrase, timestamp)
 - Objections raised
 - Talk-time statistics
-- Transcript with speaker attribution
+- Transcript with speaker attribution, plus `call_started_at`/`call_ended_at` (ISO-8601)
 
-**Webhook / custom export:** you can wrap the report generator in a custom script
-that posts to your CRM's API. The report schema is documented in TTD
-section 2.7.
+Full field-by-field contract, redaction behavior (`REPORT_REDACT_PII`), retry/timeout
+config, and the atomic-write guarantee: [MODULE4.md](MODULE4.md) ("Report Delivery").
 
 **HubSpot sync** is available in the Pro tier. Other CRM integrations (Pipedrive,
 Salesforce, Teamleader) are on the Enterprise roadmap.
@@ -436,7 +451,7 @@ WHISPER_LANGUAGE=nl|en|auto
 
 # Detection
 DETECTOR_WINDOW_SIZE=5
-DETECTOR_MIN_CHUNKS=2
+DETECTOR_MIN_CHUNKS=3
 DETECTOR_DEBOUNCE_S=5
 DEBOUNCE_SECONDS=45
 ONLY_CLASSIFY_PROSPECT=true

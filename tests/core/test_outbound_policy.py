@@ -419,3 +419,59 @@ class TestSanitizeForOutboundTrustedTenant:
         assert _BSN not in result, f"BSN leaked: {result!r}"
         assert _IBAN not in result, f"IBAN leaked: {result!r}"
         assert _NAME not in result, f"Name leaked: {result!r}"
+
+
+# ---------------------------------------------------------------------------
+# tier_of() -- klantmap-als-eenheid D2's privacy-poort classification
+# ---------------------------------------------------------------------------
+
+
+class TestTierOf:
+    def test_ollama_localhost_is_local(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        mod = _reload_policy()
+        assert mod.tier_of("ollama") == "local"
+
+    def test_ollama_remote_is_public(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Remote Ollama is not local, and it is not a recognised trusted-tenant
+        provider either -- it falls all the way through to public."""
+        monkeypatch.setenv("OLLAMA_BASE_URL", "http://10.0.0.5:11434")
+        monkeypatch.delenv("TRUST_OWN_TENANT", raising=False)
+        mod = _reload_policy()
+        assert mod.tier_of("ollama") == "public"
+
+    def test_azure_with_trust_flag_is_tenant(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TRUST_OWN_TENANT", "true")
+        mod = _reload_policy()
+        assert mod.tier_of("azure") == "tenant"
+
+    def test_vertex_with_trust_flag_is_tenant(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TRUST_OWN_TENANT", "true")
+        mod = _reload_policy()
+        assert mod.tier_of("vertex") == "tenant"
+
+    def test_azure_without_trust_flag_is_public(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("TRUST_OWN_TENANT", raising=False)
+        mod = _reload_policy()
+        assert mod.tier_of("azure") == "public"
+
+    @pytest.mark.parametrize("provider", ["gemini", "groq", "openai"])
+    def test_public_providers_are_always_public(
+        self, provider: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Even with TRUST_OWN_TENANT set, a public multi-tenant API is never tenant/local."""
+        monkeypatch.setenv("TRUST_OWN_TENANT", "true")
+        mod = _reload_policy()
+        assert mod.tier_of(provider) == "public"
+
+    def test_empty_provider_is_public(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An unconfigured/empty provider is the strictest default: public."""
+        mod = _reload_policy()
+        assert mod.tier_of("") == "public"
+
+    def test_provider_is_case_and_whitespace_insensitive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        mod = _reload_policy()
+        assert mod.tier_of(" Ollama ") == "local"

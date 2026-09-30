@@ -17,6 +17,31 @@ def test_llm_confirm_appends_context_docs(tmp_path: Path, monkeypatch) -> None:
     assert len(client._context_block) <= 4000
 
 
+def test_load_context_documents_provider_param_overrides_global_llm_provider(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression: a caller must be able to name its OWN destination provider
+    (e.g. INSIGHT_PROVIDER) instead of relying on the global LLM_PROVIDER env
+    var, which may point somewhere else entirely (e.g. the local detector)."""
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("PII_REDACTION", "cloud_only")
+    monkeypatch.delenv("ALLOW_RAW_LLM_PII", raising=False)
+    monkeypatch.setattr(context_docs, "UPLOAD_ROOT", tmp_path)
+    doc = tmp_path / "context.txt"
+    doc.write_text("Contact: jan@example.com", encoding="utf-8")
+
+    # No provider given: falls back to global LLM_PROVIDER=ollama (local, no strip).
+    unspecified = context_docs.load_context_documents([str(doc)], upload_root=tmp_path)
+    assert "jan@example.com" in unspecified
+
+    # Explicit provider="openrouter" (public cloud): must strip regardless of
+    # what LLM_PROVIDER is set to.
+    stripped = context_docs.load_context_documents(
+        [str(doc)], upload_root=tmp_path, provider="openrouter"
+    )
+    assert "jan@example.com" not in stripped
+
+
 def test_report_includes_context_doc_names() -> None:
     session = generator.SessionData(
         session_id="session-1",

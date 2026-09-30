@@ -82,6 +82,26 @@ def test_create_backend_returns_groq_backend(monkeypatch: pytest.MonkeyPatch) ->
     assert isinstance(backend, GroqBackend)
 
 
+def test_create_backend_groq_without_httpx_raises_actionable_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When httpx is absent, GroqBackend resolves to None (see backends/__init__.py's
+    try/except around the import, mirroring WhisperCppBackend). Selecting 'groq' must
+    then fail loudly with the missing dependency and the fix -- not a bare ImportError
+    surfacing from deep inside a live call.
+    """
+    monkeypatch.setenv("GROQ_API_KEY", "gk-test")
+    monkeypatch.setattr(
+        "sales_copilot.modules.transcriber.backends.GroqBackend",
+        None,
+    )
+
+    with pytest.raises(RuntimeError, match="httpx") as exc_info:
+        create_backend({"backend": "groq"})
+
+    assert "pip install" in str(exc_info.value)
+
+
 async def test_groq_backend_posts_to_correct_endpoint_and_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

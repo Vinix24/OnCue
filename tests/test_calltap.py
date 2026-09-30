@@ -236,6 +236,53 @@ def test_calltap_restart_once_then_warns_on_repeat_exit(tmp_path, monkeypatch) -
     stream.stop()
 
 
+# --- reattach: forced stop/start with fresh PID resolution ------------------
+
+
+def test_calltap_reattach_stops_and_restarts_with_a_fresh_pid(tmp_path, monkeypatch) -> None:
+    """``reattach()`` is the fix for a call-tap stuck in ATTACHED_SIGNAL_LOST:
+    the subprocess never died, so the existing restart-once-on-death path in
+    _supervise_loop never fires. This exercises the same effect start() always
+    has -- a fresh ``_find_pid`` call -- via the public reattach() surface."""
+
+    import sales_copilot.audio.calltap as ct
+
+    pids = iter([111, 222])
+    monkeypatch.setattr(ct, "_find_pid", lambda name: next(pids))
+
+    spawned: list[_FakeProc] = []
+
+    def _popen(*args, **kwargs):  # noqa: ANN001, ARG001
+        proc = _FakeProc(b"")
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(ct.subprocess, "Popen", _popen)
+
+    stream = CallTapStream(_config(tmp_path))
+    stream.start()
+
+    # Wait on the stream's own state, not just the spawn list: _spawn() appends
+    # to `spawned` slightly before `_supervise_loop` assigns `self._proc`, and
+    # stop() reads `self._proc` -- a premature reattach would race that
+    # assignment and silently skip terminating the first subprocess.
+    deadline = time.time() + 2.0
+    while time.time() < deadline and stream._proc is None:  # noqa: SLF001
+        time.sleep(0.01)
+    assert len(spawned) == 1
+    stream._restart_attempted = True  # noqa: SLF001 -- prove reattach clears this, not just start()
+
+    stream.reattach()
+
+    deadline = time.time() + 2.0
+    while time.time() < deadline and len(spawned) < 2:
+        time.sleep(0.01)
+    assert len(spawned) == 2, "reattach() must stop the old subprocess and spawn a fresh one"
+    assert stream._restart_attempted is False  # noqa: SLF001
+
+    stream.stop()
+
+
 # --- liveness integration ---------------------------------------------------
 
 

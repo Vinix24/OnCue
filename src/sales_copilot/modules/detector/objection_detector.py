@@ -96,27 +96,10 @@ class ObjectionRouter(PainPointRouter):
         # confirmations) competes directly against the objection/opportunity
         # routes for the best match, instead of being forced into the closest
         # objection category. A match that resolves to this class is filtered
-        # out in classify() below — see scripts/eval_objection_precision.py
+        # out in classify() (PainPointRouter._configure_negative_class /
+        # classify()) — see scripts/eval_objection_precision.py
         # (compute_precision_with_extra_class) for the precision comparison.
-        self._include_negatives = (
-            include_negatives
-            if include_negatives is not None
-            else self.config.include_negatives
-        )
-        self._negative_categories: frozenset[str] = frozenset()
-        if self._include_negatives:
-            try:
-                negative_routes = _load_routes(
-                    self.config.negatives_config, self.language
-                )
-            except FileNotFoundError:
-                logger.warning(
-                    "Negatives config '%s' not found — continuing without negative class",
-                    self.config.negatives_config,
-                )
-                negative_routes = []
-            self._negative_categories = frozenset(route.name for route in negative_routes)
-            self.routes = self.routes + negative_routes
+        self._configure_negative_class(include_negatives)
 
         self._router = None
         self._router_lock = threading.Lock()
@@ -124,20 +107,6 @@ class ObjectionRouter(PainPointRouter):
             route.name: [utterance.strip().lower() for utterance in route.utterances if utterance.strip()]
             for route in self.routes
         }
-
-    def classify(self, text: str) -> RouteMatch | None:
-        """Classify ``text``, filtering out matches that resolve to the negative class.
-
-        The negative routes are loaded into the same semantic-router instance as
-        the objection/opportunity routes (see ``__init__``) so they compete for
-        the best match. When the negative class wins, there is no objection or
-        opportunity to report — pain-point detection (``PainPointRouter``) is
-        untouched by this override since it uses a separate router instance.
-        """
-        match = super().classify(text)
-        if match is not None and match.category in self._negative_categories:
-            return None
-        return match
 
 
 class ObjectionDetector:

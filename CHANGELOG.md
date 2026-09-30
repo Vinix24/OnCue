@@ -1,5 +1,195 @@
 # Changelog
 
+## Unreleased
+
+## [1.0.0-rc.1] — 2026-09-28
+
+First public pre-release since 0.9.0. A full rebrand from "Sales Copilot"
+to OnCue across the launcher and dashboard, a client-folder feature that
+groups a customer's sessions, dossier and retention policy under one
+`klant.yaml`, hardening of the audio tap against silent failure, an
+explicit consent gate before an auto-detected call arms a session, and a
+post-ASR transcript normalization layer.
+
+### Added
+
+- Pro/Enterprise: a deep-insight lane and an MCP bridge for external AI
+  assistants. These are not part of the open-source build.
+- Dashboard: a consent prompt that must be explicitly confirmed before an
+  auto-detected meeting or phone call arms a session — detection alone
+  never starts one.
+- Post-call transcription gained a `--model` override so a run can use
+  the full accuracy model without editing the live-demo default in
+  `.env` and back again.
+- Launcher: a record/dashboard mode choice on open, repo-relative
+  resolution so the built app still works after being moved out of the
+  repo folder, and a valid ad-hoc code signature.
+- The detector reports on itself at INFO level: a first-chunk line, a
+  bounded heartbeat and a closing summary, each carrying per-reason
+  counters, so a detector silently dropping every chunk is no longer
+  indistinguishable from one that never started (#203).
+- `scripts/oncue_chain.sh check|up`: one command for the whole pre-call
+  chain, read-only in `check`, idempotent in `up` (#204, #208).
+- An `attached_signal_lost` tap-health state warns and marks the
+  transcript when a tap that has already carried audio starts writing
+  bit-for-bit zero frames — a stopped tap, not a pause, since a live
+  capture of a silent source always carries a noise floor. Found via a
+  call that silently lost 23 minutes of prospect audio while every
+  existing check still read healthy (#230).
+- Client folders ("klantmap"): the `klant.yaml` schema and loader, path
+  safety against an escaping slug, a cloud-sync warning for a client root
+  that lives under iCloud Drive/Dropbox/other synced storage, the
+  server-driven setup-screen client picker and privacy gate, session-to-
+  client linking with an automatic archive of transcript + report into
+  the client's own folder, and a per-client retention sweep that purges
+  only that client's own archived sessions and dossier notes (#244-#249).
+- A post-ASR transcript normalization layer: an exact-variant table, an
+  adjacent-token merge and a length-gated fuzzy match against a config
+  file, measured against a 50-entity tuning set and a held-out corpus of
+  real calls before shipping (0 false positives / 10k held-out words,
+  7 of 33 known-wrong entities repaired) (#251, #253).
+- A headless fixture builder for replay-based detector testing, so a
+  reproduction no longer needs a live call and a real audio tap (#241).
+- Dashboard: a per-side indicator next to "You"/"Prospect" shows live tap
+  health (no tap / attached but silent / attached with signal), not only
+  a talk-time percentage (#239).
+
+### Changed
+
+- The two "stop" actions in the dashboard were easy to confuse: ending
+  the current call and shutting the whole server down used near-identical
+  buttons. Shutting the server down is now a clearly secondary control
+  with its own confirmation dialog, replacing a raw browser `confirm()`
+  and a page that overwrote itself.
+- Windows support documentation now says what was already true: video-call
+  capture works like on macOS. Only phone-call capture, which taps a
+  macOS-only relay process, stays out of reach on Windows.
+- The Dock launcher icon and product name now use OnCue's own mark
+  instead of a generic emoji and the old "Sales Copilot" name; the
+  start-call button no longer strands a call without an end-call
+  control; and the transcription vocabulary was cut from 354 to 200
+  tokens to fit whisper's 223-token prompt budget (#207).
+- Report delivery to a webhook/CRM endpoint is now gated to the
+  Pro/Enterprise tier; delivery to a local directory is unaffected and
+  stays available on every tier (#250).
+
+### Fixed
+
+- Public export copies git-tracked files only, and no longer leaves a
+  stray `.ruff_cache` directory in the exported snapshot.
+- Several dependency floors bumped to close disclosed CVEs (aiohttp,
+  cryptography, pip), and a Node version pinned for the license server
+  after `better-sqlite3` stopped building on newer Node.
+- A pre-push hook resolved the wrong repository root when pushed from a
+  worktree, so its check silently ran against the main checkout instead
+  of the branch being pushed.
+- The AI-detection master switch no longer flips off silently.
+  `loadPresets()` re-applied the first preset (`discovery`,
+  `pain_points: false`) on every page load, bypassing the guard that only
+  ran on the localStorage path. Preset choices are now written once on a
+  fresh browser, a deliberate choice always wins, and a call running
+  without detection carries a standing indicator (#206).
+- `PainPointRouter`'s keyword fast path no longer over-matches. A single
+  shared token could produce a high-confidence match, and every hit
+  returned a hardcoded 0.95 that downstream thresholds could not act on.
+  Confidence is now proportional to overlap and the shared negative class
+  is wired in for pain points too. Precision 0.855 -> 0.942, recall
+  unchanged at 1.0 (#205).
+- An existing install now gets the commands a new version declares.
+  `pipx upgrade live-sales-copilot` asks pip, pip compares version
+  numbers, and `pyproject.toml` had said 0.9.0 since 2026-04-08 — across
+  the v0.10.0 and v1.0.0-rc1 tags. So the documented update route printed
+  "already at latest version" and installed nothing: no new code, and no
+  `bin/` wrapper for any console script added since, because pip writes
+  those at install time only. The release script now refuses a tag whose
+  version does not match both declared copies, the pipx update
+  instruction is `pipx reinstall`, and `scripts/oncue_chain.sh check`
+  gained a step that compares `[project.scripts]` against what is
+  actually in the venv's `bin/`.
+- Architecture, technical, functional and operator documentation brought
+  in line with the fixes above. The operator docs pointed at
+  `data/logs/runtime.log`, which is only written when the backend is
+  started via `scripts/start.sh` or the launchd agent; anyone launching
+  `Start OnCue.app` was being sent to an empty file. They now point at
+  `data/logs/copilot.log`, and the FAQ explains all three log files.
+- Fixed a native crash roughly a second after start on every Windows
+  audio configuration tested in a field test. `soundcard`'s WASAPI
+  recorder is a COM object bound to whichever thread creates it, and the
+  reader thread that read it never joined that COM apartment.
+  `WasapiLoopbackStream` now opens, reads, re-attaches and closes the
+  recorder entirely on one COM-joined reader thread. Verified from source
+  only — no Windows host was available to confirm it on real hardware
+  (#224).
+- Warn on a zero-frame session finalize even when no audio stream ever
+  attached, not only when one attached and then produced nothing. The
+  prior guard was gated on stream bookkeeping that a session which never
+  received a single chunk — the likeliest real cause of an empty Windows
+  recording — never populated, so the single most common failure shape
+  warned nothing (#225).
+- Retracted an incorrect Windows telephony claim — a WASAPI level-meter
+  movement attributed to OnCue's own tap turned out to be Windows' own
+  `mmsys.cpl` meter, with OnCue not running at the time — and brought
+  `docs/ARCHITECTURE.md`, `docs/TTD.md`, `INSTALL.md` and
+  `KNOWN_ISSUES.md` in line with the Windows fixes above (#226).
+- Fixed five reader-thread lifecycle defects in the WASAPI COM fix above,
+  found in adversarial review — two of them regressions that fix itself
+  introduced (a recorder handle leak on open-failure, and a
+  `start()`/`stop()` race after a timed-out join), plus a COM-uninitialize
+  call that could run without a matching init, a swallowed open-failure
+  that never reached tap health or the dashboard, and a COM join failure
+  that could wedge `start()`/`stop()` forever. Not testable on Windows
+  here — verified with a mocked `soundcard` and `sys.platform`
+  monkeypatched to win32 (#227).
+- Made the autostart monitor's video-meeting candidate list
+  platform-aware. It held macOS process names only (`Google Chrome`,
+  `Microsoft Teams`, `zoom.us`) matched with no fuzzy fallback, so on
+  Windows — where the same apps run as `chrome.exe`/`Teams.exe`/
+  `ms-teams.exe`/`Zoom.exe` — the monitor polled cleanly but never
+  auto-armed from a detected video-meeting app (#228).
+- Bumped httpx2/httpcore2 2.9.1 -> 2.12.0, patching six new CVE advisories
+  (#229), and anyio 4.13.0 -> 4.14.2, patching CVE-2026-63374 and
+  CVE-2026-64847 (#231).
+- Bumped pillow 12.2.0 -> 12.3.0 and pytorch-lightning 2.6.5 -> 2.6.6 (six
+  and one CVE advisories, both transitive via the `diarization` extra),
+  plus h2 4.3.0 -> 4.4.1 and lightning 2.6.5 -> 2.6.6 (#234).
+- Stopped the pain-point keyword fast path from short-circuiting the
+  embedding router on weak evidence. Measured against a 120-row fixture:
+  79/120 utterances were decided by the keyword path, and 21 of those
+  (26.6%) were wrong. The keyword path now only bypasses the embedding
+  layer on "high"-tier confidence (measured 43/44 correct); "uncertain"-
+  tier keyword hits fall through to the embedding layer instead, exactly
+  as if no keyword match had been found. A related fix: a short
+  live-transcript fragment merely appearing *inside* a longer known route
+  utterance no longer counts as an exact quote at confidence 1.0 — only
+  the full known phrase said verbatim does. Post-fix: 29/120 utterances
+  decided by keyword, 0 wrong; macro precision 0.764 -> 0.859, macro
+  recall 0.756 -> 0.819. Both routers built on `PainPointRouter`
+  (including `ObjectionRouter`'s always-on objection/buying-signal path)
+  share the fix (#235).
+- A fresh `pip install -e ".[smart]"` delivers all three declared console
+  scripts (`sales-copilot`, `talk-time`, `live-transcriber`) into
+  `.venv/bin`, and re-running it after a new script is declared adds the
+  new wrapper without removing the others — reproduced live against this
+  checkout.
+- A live audio tap that keeps delivering exact silence after already
+  carrying signal is now reattached automatically, up to three tries
+  with increasing spacing, before falling back to a warning (#243).
+- Two silent detector code paths — the embedding router finding no route
+  at all, and a match resolving to the shared negative class — now log
+  the discarded result instead of dropping it without a trace, and the
+  transcript-subscription log lines no longer write the hub's auth token
+  as part of the logged URL (#240).
+
+### Security
+
+- Client dossier and context-document text is now PII-redacted against
+  the provider that actually receives it, not the globally configured
+  one (#242).
+- A client's privacy ceiling (local / own-tenant / public) is now checked
+  against every lane that can see conversation text, not only the live
+  detector, and against the provider that will actually run rather than
+  an empty default that always read as public (#246).
+
 ## [0.9.0] — 2026-07-22
 
 - feat(audio): ship AudioTee source as the OSS/Free default, built locally into `bin/audiotee` — whole-system `tap_all` capture (Teams/Zoom/Meet, no BlackHole, no submodule); only the telephony call-tap stays Pro (#96).
@@ -40,7 +230,7 @@
 - Fix Gemini API key env-name fallback in detector LLM clients by accepting `GOOGLE_API_KEY` or `GEMINI_API_KEY` in pain-point confirmation and phase detection, and document `GEMINI_API_KEY` as preferred in `.env.example` (PR-91a).
 - Flip ENABLE_OBJECTION_DETECTION, ENABLE_SUGGESTIONS, ENABLE_SUMMARY, DYNAMIC_SLIDES to default true so first-time users see AI activity out of the box; set =false in .env to opt out (PR-91b).
 
-## [1.0.0] - 2026-04-20
+## Pre-OnCue history (internal numbering, 2026-04-20)
 - Add talk-time heartbeat snapshots (`TALK_TIME_HEARTBEAT_MS`) tied to start/end call lifecycle so dashboard timer updates every second even in BlackHole single-stream mode (PR-89).
 - Add Dutch self-serve FAQ (`docs/FAQ.md`) with 50+ issue paths, FAQ index, README escalation order, and troubleshooting cross-links.
 - Add zero-touch macOS first-run installer (`scripts/first-run.sh`), start/stop wrappers, and honest Dutch setup/troubleshooting docs.

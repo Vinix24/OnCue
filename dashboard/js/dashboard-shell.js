@@ -41,9 +41,13 @@ wrapView("showReportView", () => {
   document.body.classList.add("post-call");
 });
 
-/* ---- topbar prospect mirror — reflects the real sidebar fields, no fake data ---- */
-const companyField = document.getElementById("prospect-company");
-const industryField = document.getElementById("prospect-industry");
+/* ---- topbar prospect mirror — reflects the real sidebar field, no fake data ----
+ * klantmap-als-eenheid D2 replaced the free-typed "Prospect bedrijf" / "Industry"
+ * fields with one client picker; industry is no longer known client-side (it comes
+ * from klant.yaml, server-side, only once the call actually starts), so the topbar
+ * mirror now shows only the picked client's display name.
+ */
+const clientSelect = document.getElementById("client-select");
 const topbarCompany = document.getElementById("topbar-company");
 const topbarIndustry = document.getElementById("topbar-industry");
 
@@ -51,19 +55,16 @@ const syncTopbarDeal = () => {
   if (!topbarCompany) {
     return;
   }
-  const company = companyField?.value?.trim();
-  const industry = industryField?.value?.trim();
+  const selectedOption = clientSelect?.options?.[clientSelect.selectedIndex];
+  const company = selectedOption?.value ? selectedOption.textContent?.trim() : "";
   topbarCompany.textContent = company || window.t("header.no_prospect_set");
   if (topbarIndustry) {
-    topbarIndustry.textContent = industry ? `· ${industry}` : "";
+    topbarIndustry.textContent = "";
   }
 };
 
-if (companyField) {
-  companyField.addEventListener("input", syncTopbarDeal);
-}
-if (industryField) {
-  industryField.addEventListener("input", syncTopbarDeal);
+if (clientSelect) {
+  clientSelect.addEventListener("change", syncTopbarDeal);
 }
 window.SalesCopilotI18n.ready.then(syncTopbarDeal);
 

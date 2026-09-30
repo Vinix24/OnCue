@@ -421,6 +421,110 @@ body.theme-dark .app {
   display: none;
 }
 
+/* ── autostart consent prompt — non-modal detection-alert banner ──── */
+
+.app .autostart-consent-prompt {
+  position: relative;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--blue-soft, #E3EEFD);
+  border-bottom: 1px solid var(--blue-line, #B8D4F8);
+  color: var(--text, #222);
+  font-size: 13px;
+  font-family: var(--font);
+}
+
+.app .autostart-consent-prompt.hidden {
+  display: none;
+}
+
+.autostart-prompt-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex: none;
+}
+
+.autostart-prompt-label {
+  flex: 1;
+  line-height: 1.5;
+}
+
+.autostart-prompt-label strong {
+  font-weight: 700;
+}
+
+.autostart-outcome {
+  flex: none;
+  font-weight: 600;
+  color: var(--green, #228B5B);
+  white-space: nowrap;
+}
+
+.autostart-outcome.hidden {
+  display: none;
+}
+
+.autostart-prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.autostart-confirm-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: none;
+  background: var(--blue, #2563EB);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s;
+}
+
+.autostart-confirm-btn:hover {
+  background: #1D4ED8;
+}
+
+.autostart-confirm-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.autostart-decline-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #D1D5DB);
+  background: transparent;
+  color: var(--text, #222);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s;
+}
+
+.autostart-decline-btn:hover {
+  background: var(--hover, #F3F4F6);
+  border-color: var(--text-muted, #9CA3AF);
+}
+
+.autostart-decline-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
 .app .license-modal,
 .app .pro-upgrade-modal {
   position: fixed;
@@ -610,6 +714,194 @@ body.theme-dark .app {
   color: var(--text);
 }
 
+/* ── server-stop confirm modal — same overlay pattern as pro-upgrade-modal ── */
+
+.app .stop-server-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 36, 99, .45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 16px;
+}
+
+.app .stop-server-modal.hidden {
+  display: none;
+}
+
+.stop-server-modal-content {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--sh-lg);
+  padding: 32px 28px 28px;
+  width: 100%;
+  max-width: 400px;
+  color: var(--ink);
+  font-family: var(--font);
+  text-align: center;
+}
+
+.stop-server-modal-icon {
+  font-size: 30px;
+  margin-bottom: 6px;
+}
+
+.stop-server-modal-title {
+  font-size: 18px;
+  font-weight: 800;
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+
+.stop-server-modal-desc {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.stop-server-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.stop-server-modal-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #D1D5DB);
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+
+.stop-server-modal-cancel:hover {
+  background: var(--hover, #F3F4F6);
+  border-color: var(--text-muted, #9CA3AF);
+}
+
+.stop-server-modal-confirm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 22px;
+  border-radius: 999px;
+  border: none;
+  background: var(--red);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .15s;
+}
+
+.stop-server-modal-confirm:hover {
+  background: #A5311F;
+}
+
+.stop-server-modal-cancel:focus-visible,
+.stop-server-modal-confirm:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+/* ── shutdown screen — replaces document.body once the server has quit ──────
+   Full-viewport, same surface/colors as the dashboard. Tells the user the
+   server stopped and how to come back, instead of a bare one-liner. */
+
+.stop-server-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface, #fff);
+  color: var(--ink, #1a1a1a);
+  font-family: var(--font);
+  padding: 24px;
+}
+
+.stop-server-screen.hidden {
+  display: none;
+}
+
+.stop-server-screen-card {
+  width: 100%;
+  max-width: 440px;
+  text-align: center;
+  padding: 40px 32px;
+}
+
+.stop-server-screen-icon {
+  font-size: 36px;
+  line-height: 1;
+  margin-bottom: 12px;
+  color: var(--red, #C0432E);
+}
+
+.stop-server-screen-title {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 0 0 10px;
+}
+
+.stop-server-screen-message {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.55;
+  margin: 0 0 24px;
+}
+
+.stop-server-screen-restart {
+  text-align: left;
+  background: var(--raise, #F3F4F6);
+  border: 1px solid var(--border, #E5E7EB);
+  border-radius: var(--r);
+  padding: 16px 18px;
+}
+
+.stop-server-screen-restart-heading {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--faint, #6B7280);
+  margin: 0 0 8px;
+}
+
+.stop-server-screen-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.stop-server-screen-steps li {
+  margin-bottom: 4px;
+}
+
+.stop-server-screen-steps li:last-child {
+  margin-bottom: 0;
+}
+
 /* ── shell: sidebar + main ────────────────────────────────────────────── */
 
 .shell {
@@ -690,6 +982,31 @@ body.theme-dark .app {
   text-transform: uppercase;
   color: var(--faint);
   text-align: center;
+}
+
+/* Persistent AI-detection-off indicator — pinned in the always-visible
+   sidebar footer (not the scrollable module list) so it stays on screen
+   during setup AND mid-call, wired to the real pain_points checkbox. */
+.detection-off-indicator {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  background: var(--amber-soft);
+  border: 1px solid var(--orange-line);
+  border-radius: var(--r-sm);
+  color: var(--amber);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.detection-off-indicator svg {
+  flex: 0 0 auto;
+}
+
+.detection-off-indicator.hidden {
+  display: none;
 }
 
 .s-card {
@@ -1090,6 +1407,14 @@ body.theme-dark .app {
   font-weight: 600;
 }
 
+.cloud-sync-warning {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--red);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 /* sidebar footer controls */
 
 .privacy-notice {
@@ -1413,23 +1738,19 @@ body.in-call .rec-dot {
   100% { box-shadow: 0 0 0 0 rgba(208, 67, 46, 0); }
 }
 
-.stop-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  border: 1px solid #EFC7C0;
-  background: var(--red-soft);
-  color: #A5311F;
-  cursor: pointer;
-  font-size: 13px;
-  transition: background .15s;
+/* ── server-stop: subtle secondary header action (rare, destructive) ────────
+   The daily "Stop & rapport" action lives in the sidebar (#end-call). The
+   server-stop is rarer and shuts the whole process down, so it stays as a
+   quiet icon button next to the other header icon buttons — never the most
+   prominent control. A faint red accent keeps it recognisable as a stop. */
+
+.stop-btn--subtle {
+  color: var(--red, #C0432E);
 }
 
-.stop-btn:hover {
-  background: #F6D9D3;
+.stop-btn--subtle:hover {
+  background: var(--red-soft);
+  border-color: #EFC7C0;
 }
 
 /* ── call-view grid (mockup .body / .col / .rail / .card) ────────────────── */
@@ -1627,6 +1948,15 @@ body.in-call .rec-dot {
   color: var(--text);
 }
 
+.transcript-speaker.marker {
+  background: var(--danger);
+}
+
+.transcript-marker .transcript-text {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 .transcript-partial .transcript-text {
   color: var(--faint);
   font-style: italic;
@@ -1693,6 +2023,107 @@ body.in-call .rec-dot {
   text-align: center;
   color: var(--faintest);
   font-size: 12.5px;
+}
+
+/* Detector status strip — pinned under the pain-points list so "is it
+   listening or is it broken?" has an answer on screen. Deliberately quiet:
+   one muted line, the per-reason counter breakdown only on click. */
+.detector-status {
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.detector-status-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 12px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.detector-status-toggle:hover {
+  color: var(--text);
+}
+
+.detector-status-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faintest);
+}
+
+.detector-status.is-live .detector-status-dot {
+  background: var(--green);
+  animation: beat 1.4s infinite;
+}
+
+.detector-status.is-warn .detector-status-dot {
+  background: var(--amber);
+}
+
+.detector-status.is-warn .detector-status-label {
+  color: var(--amber);
+  font-weight: 700;
+}
+
+.detector-status-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detector-status-caret {
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  opacity: .55;
+  transition: transform .15s ease;
+}
+
+.detector-status-toggle[aria-expanded="true"] .detector-status-caret {
+  transform: rotate(90deg);
+}
+
+.detector-status-detail {
+  padding: 0 12px 9px;
+}
+
+.detector-status-reason {
+  margin: 0 0 7px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.detector-status-counts {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1px 10px;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.detector-status-counts dt {
+  color: var(--faint);
+}
+
+.detector-status-counts dd {
+  margin: 0;
+  text-align: right;
+  color: var(--text);
 }
 
 @keyframes card-in {
@@ -1768,6 +2199,27 @@ body.in-call .rec-dot {
   color: var(--faint);
 }
 
+/* Confidence tier — only meaningful since #205 made the keyword fast path
+   return a score proportional to real overlap instead of a hardcoded 0.95.
+   A weak match must not read as a strong one, so it is dimmed and marked
+   with a dotted rule. Quiet on purpose: this is a live sales call. */
+.pain-point-card.is-high .pain-point-confidence,
+.opportunity-card.is-high .opportunity-confidence {
+  color: var(--ink);
+}
+
+.pain-point-card.is-uncertain .pain-point-confidence,
+.opportunity-card.is-uncertain .opportunity-confidence {
+  font-weight: 500;
+  color: var(--faintest);
+  border-bottom: 1px dotted var(--border-strong);
+}
+
+.pain-point-card.is-uncertain .pain-point-quote,
+.opportunity-card.is-uncertain .pain-point-quote {
+  opacity: .78;
+}
+
 .pain-point-quote {
   font-size: 12.5px;
   color: var(--red);
@@ -1839,6 +2291,215 @@ body.in-call .rec-dot {
   margin-top: 8px;
 }
 
+/* ── diepte-inzichten (track 3 deep insight lane) ───────────────────────── */
+
+.insights-feed {
+  overflow-y: auto;
+  max-height: 260px;
+  padding: 2px 8px 6px;
+  min-height: 0;
+}
+
+.insights-feed::-webkit-scrollbar { width: 7px; }
+.insights-feed::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
+
+.insights-empty {
+  padding: 18px 12px;
+  text-align: center;
+  color: var(--faintest);
+  font-size: 12.5px;
+}
+
+.insights-upgrade {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.insights-upgrade-btn {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--orange-line);
+  background: var(--orange-soft);
+  color: var(--orange-deep);
+  cursor: pointer;
+}
+
+.insights-budget-notice {
+  padding: 8px 8px 10px;
+  font-size: 11.5px;
+  color: var(--faint);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+
+.insight-row {
+  padding: 8px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.insight-row + .insight-row {
+  border-top: 1px solid var(--border);
+}
+
+.insight-row.is-new {
+  animation: card-in .3s;
+}
+
+.insight-row.is-collapsed .insight-row-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.insight-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.insight-badge {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.insight-row[data-type="doorvraag"] .insight-badge { background: var(--client-soft); color: var(--client-deep); }
+.insight-row[data-type="inzicht"] .insight-badge { background: var(--orange-soft); color: var(--orange-deep); }
+.insight-row[data-type="risico"] .insight-badge { background: var(--red-soft); color: var(--red); }
+.insight-row[data-type="feitencheck"] .insight-badge { background: var(--green-soft); color: var(--green); }
+.insight-row[data-type="antwoord"] .insight-badge { background: var(--amber-soft); color: var(--amber); }
+
+.insight-speculation {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  color: var(--faint);
+}
+
+.insight-speculation-hoog {
+  color: var(--orange-deep);
+}
+
+.insight-source {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--faint);
+}
+
+.insight-source-mcp {
+  border-color: var(--client-deep);
+  color: var(--client-deep);
+}
+
+.insight-time {
+  margin-left: auto;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--faint);
+}
+
+.insight-row-text {
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.insight-row-detail {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.insight-grounding {
+  font-size: 11.5px;
+  color: var(--faint);
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.insight-question {
+  font-size: 11.5px;
+  color: var(--client-deep);
+  line-height: 1.4;
+}
+
+.insight-dismiss-btn {
+  align-self: flex-start;
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+
+.insight-dismiss-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.insights-ask-box {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.insights-ask-box input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--raise);
+  color: var(--text);
+}
+
+.insights-ask-box input:focus {
+  outline: none;
+  border-color: var(--client-deep);
+}
+
+.insights-ask-box button {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  border: none;
+  background: var(--orange-deep);
+  color: #fff;
+  cursor: pointer;
+}
+
+.insights-ask-box button:hover {
+  background: var(--orange);
+}
+
 /* ── talking-time widget ──────────────────────────────────────────────── */
 
 .ttc-body {
@@ -1875,6 +2536,29 @@ body.in-call .rec-dot {
   font-family: var(--mono);
   font-weight: 700;
   color: var(--ink);
+}
+
+/* Per-side tap-state dot. Stays hidden until the first tap_status message for
+   that stream arrives (plain streams without tap_health never send one, so
+   the row looks exactly as it did before this indicator existed). */
+.tap-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--faint);
+}
+
+.tap-indicator[data-tap-state="no_tap"] {
+  background: var(--red);
+}
+
+.tap-indicator[data-tap-state="attached_no_signal"] {
+  background: var(--amber);
+}
+
+.tap-indicator[data-tap-state="attached_signal"] {
+  background: var(--green);
 }
 
 .talk-time-bar {

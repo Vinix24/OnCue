@@ -312,6 +312,34 @@ async def detection_feedback_api(body: DetectionFeedbackRequest) -> dict[str, An
     return {"status": "ok", "forwarded": payload is not None}
 
 
+class AskInsightRequest(BaseModel):
+    text: str
+    ts: int | None = None
+
+    @field_validator("text")
+    @classmethod
+    def _validate_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("text must not be empty")
+        return stripped
+
+
+@router.post("/api/insights/ask", dependencies=[Depends(require_token)])
+async def insights_ask_api(body: AskInsightRequest) -> dict[str, Any]:
+    """Forward a vraag-box question onto the `insights` channel.
+
+    `InsightEngine` publishes to that same channel, which makes its outbound
+    connection a subscriber too (every hub client is) -- so this broadcast is
+    how the question reaches the engine's ask-listener. Gated the same way
+    every other `insights` payload is: `hub_core._broadcast_to_channel` drops
+    it silently when deep insights are not entitled, and there is no running
+    `InsightEngine` to pick it up when the feature/flag is off.
+    """
+    await hub_core.broadcast("insights", {"type": "ask", "text": body.text, "ts": body.ts})
+    return {"status": "ok"}
+
+
 @router.post("/api/hint-feedback", dependencies=[Depends(require_token)])
 async def hint_feedback_api(body: HintFeedbackRequest) -> dict[str, Any]:
     """Record a thumbs-up/down vote on a single coaching hint.

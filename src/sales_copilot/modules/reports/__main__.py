@@ -5,6 +5,7 @@ import dataclasses
 import json
 import logging
 import signal
+import stat
 import wave
 from datetime import datetime
 from pathlib import Path
@@ -14,13 +15,23 @@ import websockets
 
 from sales_copilot.audio.recorder import get_active_recorder
 from sales_copilot.auth.feature_policy import get_feature_policy
-from sales_copilot.core.config import SlidesConfig, TranscriberConfig, WebSocketConfig, load_env
+from sales_copilot.core.config import (
+    InsightConfig,
+    ReportDeliveryConfig,
+    SlidesConfig,
+    TranscriberConfig,
+    WebSocketConfig,
+    load_env,
+)
+from sales_copilot.core.context_docs import resolve_client_dir, write_dossier_transcript
 from sales_copilot.core.conversion import ConversionCounterStore
 from sales_copilot.core.logging import configure_logging
 from sales_copilot.core.session_store import SessionStore
 from sales_copilot.modules.reports import generator
+from sales_copilot.modules.reports.delivery import validate_report_delivery_config
 from sales_copilot.modules.reports.generator import (
     CallReport,
+    InsightEvent,
     PainPointEvent,
     PhaseEvent,
     SessionData,
@@ -127,6 +138,32 @@ def _transcript_segments(session: TrackerSessionData) -> list[TranscriptSegment]
     return segments
 
 
+def _insights_from_session(session: TrackerSessionData) -> list[InsightEvent]:
+    events: list[InsightEvent] = []
+    for entry in session.insights:
+        insight_type = entry.get("insight_type")
+        text = entry.get("text")
+        grounding = entry.get("grounding")
+        speculation = entry.get("speculation")
+        timestamp_ms = entry.get("timestamp_ms")
+        if not isinstance(insight_type, str) or not isinstance(text, str):
+            continue
+        if not isinstance(timestamp_ms, (int, float)):
+            continue
+        question = entry.get("question")
+        events.append(
+            InsightEvent(
+                insight_type=insight_type,
+                text=text,
+                grounding=grounding if isinstance(grounding, str) else "",
+                speculation=speculation if isinstance(speculation, str) else "",
+                timestamp_ms=int(timestamp_ms),
+                question=question if isinstance(question, str) else None,
+            )
+        )
+    return events
+
+
 def _build_scorecard(session: TrackerSessionData) -> dict[str, object]:
     """Free post-call scorecard (design doc section 9 Phase 3).
 
@@ -162,6 +199,9 @@ def _build_generator_session(session: TrackerSessionData) -> SessionData:
         monologues=[],
         transcript=_transcript_segments(session),
         scorecard=_build_scorecard(session),
+        insights=_insights_from_session(session),
+        started_at=session.started_at,
+        ended_at=session.ended_at,
     )
 
 
@@ -247,12 +287,91 @@ def _report_payload(report: CallReport, report_path: Path | None) -> dict[str, o
         "session_id": report.session_id,
         "call_duration_ms": report.call_duration_ms,
         "pain_point_count": len(report.pain_points_detected),
+        "insight_count": len(report.insights),
         "monologue_count": report.monologue_count,
         "report_path": str(report_path) if report_path else None,
         # Phase 3 Free scorecard: rendered by the dashboard when present;
         # hiding the section leaves all data stored (rollback invariant).
         "scorecard": report.scorecard,
     }
+
+
+def _dossier_transcript_markdown(report: CallReport) -> str:
+    """Render a session's transcript as a readable markdown note for the client dossier."""
+    lines = [f"# Sessie {report.session_id}"]
+    if report.prospect_company:
+        lines.append(f"Klant: {report.prospect_company}")
+    if report.prospect_name:
+        lines.append(f"Contact: {report.prospect_name}")
+    lines.append("")
+    for entry in report.full_transcript:
+        text = entry.text.strip()
+        if text:
+            lines.append(f"{entry.speaker}: {text}")
+    return "\n".join(lines)
+
+
+def _maybe_save_dossier_transcript(report: CallReport, client_slug: str | None) -> None:
+    """Post-call, opt-in: copy this session's transcript into the client's dossier folder.
+
+    Both conditions are required: a client link for this session
+    (``client_slug``, the per-session opt-in) AND ``DOSSIER_AUTO_SAVE=true``
+    (the global auto-save toggle, default off). Never raises -- a write
+    failure here must not affect the call or the already-persisted report.
+    """
+    if not client_slug or not InsightConfig.from_env().dossier_auto_save:
+        return
+    try:
+        stub = f"{datetime.now():%Y-%m-%dT%H-%M-%S}_{report.session_id}_transcript"
+        path = write_dossier_transcript(client_slug, stub, _dossier_transcript_markdown(report))
+        logger.info("Dossier transcript saved for client=%s: %s", client_slug, path)
+    except Exception:
+        logger.warning("Could not save dossier transcript for client=%s", client_slug, exc_info=True)
+
+
+def _archive_session_to_klantmap(
+    report: CallReport, client_slug: str | None, report_path: Path | None
+) -> None:
+    """Archive a client-linked call into ``<klantmap>/gesprekken/<datum>-<session_id>/``.
+
+    Unlike ``_maybe_save_dossier_transcript`` (opt-in via ``DOSSIER_AUTO_SAVE``),
+    this runs whenever a client is linked to the session -- plan klantmap-als-
+    eenheid: "Zonder klant gebeurt er niets extra", so a session with no
+    ``client_slug`` is a no-op here too, but a linked session is always
+    archived. The raw session data (audio, SQLite, the central report file)
+    stays where it already lives; this is a readable copy for the client
+    folder. Never raises -- an archive failure must not affect the call or the
+    already-persisted central report.
+    """
+    if not client_slug:
+        return
+    try:
+        klant_dir = resolve_client_dir(client_slug, create=True)
+        if klant_dir is None:
+            return
+        archive_dir = klant_dir / "gesprekken" / f"{datetime.now():%Y-%m-%d}-{report.session_id}"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_dir.chmod(stat.S_IRWXU)
+
+        transcript_path = archive_dir / "transcript.md"
+        transcript_path.write_text(_dossier_transcript_markdown(report), encoding="utf-8")
+        transcript_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+        if report_path is not None and report_path.is_file():
+            rapport_path = archive_dir / "rapport.json"
+            rapport_path.write_bytes(report_path.read_bytes())
+            rapport_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+        logger.info(
+            "Session %s archived to klantmap for client=%s: %s",
+            report.session_id,
+            client_slug,
+            archive_dir,
+        )
+    except Exception:
+        logger.warning(
+            "Could not archive session %s for client=%s", report.session_id, client_slug, exc_info=True
+        )
 
 
 async def main(
@@ -263,9 +382,14 @@ async def main(
     prospect_company: str | None = None,
     context_docs: list[str] | None = None,
     session_id: str | None = None,
+    client_slug: str | None = None,
+    aflevering: str | None = None,
 ) -> None:
     load_env()
     configure_logging()
+    # Fail fast on an unusable delivery destination -- at startup, with the
+    # exact path and reason, rather than at the end of the first call.
+    validate_report_delivery_config(ReportDeliveryConfig.from_env())
     ws_config = WebSocketConfig.from_env()
     slides_config = SlidesConfig.from_env()
     tracker = SessionTracker(
@@ -275,6 +399,7 @@ async def main(
         prospect_company=prospect_company,
         context_docs=context_docs,
         session_id=session_id,
+        client_slug=client_slug,
         session_store=SessionStore(),
     )
     stop_event = stop_event or asyncio.Event()
@@ -318,8 +443,10 @@ async def main(
             recorder.directory if recorder is not None else None,
         )
         report_session = _build_generator_session(session)
-        report = generator.generate_report(report_session)
+        report = generator.generate_report(report_session, aflevering=aflevering)
         report_path = _latest_report_path(session.session_id)
+        _maybe_save_dossier_transcript(report, client_slug)
+        _archive_session_to_klantmap(report, client_slug, report_path)
 
         if (
             conversion_store is not None

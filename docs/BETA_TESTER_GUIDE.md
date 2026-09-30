@@ -176,7 +176,7 @@ This only applies if you're on the BlackHole fallback. The Multi-Output Device i
 
 **9. Tool crashes unexpectedly**
 
-Open the log file at `data/logs/runtime.log`. The first 50 lines are the most informative. Include them in your feedback email or bug report. I can almost always trace the cause from the log.
+Open the log file at `data/logs/copilot.log`. The first 50 lines are the most informative. Include them in your feedback email or bug report. I can almost always trace the cause from the log.
 
 **10. A feature doesn't work as expected**
 
@@ -209,4 +209,4 @@ Direct contact for questions or bugs:
 - Email: info@vincentvandeth.nl
 - LinkedIn DM: [Vincent van Deth](https://linkedin.com/in/vincentvandeth)
 
-For bug reports: include the log file (`data/logs/runtime.log`, first 50 lines). That significantly improves the chance of a quick fix.
+For bug reports: include the log file (`data/logs/copilot.log`, first 50 lines). That significantly improves the chance of a quick fix.

@@ -70,3 +70,59 @@ def test_parse_call_config_prefers_transcript_language() -> None:
     )
 
     assert parsed.call_language == "de"
+
+
+# --- client_slug (PR-D4 dossier opt-in) --------------------------------------
+
+
+def test_parse_call_config_defaults_client_slug_to_none() -> None:
+    parsed = _parse_call_config({})
+
+    assert parsed.client_slug is None
+
+
+def test_parse_call_config_reads_top_level_client_slug() -> None:
+    parsed = _parse_call_config({"client_slug": "Acme Corp"})
+
+    assert parsed.client_slug == "acme-corp"
+
+
+def test_parse_call_config_reads_nested_dossier_client_slug() -> None:
+    parsed = _parse_call_config({"dossier": {"client_slug": "Acme Corp"}})
+
+    assert parsed.client_slug == "acme-corp"
+
+
+def test_parse_call_config_blank_client_slug_is_none() -> None:
+    parsed = _parse_call_config({"client_slug": "   "})
+
+    assert parsed.client_slug is None
+
+
+def test_parse_call_config_top_level_client_slug_wins_over_dossier() -> None:
+    parsed = _parse_call_config(
+        {"client_slug": "top-level", "dossier": {"client_slug": "nested"}}
+    )
+
+    assert parsed.client_slug == "top-level"
+
+
+# --- aflevering (klantmap-als-eenheid D2, server-derived from klant.yaml) ----
+
+
+def test_parse_call_config_defaults_aflevering_to_none() -> None:
+    parsed = _parse_call_config({})
+
+    assert parsed.aflevering is None
+
+
+def test_parse_call_config_reads_aflevering() -> None:
+    parsed = _parse_call_config({"aflevering": "lokaal"})
+
+    assert parsed.aflevering == "lokaal"
+
+
+def test_parse_call_config_ignores_non_string_aflevering() -> None:
+    parsed = _parse_call_config({"aflevering": 123})
+
+    assert parsed.aflevering is None

@@ -20,7 +20,15 @@ from purge_session import (
     purge_session,
 )
 
+from sales_copilot.core import context_docs
 from sales_copilot.core.session_store import DetectionRecord, SessionStore
+
+
+def test_default_uploads_dir_is_context_docs_upload_root() -> None:
+    """The klantenmap comes exclusively from context_docs.UPLOAD_ROOT (honours
+    the KLANTEN_ROOT env override) -- never a second, independent default that
+    could silently diverge and miss the gesprekken/ archive on purge."""
+    assert purge_module._DEFAULT_UPLOADS_DIR is context_docs.UPLOAD_ROOT
 
 
 class _CaptureWriter:
@@ -381,3 +389,144 @@ def test_bulk_purge_before_date(tmp_path):
     assert "recent-uuid-001" in remaining_ids
     assert "old-uuid-001" not in remaining_ids
     assert "old-uuid-002" not in remaining_ids
+
+
+# ---------------------------------------------------------------------------
+# klantmap-als-eenheid D3: klant archief + dossier auto-save + manual dossier
+# ---------------------------------------------------------------------------
+
+
+def test_purge_session_removes_klant_archief_for_that_session_only(tmp_path):
+    session_id = "archief-sess-001"
+    db_path = tmp_path / "sessions.db"
+    uploads_dir = tmp_path / "clients"
+
+    SessionStore(db_path).create_session(session_id, client_slug="acme")
+
+    archive_root = uploads_dir / "acme" / "gesprekken"
+    this_session_dir = archive_root / f"2026-09-28-{session_id}"
+    this_session_dir.mkdir(parents=True)
+    (this_session_dir / "transcript.md").write_text("call transcript", encoding="utf-8")
+    (this_session_dir / "rapport.json").write_text("{}", encoding="utf-8")
+
+    other_session_dir = archive_root / "2026-09-01-other-sess-002"
+    other_session_dir.mkdir(parents=True)
+    (other_session_dir / "transcript.md").write_text("other call", encoding="utf-8")
+
+    counts = purge_session(
+        session_id,
+        dry_run=False,
+        db_path=db_path,
+        audit_dir=tmp_path / "audit",
+        data_dir=tmp_path / "data",
+        uploads_dir=uploads_dir,
+    )
+
+    assert counts["klant_archief"] == 2
+    assert not this_session_dir.exists()
+    assert other_session_dir.is_dir()
+    assert (other_session_dir / "transcript.md").read_text(encoding="utf-8") == "other call"
+
+
+def test_purge_session_removes_own_dossier_auto_save_only(tmp_path):
+    session_id = "dossier-sess-001"
+    db_path = tmp_path / "sessions.db"
+    uploads_dir = tmp_path / "clients"
+
+    SessionStore(db_path).create_session(session_id, client_slug="acme")
+
+    dossier_dir = uploads_dir / "acme" / "dossier"
+    dossier_dir.mkdir(parents=True)
+    auto_save = dossier_dir / f"2026-09-28T10-00-00_{session_id}_transcript.md"
+    auto_save.write_text("auto-saved transcript", encoding="utf-8")
+    manual_note = dossier_dir / "manual-note.md"
+    manual_note.write_text("hand-curated dossier note", encoding="utf-8")
+    other_auto_save = dossier_dir / "2026-09-01T09-00-00_other-sess-002_transcript.md"
+    other_auto_save.write_text("other session's auto-save", encoding="utf-8")
+
+    counts = purge_session(
+        session_id,
+        dry_run=False,
+        db_path=db_path,
+        audit_dir=tmp_path / "audit",
+        data_dir=tmp_path / "data",
+        uploads_dir=uploads_dir,
+    )
+
+    assert counts["klant_dossier_auto_save"] == 1
+    assert not auto_save.exists()
+    assert manual_note.is_file()
+    assert other_auto_save.is_file()
+
+
+def test_purge_session_context_upload_never_deletes_manual_dossier_file(tmp_path):
+    """A session's context-doc manifest can reference an existing file anywhere
+    under the uploads root (resolve_context_doc_ids accepts any existing file,
+    e.g. a reused prior dossier note) -- but purging that ONE session must never
+    delete a client's hand-curated dossier material as a side effect."""
+    session_id = "manifest-sess-001"
+    db_path = tmp_path / "sessions.db"
+    data_dir = tmp_path / "data"
+    uploads_dir = tmp_path / "clients"
+
+    SessionStore(db_path).create_session(session_id, client_slug="acme")
+
+    manual_dossier_file = uploads_dir / "acme" / "dossier" / "manual-note.md"
+    manual_dossier_file.parent.mkdir(parents=True)
+    manual_dossier_file.write_text("hand-curated dossier note", encoding="utf-8")
+
+    session_dir = data_dir / session_id
+    session_dir.mkdir(parents=True)
+    (session_dir / "context_docs.json").write_text(
+        json.dumps({"paths": [str(manual_dossier_file)]}),
+        encoding="utf-8",
+    )
+
+    counts = purge_session(
+        session_id,
+        dry_run=False,
+        db_path=db_path,
+        audit_dir=tmp_path / "audit",
+        data_dir=data_dir,
+        uploads_dir=uploads_dir,
+    )
+
+    assert counts["context_uploads"] == 0
+    assert manual_dossier_file.is_file()
+    assert manual_dossier_file.read_text(encoding="utf-8") == "hand-curated dossier note"
+
+
+def test_purge_session_context_upload_never_deletes_other_sessions_archief(tmp_path):
+    """Same guard as above, for a manifest that reused another session's
+    gesprekken/ archive file instead of a dossier note."""
+    session_id = "manifest-sess-002"
+    db_path = tmp_path / "sessions.db"
+    data_dir = tmp_path / "data"
+    uploads_dir = tmp_path / "clients"
+
+    SessionStore(db_path).create_session(session_id, client_slug="acme")
+
+    archived_transcript = (
+        uploads_dir / "acme" / "gesprekken" / "2026-09-01-other-sess-002" / "transcript.md"
+    )
+    archived_transcript.parent.mkdir(parents=True)
+    archived_transcript.write_text("archived call content", encoding="utf-8")
+
+    session_dir = data_dir / session_id
+    session_dir.mkdir(parents=True)
+    (session_dir / "context_docs.json").write_text(
+        json.dumps({"paths": [str(archived_transcript)]}),
+        encoding="utf-8",
+    )
+
+    counts = purge_session(
+        session_id,
+        dry_run=False,
+        db_path=db_path,
+        audit_dir=tmp_path / "audit",
+        data_dir=data_dir,
+        uploads_dir=uploads_dir,
+    )
+
+    assert counts["context_uploads"] == 0
+    assert archived_transcript.is_file()

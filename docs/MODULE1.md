@@ -7,7 +7,7 @@ Module 1 provides local talk-time coaching using real-time audio capture, VAD, a
 Pipeline (runtime order):
 - Audio capture (mic + optional system audio). System-audio capture is
   platform-specific behind the shared `AudioStream` protocol: `AudioTeeStream`
-  (macOS, default) or `WasapiLoopbackStream` (Windows, experimental) —
+  (macOS, default) or `WasapiLoopbackStream` (Windows) —
   see `capture.py :: normalize_capture_method()`.
 - VAD processing per stream
 - Talk-time tracker (rolling + cumulative state, monologue detection)
@@ -34,7 +34,7 @@ Talk-time and thresholds:
 - `PERCENTAGE_UPDATE_INTERVAL_MS` (default 15000)
 
 Audio capture:
-- `AUDIO_CAPTURE_METHOD` (`audiotee` default on macOS, `wasapi` default on Windows — experimental; `blackhole`, `mic`, and `replay` also available. `normalize_capture_method()` corrects a mismatched value for the current platform rather than raising.)
+- `AUDIO_CAPTURE_METHOD` (`audiotee` default on macOS, `wasapi` default on Windows; `blackhole`, `mic`, and `replay` also available. `normalize_capture_method()` corrects a mismatched value for the current platform rather than raising.)
 - `AUDIO_SAMPLE_RATE` (default 16000)
 - `AUDIO_CHANNELS` (default 1)
 - `TARGET_PROCESS_NAME` (macOS legacy per-process path only; unused by the default `audiotee` path, which taps the whole system output — `tap_all`, with no meeting-app detection. Not used on Windows — `WasapiLoopbackStream` captures the whole default render endpoint, no target process needed.)
@@ -70,7 +70,7 @@ Normative spec (exact field types, Protocol interfaces, and JSON schemas for
 ## Limitations
 - Requires a valid audio input device for `mic` capture.
 - `audiotee` (macOS) requires a running target process name and the AudioTee binary — only for the legacy per-process path; the default `tap_all` path needs neither.
-- `wasapi` (Windows, experimental) requires a default audio output/render device and the `soundcard` package (`pip install .[windows]`); it cannot target or exclude a specific process, so there is no Windows equivalent to the macOS telephony-tap or per-process exclusion.
+- `wasapi` (Windows) requires a default audio output/render device and the `soundcard` package (`pip install .[windows]`); it cannot target or exclude a specific process, so there is no Windows equivalent to the macOS telephony-tap or per-process exclusion.
 - WebSocket hub binds to localhost only; no remote access by design.
 - Deprecated warnings from `websockets`/`uvicorn` are expected until upstream updates.
 

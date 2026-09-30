@@ -66,7 +66,7 @@ class SuggestionLLMClient:
         # Coaching prompts are selected per language by lang_router. ``language=None``
         # resolves to the configured LANGUAGE (falling back to nl per missing key).
         self._prompts = lang_router.route_coaching_prompts(language)
-        self._context_block = self._load_context_docs(context_docs or [])
+        self._context_block = self._load_context_docs(context_docs or [], provider=self.provider)
         self.system_prompt = self._build_system_prompt()
         self._llm = LLMClient(
             self.provider,
@@ -174,8 +174,8 @@ class SuggestionLLMClient:
         return f"{base}\n\n{self._prompts.context_docs_label}\n{self._context_block}"
 
     @staticmethod
-    def _load_context_docs(paths: list[str]) -> str:
-        return load_context_documents(paths)
+    def _load_context_docs(paths: list[str], *, provider: str | None = None) -> str:
+        return load_context_documents(paths, provider=provider)
 
 
 def _normalize_questions(questions: list[str]) -> list[str]:

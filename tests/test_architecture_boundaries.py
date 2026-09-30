@@ -126,3 +126,76 @@ def test_ci_step_missing_fails(tmp_path: Path) -> None:
     result = _run(root)
     assert result.returncode != 0
     assert "[ci-step]" in result.stderr
+
+
+def test_deep_insight_lane_outbound_class_documented() -> None:
+    """The deep-insight lane (second outbound class) must be documented in the
+    invariant doc, the privacy doc, and the boundary-checker docstring.
+
+    PR-D0 (2026-08-04) introduced this as a deliberate, documented revision of
+    invariant 1 — not a footnote exception. This test keeps it from being
+    silently removed in a future edit.
+    """
+    boundaries = ROOT / "docs" / "ARCHITECTURE_BOUNDARIES.md"
+    privacy = ROOT / "docs" / "PRIVACY.md"
+    check = ROOT / "scripts" / "check_architecture_boundaries.py"
+
+    boundaries_text = boundaries.read_text(encoding="utf-8")
+    privacy_text = privacy.read_text(encoding="utf-8")
+    check_text = check.read_text(encoding="utf-8")
+
+    # The revision is documented as a named section, not buried in a footnote.
+    assert "Deep-insight lane outbound class" in boundaries_text
+    assert "2026-08-04" in boundaries_text
+
+    # The three hard conditions are spelled out in the invariant doc.
+    assert "Opt-in per conversation" in boundaries_text
+    assert "Default off" in boundaries_text
+    assert "outbound_policy.py" in boundaries_text
+
+    # The privacy doc nuances the "full transcripts" line.
+    assert "deep-insight lane" in privacy_text.lower()
+    assert "default off" in privacy_text.lower()
+
+    # The checker docstring references the lane so reviewers know it exists.
+    assert "deep-insight lane" in check_text.lower()
+    assert "2026-08-04" in check_text
+
+
+def test_trigger_delivery_outbound_class_documented() -> None:
+    """The trigger-delivery outbound class (third outbound class) must be
+    documented in the invariant doc, the privacy doc, the boundary-checker
+    docstring, and the network allow-list -- same discipline as the
+    deep-insight lane above, so it cannot be silently removed in a future edit.
+    """
+    boundaries = ROOT / "docs" / "ARCHITECTURE_BOUNDARIES.md"
+    privacy = ROOT / "docs" / "PRIVACY.md"
+    module4 = ROOT / "docs" / "MODULE4.md"
+    check = ROOT / "scripts" / "check_architecture_boundaries.py"
+
+    boundaries_text = boundaries.read_text(encoding="utf-8")
+    privacy_text = privacy.read_text(encoding="utf-8")
+    module4_text = module4.read_text(encoding="utf-8")
+    check_text = check.read_text(encoding="utf-8")
+
+    # The revision is documented as a named section, not buried in a footnote.
+    assert "Trigger delivery outbound class" in boundaries_text
+    assert "2026-09-06" in boundaries_text
+
+    # It explicitly does NOT go through the LLM redaction seam, and explains why.
+    assert "does NOT go through" in boundaries_text
+    assert "REPORT_REDACT_PII" in boundaries_text
+
+    # The privacy doc covers the same destination, opt-in/default-off, and the
+    # unredacted-by-default posture (a real difference from the deep-insight lane).
+    assert "report delivery" in privacy_text.lower()
+    assert "REPORT_REDACT_PII" in privacy_text
+
+    # The checker docstring and network allow-list both reference the new module.
+    assert "trigger delivery" in check_text.lower()
+    assert "src/sales_copilot/modules/reports/delivery.py" in check_text
+
+    # The full contract lives in MODULE4.md ("Report Delivery").
+    assert "## Report Delivery" in module4_text
+    assert "REPORT_DELIVERY_DIR" in module4_text
+    assert "REPORT_DELIVERY_ENDPOINT" in module4_text

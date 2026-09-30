@@ -94,11 +94,31 @@ if config.llm_provider in {"none", ""}:
 This is intentional, tested graceful degradation, not dead code — the sliding-window
 path above still runs in parallel, but `WindowClassifier.classify()` is a no-op when
 `provider` is `"none"`/empty, so this fallback is what actually produces pain-point
-detections in that configuration. It uses the pre-PR-105 pipeline:
+detections in that configuration. It uses the pre-PR-105 pipeline, which starts with a lexical pass and only then
+reaches the embedding router:
 
 ```
-PainPointRouter.classify()          — semantic-router embedding match against
-                                       config/pain_points.yaml (not preset-driven)
+PainPointRouter.classify()          — routes from PAIN_POINTS_CONFIG
+                                       (config/pain_points.yaml, not preset-driven),
+                                       localised via _resolve_localized_config_path
+    │
+    ├── 1. _keyword_match()        — cheap lexical pass, runs FIRST
+    │      │                          only "high"-tier evidence short-circuits the
+    │      │                          embedding router; an "uncertain"-tier keyword
+    │      │                          hit is discarded, as if none had been found
+    │      ├── full reference utterance quoted verbatim (`utterance in text`) → confidence 1.0
+    │      ├── < _MIN_KEYWORD_OVERLAP (2) shared content tokens → no match
+    │      └── otherwise: coverage = |overlap| / |utterance tokens|
+    │                     confidence = min(0.97, 0.55 + 0.40 * coverage)
+    │
+    └── 2. semantic-router embedding match — reached whenever the keyword pass
+                                             found nothing, or found only
+                                             "uncertain"-tier evidence
+    │
+    ▼
+negative-class filter                — a match resolving to the shared negative
+                                       route (config/negatives.yaml) is dropped,
+                                       for both this router and ObjectionRouter
     │
     ├── score >= CONFIDENCE_THRESHOLD_HIGH → emit immediately (no LLM call)
     ├── score <  CONFIDENCE_THRESHOLD_LOW  → drop
@@ -113,6 +133,59 @@ PainPointDebouncer.should_trigger() — 45s per-category cooldown (DEBOUNCE_SECO
     ▼
 DetectionPipeline.aprocess() → SlideInjector.process_transcript() → /ws/pain-points
 ```
+
+**The keyword pass is not a detail.** It runs before the embedding router and
+pre-empts it on a hit, so its precision is the precision of this whole path on
+any utterance it matches. Until 2026-09-05 it scored `len(overlap) + 1 if any
+token >= 7 chars` against a bar of 2, which meant one shared long word was
+enough, and every hit returned a hardcoded `confidence=0.95, tier="high"`.
+Downstream thresholds could therefore never filter a keyword match and the LLM
+confirm path was never reached from it. A live call produced "een maand of
+vijf, zes" classified as pain point `rapportage` at 0.95.
+
+Two structural changes fixed that, both visible in the diagram above: a match
+now needs at least `_MIN_KEYWORD_OVERLAP` independently overlapping content
+tokens, and the confidence it returns is proportional to how much of the
+utterance is actually present, in the same [0, 1] space embedding scores live
+in. `_tier_for_score()` derives the tier from `CONFIDENCE_THRESHOLD_HIGH` for
+both paths, so a weak keyword hit now degrades to `uncertain` and goes to
+`LLMConfirmClient` like any other uncertain match.
+
+The shared negative class (`config/negatives.yaml`, `INCLUDE_NEGATIVES`) is
+also wired into `PainPointRouter` now, not only `ObjectionRouter`; the
+base-class `classify()` does the filtering for both, so the two routers can no
+longer drift apart on it.
+
+Measured on the seed eval set (65 true pain-point utterances plus 13
+near-miss/negative traps) with `scripts/eval_pain_point_precision.py`:
+end-to-end precision went from 0.855 to 0.942 with recall unchanged at 1.0. The
+script reports the keyword path and the embedding path separately, which is the
+view that makes a regression of this kind visible at all.
+
+**A second measurement round found the keyword pass was still pre-empting the
+embedding router too eagerly.** The 2026-09-05 fix above made a weak keyword
+hit degrade to `uncertain` tier and go through `LLMConfirmClient` instead of
+emitting at a fixed 0.95 — but `classify()` still let *any* keyword match,
+`uncertain` tier included, short-circuit the embedding router entirely.
+Measured against a 120-row fixture (`tests/test_pain_point_keyword_fast_path_quality.py`,
+added alongside `test_pain_point_routing_quality.py`'s embedding-only floors):
+79/120 utterances were decided by the keyword path, and 21 of those (26.6%)
+were wrong — "uncertain"-tier keyword hits scored only ~57% (31/54) while
+"high"-tier hits scored ~98% (43/44). `classify()` now only lets a
+"high"-tier keyword match short-circuit the embedding router; an
+"uncertain"-tier hit is discarded and the embedding layer decides instead,
+exactly as if the keyword pass had found nothing. A related fix in
+`_keyword_match`: a short live-transcript fragment merely appearing *inside*
+a longer known route utterance (the `text in utterance` direction) no longer
+counts as an exact quote at confidence 1.0 — only the full known phrase said
+verbatim (`utterance in text`) does; the reverse direction now falls through
+to the same token-overlap evidence as any other candidate. Post-fix,
+full-path measurement on the same fixture: 29/120 utterances decided by
+keyword (was 79), 0 wrong (was 21); macro precision 0.859 (was 0.764), macro
+recall 0.819 (was 0.756) (#235). Both fixes live on `PainPointRouter.classify()`,
+the base class `ObjectionRouter` (see "Fast objection & buying-signal
+detection" above) inherits unchanged, so the always-on objection/buying-signal
+path benefits from the same fix.
 
 Components: `PainPointRouter` (`router.py`), `LLMConfirmClient` (`llm_confirm.py`),
 `PainPointDebouncer` (`debouncer.py`), `DetectionPipeline` (`pipeline.py`),

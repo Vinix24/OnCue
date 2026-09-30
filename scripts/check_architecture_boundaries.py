@@ -17,6 +17,24 @@ Rules:
    grandfathered).
 6. CI runs this script.
 
+Note on invariant 1 (local-first data plane): the default outbound class is
+short, PII-redacted LLM fragments. A deliberate second outbound class — the
+deep-insight lane (PR-D0, revised 2026-08-04) — may send the PII-redacted full
+session transcript to an operator-configured frontier/enterprise destination,
+opt-in per conversation and default off. This check does not redact or measure
+payload size; it enforces the *plumbing* invariants (SDK confinement, network
+import allow-list) that the deep lane must also satisfy. PII redaction on the
+exit is enforced at runtime by `core/outbound_policy.py`, not here. See
+`docs/ARCHITECTURE_BOUNDARIES.md` ("Deep-insight lane outbound class").
+
+A THIRD outbound class (added 2026-09-06): customer-configured trigger delivery
+(`src/sales_copilot/modules/reports/delivery.py`) hands the finished post-call
+report to an operator-named directory or HTTP endpoint, opt-in and default off.
+Unlike the deep-insight lane it does NOT go through `core/outbound_policy.py` --
+the destination is never an LLM provider, and redaction for this payload is
+controlled by the existing `REPORT_REDACT_PII` flag instead. See
+`docs/ARCHITECTURE_BOUNDARIES.md` ("Trigger delivery outbound class").
+
 To mark a conscious exception for a single line, add:
     # architecture-boundary-ignore
 To add a file-level exception, update the relevant allow-list in this script.
@@ -110,6 +128,7 @@ _NETWORK_ALLOWLIST: dict[str, set[str]] = {
     "src/sales_copilot/core/measurement_signals.py": {"urllib.request"},
     "src/sales_copilot/core/compliance_audit.py": {"urllib.request"},
     "src/sales_copilot/auth/revocation_cache.py": {"urllib.request"},
+    "src/sales_copilot/modules/reports/delivery.py": {"urllib.request"},
     # websockets: local hub only
     "src/sales_copilot/__main__.py": {"websockets"},
     "src/sales_copilot/modules/reports/__main__.py": {"websockets"},
@@ -120,12 +139,15 @@ _NETWORK_ALLOWLIST: dict[str, set[str]] = {
     "src/sales_copilot/modules/detector/__main__.py": {"websockets"},
     "src/sales_copilot/modules/detector/suggestions.py": {"websockets"},
     "src/sales_copilot/modules/detector/summary.py": {"websockets"},
+    "src/sales_copilot/modules/insight/engine.py": {"websockets"},
     "src/sales_copilot/modules/detector/objection_detector.py": {"websockets"},
     "src/sales_copilot/modules/transcriber/whisper_direct.py": {"websockets"},
     "src/sales_copilot/modules/detector/phase_detector.py": {"websockets"},
     "src/sales_copilot/modules/transcriber/inference_worker.py": {"websockets"},
     "src/sales_copilot/modules/transcriber/__main__.py": {"websockets"},
     "src/sales_copilot/modules/coaching/script_tracker.py": {"websockets"},
+    # MCP bridge (read-only, hub-client over localhost websockets)
+    "src/sales_copilot/mcp_bridge/server.py": {"websockets"},
 }
 
 # Dashboard framework/build-tool markers.

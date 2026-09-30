@@ -38,6 +38,15 @@ def test_load_audio_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.capture_method == "audiotee"
     assert config.sample_rate == 16000
     assert config.channels == 1
+    assert config.wasapi_endpoint_name is None
+
+
+def test_load_audio_config_reads_wasapi_endpoint_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUDIO_WASAPI_ENDPOINT_NAME", "Realtek USB Headset")
+
+    config = transcriber_main._load_audio_config()
+
+    assert config.wasapi_endpoint_name == "Realtek USB Headset"
 
 
 def test_load_transcription_engine_defaults_and_validates(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -33,11 +33,29 @@ echo "--- [2/6] Pytest ---"
 # Gate 3: License-worker TS suite (vitest + tsc)
 echo "--- [3/6] License-worker TS suite (vitest + tsc) ---"
 if command -v npm &>/dev/null; then
-    cd "$ROOT_DIR/server/license-worker"
-    npm ci
-    npm test
-    npx tsc --noEmit
-    cd "$ROOT_DIR"
+    (
+        # Pin de Node-major uit .nvmrc vóór npm draait. better-sqlite3 11.x heeft
+        # geen prebuilds voor Node 26; node-gyp valt dan terug op compileren vanaf
+        # source en faalt. engine-strict + engines maken die mismatch leesbaar.
+        NODE_MAJOR="$(sed -E 's/^v?([0-9]+).*/\1/' "$ROOT_DIR/.nvmrc")"
+        ACTIVE_MAJOR="$(node -v | sed -E 's/^v([0-9]+).*/\1/')"
+        if [[ "$ACTIVE_MAJOR" != "$NODE_MAJOR" ]]; then
+            PINNED_NODE="$(find "$HOME/.nvm/versions/node" -maxdepth 1 -type d -name "v${NODE_MAJOR}.*" 2>/dev/null | sort -V | tail -n1 || true)"
+            if [[ -z "$PINNED_NODE" || ! -x "$PINNED_NODE/bin/node" ]]; then
+                echo "[FAIL] .nvmrc pins Node $NODE_MAJOR but no matching runtime under \$HOME/.nvm/versions/node. Run: nvm install $NODE_MAJOR" >&2
+                exit 1
+            fi
+            export PATH="$PINNED_NODE/bin:$PATH"
+            echo "gate3: active node v$ACTIVE_MAJOR != pinned major $NODE_MAJOR, using $PINNED_NODE/bin/node"
+        else
+            echo "gate3: active node v$ACTIVE_MAJOR matches .nvmrc major, using as-is"
+        fi
+        echo "gate3: node $(node -v) / npm $(npm -v)"
+        cd "$ROOT_DIR/server/license-worker"
+        npm ci
+        npm test
+        npx tsc --noEmit
+    )
 else
     echo "[WARN] npm not found — skipping license-worker TS suite"
 fi
@@ -109,5 +127,15 @@ PY
 # the gate on any non-zero exit.
 echo "--- [+] Auth hardening (release-build key trust) ---"
 "$PYTHON_BIN" scripts/ci_auth_hardening_check.py
+
+# Gate 9: Credential scope for worker processes
+# Fails when a credential-shaped variable carries a literal value in a committed
+# environment source (.claude/settings*.json env block, .env.example) — those are
+# injected into every session started here and inherit into every worker.
+# Undeclared credential-shaped variables in the ambient environment are reported but
+# do not fail: they come from the operator's shell/launchd/tmux, not from this repo.
+# Run with --strict to make that half fatal when verifying an operator remediation.
+echo "--- [+] Credential scope (worker process environment) ---"
+"$PYTHON_BIN" scripts/check_env_credential_scope.py
 
 echo "=== CI gate passed ==="

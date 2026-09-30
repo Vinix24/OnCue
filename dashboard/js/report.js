@@ -16,6 +16,7 @@ const reportSelectors = {
   painPoints: document.getElementById("report-pain-points"),
   objections: document.getElementById("report-objections"),
   keyMoments: document.getElementById("report-key-moments"),
+  insights: document.getElementById("report-insights"),
   finalSummary: document.getElementById("report-final-summary"),
   downloadJson: document.getElementById("report-download-json"),
   downloadMarkdown: document.getElementById("report-download-markdown"),
@@ -147,6 +148,20 @@ const keyMomentsFromReport = (report) => {
   }));
 };
 
+// Track 3 (deep insight lane): one row per `InsightEntry` from the persisted
+// post-call report. `antwoord` rows carry the vraag-box question that
+// triggered them; folded into the detail line so the export stays flat.
+const insightsFromReport = (report) => {
+  const entries = Array.isArray(report?.insights) ? report.insights : [];
+  return entries.map((item) => ({
+    title: window.t(`insights.type_${item?.insight_type}`) || item?.insight_type || window.t("report.key_moment_fallback_label"),
+    meta: formatTimestamp(item?.timestamp_ms),
+    detail: item?.question
+      ? `${item?.text || ""} (${window.t("insights.question_label")}: ${item.question})`
+      : item?.text || "",
+  }));
+};
+
 // Phase 3 Free post-call scorecard: the count and the gap, deterministic and
 // local. Copy says "gedetecteerd", never "gegarandeerd". Hiding this section
 // leaves all data stored on the session (the phase's rollback invariant).
@@ -219,6 +234,7 @@ const ensureReport = (report) => {
     monologue_count: base.monologue_count ?? 0,
     pain_points_detected: Array.isArray(base.pain_points_detected) ? base.pain_points_detected : [],
     key_moments: Array.isArray(base.key_moments) ? base.key_moments : [],
+    insights: Array.isArray(base.insights) ? base.insights : [],
     conversation_summary: summaryFromReport(base),
     objections: objectionsFromReport(base),
   };
@@ -244,6 +260,7 @@ const applyReport = (report) => {
   setListItems(reportSelectors.painPoints, painPointsFromReport(latestReport), window.t("report.no_pain_points"));
   setListItems(reportSelectors.objections, latestReport.objections || [], window.t("report.no_objections"));
   setListItems(reportSelectors.keyMoments, keyMomentsFromReport(latestReport), window.t("report.no_key_moments"));
+  setListItems(reportSelectors.insights, insightsFromReport(latestReport), window.t("report.no_insights"));
   applyScorecard(latestReport);
 };
 
@@ -271,6 +288,7 @@ const reportToMarkdown = (report) => {
   const painPoints = painPointsFromReport(report);
   const objections = report.objections || [];
   const keyMoments = keyMomentsFromReport(report);
+  const insights = insightsFromReport(report);
   const scorecard = scorecardFromReport(report);
   const none = window.t("report.markdown_none");
   const lines = [
@@ -318,6 +336,17 @@ const reportToMarkdown = (report) => {
     lines.push(`- ${none}`);
   } else {
     keyMoments.forEach((item) => {
+      lines.push(`- ${escapeMarkdown(item.meta)} - ${escapeMarkdown(item.title)}`);
+      if (item.detail) {
+        lines.push(`  - ${escapeMarkdown(item.detail)}`);
+      }
+    });
+  }
+  lines.push("", `## ${window.t("report.insights_title")}`, "");
+  if (!insights.length) {
+    lines.push(`- ${none}`);
+  } else {
+    insights.forEach((item) => {
       lines.push(`- ${escapeMarkdown(item.meta)} - ${escapeMarkdown(item.title)}`);
       if (item.detail) {
         lines.push(`  - ${escapeMarkdown(item.detail)}`);
@@ -481,6 +510,7 @@ window.resetReportView = () => {
   setListItems(reportSelectors.painPoints, [], window.t("report.no_pain_points"));
   setListItems(reportSelectors.objections, [], window.t("report.no_objections"));
   setListItems(reportSelectors.keyMoments, [], window.t("report.no_key_moments"));
+  setListItems(reportSelectors.insights, [], window.t("report.no_insights"));
   setListItems(reportSelectors.scorecard, [], window.t("report.no_scorecard"));
   if (reportSelectors.scorecardBlock) {
     reportSelectors.scorecardBlock.style.display = "none";

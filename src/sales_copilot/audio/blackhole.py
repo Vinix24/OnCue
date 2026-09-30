@@ -13,6 +13,7 @@ from .capture import (
     _reinit_portaudio_and_register,
     _unregister_stream,
 )
+from .tap_health import TapHealth, TapHealthTracker
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class BlackHoleStream:
         self._stream = None
         self._lock = threading.Lock()
         self._chunks_received = 0
+        self._health = TapHealthTracker()
 
     @property
     def chunks_received(self) -> int:
@@ -39,6 +41,9 @@ class BlackHoleStream:
     @property
     def device_label(self) -> str:
         return self._device_name
+
+    def tap_health(self) -> TapHealth:
+        return self._health.snapshot()
 
     def start(self) -> None:
         with self._lock:
@@ -49,6 +54,12 @@ class BlackHoleStream:
 
             def callback(indata: np.ndarray, frames: int, time_info: object, status: object) -> None:
                 self._chunks_received += 1
+                if self._health.observe(indata):
+                    logger.info(
+                        "BlackHole stream carrying signal: device=%s first audible frame after %s chunks.",
+                        self._device_name,
+                        self._chunks_received,
+                    )
                 _drop_oldest_and_put(self._queue, indata.copy())
 
             _reinit_portaudio_and_register(sd)
@@ -65,7 +76,9 @@ class BlackHoleStream:
             except Exception:
                 self._stream = None
                 _unregister_stream()
+                self._health.mark_attach_failed(f"InputStream kon niet openen op '{self._device_name}'")
                 raise
+            self._health.mark_attached(f"blackhole:{self._device_name}")
 
     def stop(self) -> None:
         with self._lock:

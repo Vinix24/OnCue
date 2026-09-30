@@ -1,0 +1,74 @@
+# Post-ASR transcript normalization list (D2 of transcript-normalisatie-na-asr,
+# scrubbed by the fix-forward on #253/D-3cbcb3ba).
+#
+# This is a SEPARATE list from config/transcription_vocabulary.yaml on purpose:
+# the vocabulary file feeds Whisper's initial_prompt and is capped by the
+# 223-token prompt budget (see that file's header). This list runs AFTER
+# transcription, deterministically, with no token budget — but every entry
+# still costs held-out false-positive risk, so it stays as small as the
+# measured evidence supports.
+#
+# HARD RULE for this file: no client, company, or person name, ever. This
+# file ships in the public export (scripts/export_public.sh) and is loaded
+# for every client — a name here leaks into every OTHER client's
+# normalization pass, not just the one it was measured against. Client- or
+# call-specific terms belong per-conversation in that client's klant.yaml
+# under `termen`, passed through as `config.call_terms` (D3), never here.
+# tests/test_normalization_config_privacy.py enforces this with a fail-closed
+# scan.
+#
+# Source of the entries below: a manually reviewed set of real entity
+# mentions across real calls (see the D2 dispatch report for the full
+# review). Every entry here was a "fout" (wrong) row in that review; nothing
+# is speculative.
+#
+# Structure:
+#   terms    — canonical forms >= 5 characters, eligible for fuzzy (edit-distance)
+#              matching of single mistranscribed tokens AND for adjacent-token
+#              merge detection (e.g. ASR splits a two-word product name into
+#              two separate tokens).
+#   variants — exact, human-vetted misspelling -> canonical mappings, checked
+#              BEFORE the fuzzy pass and with NO length restriction (safe
+#              regardless of term length because each mapping was verified
+#              against real measured transcripts, not guessed). A key with a
+#              space matches a fixed two-token phrase.
+#
+# Deliberately excluded (see the D2 dispatch report and the fix-forward
+# report for the full reasoning):
+#   - Any client name, company name, or person's first/last name observed in
+#     a real call. These are exactly the terms that belong per-conversation
+#     (D3, call_terms) instead — a global fix here would apply that client's
+#     own name-correction to every OTHER client's calls too.
+#   - Any acronym whose expansion is also a normal word in some other
+#     customer's domain (measured case: an acronym expansion that reads as
+#     ordinary tooling vocabulary at a software client). A held-out set drawn
+#     from one company's calls cannot measure that kind of cross-domain
+#     collision, so acronyms with a plausible domain-specific alternate
+#     reading stay out of the global list on principle, not just where a
+#     collision happened to already surface.
+#   - A short, common acronym whose ASR vocabulary bias was observed
+#     overwriting a real person's first name in a held-out call. Short
+#     acronyms collide with real words too easily; person names never belong
+#     in this fixed list regardless.
+#   - Paraphrases and other non-lexical targets (a described object rather
+#     than a fixed term, a person's name) are not something a term list can
+#     safely repair.
+
+enabled: true
+
+terms:
+  - HubSpot
+  - Teamleader
+
+variants:
+  # HubSpot
+  Hubspot: HubSpot
+  HupSpot: HubSpot
+  Ruffspot: HubSpot
+  # VBA (< 5 chars: exact only, never fuzzy)
+  VWA: VBA
+  VWBA: VBA
+  # ROI (< 5 chars: exact only; never a mapping target FROM a person's name)
+  ROV: ROI
+  # MKB (< 5 chars: exact only)
+  MKD: MKB

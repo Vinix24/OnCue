@@ -84,7 +84,22 @@ class AudioRecorder:
                 self._flush_label_locked(stream_label)
                 self._last_flush_ms[stream_label] = timestamp_ms
 
-    def finalize(self) -> Path:
+    def finalize(self, *, silent: bool = False) -> Path:
+        """Flush, close, and write metadata for this recorder.
+
+        ``silent`` must only be set by a caller that is discarding a recorder
+        it knows was never the active recorder of a real, started call (see
+        ``start_session_recording``'s replace-the-previous-recorder cleanup).
+        Every other caller -- ``stop_session_recording`` and
+        ``RecorderEngine.stop`` -- finalizes a recorder that a real recording
+        session was deliberately ended on, so a zero-frame result there is
+        always worth a loud warning, whether or not any stream ever attached.
+        Gating the warning on ``self._stream_labels`` being non-empty (the
+        pre-fix behaviour) silently downgraded exactly that case -- mic/system
+        capture never attaching at all, so no stream was ever opened -- to an
+        info log, which is the single most likely real-world cause of an
+        empty recording and the one operators most need to see.
+        """
         with self._lock:
             if self._closed:
                 return self._dir
@@ -100,12 +115,39 @@ class AudioRecorder:
             self._ended_at = _now_iso()
             self._closed = True
             self._write_metadata()
-        logger.info(
-            "AudioRecorder finalized session=%s dir=%s streams=%s",
-            self._session_id,
-            self._dir,
-            self._stream_labels,
-        )
+            total_frames = sum(self._frames_written.values())
+        if total_frames == 0 and not silent:
+            # Recording was enabled and started, but no audio ever arrived --
+            # e.g. the mic/system stream never actually attached. Leaving
+            # behind silent-but-valid-looking WAV files with no signal that
+            # anything was off is worse than an explicit warning: the operator
+            # who enabled RECORD_AUDIO would otherwise only discover the empty
+            # recording when they go looking for it after the call.
+            if self._stream_labels:
+                logger.warning(
+                    "AudioRecorder session=%s finalized with zero audio frames captured "
+                    "across %s; %s/*.wav will be empty. Check that the mic/system audio "
+                    "streams actually started.",
+                    self._session_id,
+                    self._stream_labels,
+                    self._dir,
+                )
+            else:
+                logger.warning(
+                    "AudioRecorder session=%s finalized with zero audio frames captured "
+                    "and no audio stream ever attached; %s will contain no recording at "
+                    "all. Check that the mic/system audio capture actually started for "
+                    "this call.",
+                    self._session_id,
+                    self._dir,
+                )
+        else:
+            logger.info(
+                "AudioRecorder finalized session=%s dir=%s streams=%s",
+                self._session_id,
+                self._dir,
+                self._stream_labels,
+            )
         return self._dir
 
     def _open_stream_locked(self, label: str) -> None:
@@ -178,7 +220,13 @@ def start_session_recording(
     with _active_lock:
         if _active_recorder is not None:
             try:
-                _active_recorder.finalize()
+                # silent=True: this recorder is being replaced, not deliberately
+                # ended -- it may never have been the active recorder of a real
+                # call (e.g. defensive cleanup on an unexpected double-start), so
+                # a zero-frame result here is not itself evidence of a broken
+                # capture path and must not trigger the loud "recording captured
+                # nothing" warning that a genuine call-end finalize does.
+                _active_recorder.finalize(silent=True)
             except Exception:
                 logger.exception("Failed to finalize previous recorder")
         _active_recorder = AudioRecorder(

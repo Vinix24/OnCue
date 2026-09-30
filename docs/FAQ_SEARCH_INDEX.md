@@ -89,7 +89,7 @@ Quick scan list (Cmd+F): click through to the full Q/A in [FAQ.md](FAQ.md).
 ## Category 10 — Error messages & diagnostics
 
 - ["Port 8760 already in use" — what now?](FAQ.md#faq-port-8760-already-in-use-wat-nu)
-- [`data/logs/runtime.log` is empty / contains errors](FAQ.md#faq-data-logs-runtime-log-is-leeg-bevat-errors)
+- [The log is empty / contains errors — and which log is it?](FAQ.md#faq-data-logs-runtime-log-is-leeg-bevat-errors)
 - [Websocket connection keeps closing](FAQ.md#faq-websocket-connection-keeps-closing)
 - ["Model switch failed" at startup](FAQ.md#faq-model-switch-failed-bij-opstarten)
 - [How do I reset everything to a clean state?](FAQ.md#faq-hoe-reset-ik-alles-naar-een-schone-staat)

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OnCue Dashboard — Launch Demo</title>
     <!-- Reuses the real dashboard stylesheet byte-for-byte. Do not fork this file — edit dashboard/css/dashboard.css instead. -->
-    <link rel="stylesheet" href="../dashboard/css/dashboard.css?v=2.0.0" />
+    <link rel="stylesheet" href="../dashboard/css/dashboard.css?v=2.0.3" />
     <link rel="stylesheet" href="demo.css" />
   </head>
   <body>
@@ -127,7 +127,7 @@
         <aside class="sidebar" id="sidebar">
           <div class="sidebar-brand">
             <div class="brand brand-with-logo">
-              <img src="../dashboard/assets/vnx-logo.svg" alt="VNX Digital" />
+              <img src="../dashboard/assets/oncue-mark.svg" alt="OnCue" />
               <span>OnCue</span>
             </div>
             <p class="setup-subtitle" id="setup-subtitle" data-i18n="setup.subtitle">Instellingen voor realtime coaching en slides.</p>
@@ -227,13 +227,14 @@
                   </label>
                 </div>
                 <label class="field">
-                  <span data-i18n="setup.prospect_company_label">Prospect bedrijf</span>
-                  <input id="prospect-company" type="text" placeholder="Klantnaam" data-i18n-attr="placeholder:setup.prospect_company_placeholder" />
+                  <span><span data-i18n="setup.client_label">Klant</span>
+                    <span class="info-icon" title="Kiest een klantmap onder KLANTEN_ROOT. Bedrijf, industry, gespreksdocumenten en de privacy-poort komen dan uit klant.yaml." data-i18n-attr="title:setup.client_info">&#9432;</span>
+                  </span>
+                  <select id="client-select">
+                    <option value="" data-i18n="setup.client_none_option">Geen klant</option>
+                  </select>
                 </label>
-                <label class="field">
-                  <span data-i18n="setup.prospect_industry_label">Industry</span>
-                  <input id="prospect-industry" type="text" placeholder="Manufacturing" data-i18n-attr="placeholder:setup.prospect_industry_placeholder" />
-                </label>
+                <p id="client-cloud-sync-warning" class="cloud-sync-warning hidden"></p>
               </div>
             </section>
 
@@ -266,6 +267,15 @@
 
           <div class="sidebar-foot">
             <p class="setup-status" data-i18n="setup.status_ready">Ready</p>
+            <div
+              id="detection-off-indicator"
+              class="detection-off-indicator hidden"
+              role="status"
+              aria-live="polite"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span data-i18n="setup.detection_off_indicator">AI-detectie staat uit voor dit gesprek.</span>
+            </div>
             <button id="sample-aha" class="sample-aha-button" type="button" data-i18n="setup.sample_aha_button">Toon me wat het doet</button>
             <button id="start-call" class="start-stop-btn is-start" type="button">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -287,7 +297,7 @@
           <!-- TOP BAR -->
           <div class="top">
             <div class="brand brand-with-logo top-brand">
-              <img src="../dashboard/assets/vnx-logo.svg" alt="VNX Digital" />
+              <img src="../dashboard/assets/oncue-mark.svg" alt="OnCue" />
               <div class="nm">OnCue<small>Coaching</small></div>
             </div>
             <div class="deal" id="topbar-deal">
@@ -387,6 +397,32 @@
                   </div>
                   <div id="pain-points-panel" class="pain-points">
                     <div class="pain-points-empty" data-i18n="painpoints.empty_state">Nog geen detections binnen.</div>
+                  </div>
+                  <!-- Detector status: is the AI listening, or is something broken?
+                       Renders the detector's own counters (see
+                       dashboard/js/detector-status.js) so that question has an
+                       answer on screen instead of only in the log. -->
+                  <div id="detector-status" class="detector-status is-idle" data-state="waiting">
+                    <button
+                      id="detector-status-toggle"
+                      class="detector-status-toggle"
+                      type="button"
+                      aria-expanded="false"
+                      aria-controls="detector-status-detail"
+                      data-i18n-attr="title:detector.toggle_title,aria-label:detector.toggle_title"
+                      title="Toon wat de detectie doet"
+                    >
+                      <span class="detector-status-dot" aria-hidden="true"></span>
+                      <span
+                        id="detector-status-label"
+                        class="detector-status-label"
+                        role="status"
+                        aria-live="polite"
+                        data-i18n="detector.status_waiting"
+                      >Detectie nog niet actief</span>
+                      <span class="detector-status-caret" aria-hidden="true"></span>
+                    </button>
+                    <div id="detector-status-detail" class="detector-status-detail hidden"></div>
                   </div>
                 </section>
 
@@ -590,16 +626,17 @@
     <script src="../dashboard/js/i18n.js?v=2.0.0"></script>
     <script src="../dashboard/js/copilot-auth.js?v=2.0.0"></script>
     <script src="../dashboard/js/hint-feedback.js?v=2.0.0"></script>
-    <script src="../dashboard/js/app.js?v=2.0.0"></script>
-    <script src="../dashboard/js/pain-points.js?v=2.0.0"></script>
-    <script src="../dashboard/js/objections.js?v=2.0.0"></script>
-    <script src="../dashboard/js/opportunities.js?v=2.0.0"></script>
+    <script src="../dashboard/js/app.js?v=2.0.1"></script>
+    <script src="../dashboard/js/detector-status.js?v=2.0.0"></script>
+    <script src="../dashboard/js/pain-points.js?v=2.0.1"></script>
+    <script src="../dashboard/js/objections.js?v=2.0.1"></script>
+    <script src="../dashboard/js/opportunities.js?v=2.0.1"></script>
     <script src="../dashboard/js/suggestions.js?v=2.0.0"></script>
     <script src="../dashboard/js/transcript.js?v=2.0.0"></script>
     <script src="../dashboard/js/summary.js?v=2.0.0"></script>
     <script src="../dashboard/js/script-tracking.js?v=2.0.0"></script>
     <script src="../dashboard/js/report.js?v=2.0.0"></script>
-    <script src="../dashboard/js/setup.js?v=2.0.0"></script>
+    <script src="../dashboard/js/setup.js?v=2.0.2"></script>
     <script src="../dashboard/js/consent.js?v=2.0.0"></script>
     <script src="../dashboard/js/sample-aha.js?v=2.0.0"></script>
     <script src="../dashboard/js/stop-control.js?v=2.0.0"></script>

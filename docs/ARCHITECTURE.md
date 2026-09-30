@@ -1,6 +1,6 @@
 # Architecture: OnCue
 
-This document describes the system architecture as of 2026-07-22 (v0.9.0: whole-system AudioTee `tap_all` default, replay capture, calltap + security fixes + Windows WASAPI capture, experimental). It is the companion
+This document describes the system architecture as of 2026-09-07 (v0.9.0: whole-system AudioTee `tap_all` default, replay capture, calltap + security fixes + Windows WASAPI capture, MCP bridge / deep-insight lane, report delivery sinks, three-mode wheel/`.app` resource resolution). It is the companion
 to TTD (per-component API contracts and data models) and is the
 recommended starting point for developers who want to understand how the pieces
 fit together.
@@ -36,6 +36,7 @@ graph LR
     end
 
     subgraph tenant["BYO-tenant control plane - operator choice"]
+        H -. "full PII-redacted transcript<br/>deep-insight lane, opt-in per call" .-> T["MCP host<br/>Claude Desktop / Claude Code"]
         J -. short PII-redacted fragments .-> P[Ollama local]
         J -. short PII-redacted fragments .-> Q[Azure OpenAI<br/>operator subscription]
         J -. short PII-redacted fragments .-> R[Vertex AI<br/>operator GCP project]
@@ -46,7 +47,11 @@ graph LR
     style tenant fill:#e3f2fd,stroke:#1565c0
 ```
 
-Audio, transcripts, embeddings, session data, and the case database stay on the device. Only short PII-redacted transcript fragments leave the machine, and only to the LLM destination the operator configured.
+Audio, session recordings, embeddings, and the case database stay on the device. The default outbound class is short PII-redacted transcript fragments, and only to the LLM destination the operator configured.
+
+There are two further outbound classes, and both are deliberate rather than exceptions. The deep-insight lane (track 3, Pro) sends the PII-redacted full session transcript, plus prep-docs, to a destination the operator opts into per conversation. That destination can be a BYO-tenant cloud, a public frontier API, or an MCP host connected through the MCP bridge described below. With the lane off, which is the default, nothing changes: only short fragments leave.
+
+The third class is report delivery (added #218): OnCue is sold partly as a *trigger* — local capture and transcription, and when the call ends the finished report can additionally be handed to the customer's own automation, via an operator-configured directory (including a mounted network share) and/or an HTTP endpoint, both off by default. This class deliberately does **not** go through `core/outbound_policy.py` — its destination is never an LLM, it is infrastructure the customer owns, and the entire point is handing their own automation their own words verbatim. See "Reports layer" below and [ARCHITECTURE_BOUNDARIES.md](ARCHITECTURE_BOUNDARIES.md) ("Trigger delivery outbound class") for the full argument. The enforced version of the deep-insight-lane rule also lives there.
 
 ### Component diagram
 
@@ -89,7 +94,7 @@ graph LR
     end
 
     subgraph hub["WebSocket Hub (FastAPI, port 8760)"]
-        CHANNELS["channels:\n/ws/transcript\n/ws/talk-time\n/ws/pain-points\n/ws/objections\n/ws/buying-signals\n/ws/coaching\n/ws/suggestions\n/ws/summary\n/ws/slide-control\n/ws/config"]
+        CHANNELS["channels:\n/ws/transcript\n/ws/talk-time\n/ws/pain-points\n/ws/objections\n/ws/buying-signals\n/ws/coaching\n/ws/suggestions\n/ws/summary\n/ws/insights\n/ws/script-tracking\n/ws/detector-status\n/ws/slide-control\n/ws/phase\n/ws/config\n/ws/system\n/ws/wizard"]
     end
 
     subgraph browser["Browser Frontends"]
@@ -142,7 +147,7 @@ latency from speech to slide-visible on screen is approximately 1.5–3.5 second
 This mode requires a machine with enough CPU/GPU headroom to run Whisper
 transcription, an LLM classification call, and the WebSocket hub simultaneously.
 Apple Silicon (M-series) with `whisper.cpp` covers the full stack without
-dedicated GPU RAM allocation. Windows (experimental) runs the same
+dedicated GPU RAM allocation. Windows runs the same
 `whisper.cpp` CPU path behind `WasapiLoopbackStream` instead of `AudioTeeStream`
 — see [Audio layer](#audio-layer) for the capture-side differences.
 
@@ -195,7 +200,7 @@ Two separate audio streams are captured simultaneously, both behind the shared
 | `AudioTeeStream` | macOS (default) | `AUDIO_CAPTURE_METHOD=audiotee` (default) + `PROSPECT_SOURCE=blackhole` (default, historical name — means "follow `AUDIO_CAPTURE_METHOD`") | Whole-system Core Audio process-tap (`tap_all=True`); excludes the telephony daemon (`avconferenced`) on the free tier via `TelephonyTapGuard` | Teams, Zoom, Meet — no manual audio routing |
 | `BlackHoleStream` | macOS (fallback) | `AUDIO_CAPTURE_METHOD=blackhole` | Reads from the BlackHole virtual device (system audio mix). Manual fallback only — selected when you set `AUDIO_CAPTURE_METHOD=blackhole` explicitly (e.g. macOS <14.2, or if the AudioTee build is unavailable). Never auto-selected | Fallback for video calls (also macOS <14.2) |
 | `CallTapStream` | macOS only (Pro) | `PROSPECT_SOURCE=audiotee_call` | Process-tap on `avconferenced` (the macOS telephony daemon) via AudioTee `--include-processes <pid>` — Sales Pro (`FEATURE_CALLTAP`) | iPhone-relay calls (Continuity), FaceTime audio |
-| `WasapiLoopbackStream` | Windows (experimental default) | `AUDIO_CAPTURE_METHOD=wasapi` | WASAPI loopback on the default render endpoint via `soundcard` (`sc.default_speaker()` → `sc.get_microphone(..., include_loopback=True)`) — whole-endpoint capture, same "no per-app targeting" property as `tap_all` | Teams, Zoom, Meet on Windows |
+| `WasapiLoopbackStream` | Windows (default) | `AUDIO_CAPTURE_METHOD=wasapi` | WASAPI loopback on the default render endpoint via `soundcard` (`sc.default_speaker()` → `sc.get_microphone(..., include_loopback=True)`) — whole-endpoint capture, same "no per-app targeting" property as `tap_all`. The recorder is a COM object bound to the thread that opens it, so a single reader thread owns its entire lifecycle (open, read, periodic re-attach, close) and explicitly joins the process COM apartment for its lifetime (#224) | Teams, Zoom, Meet on Windows |
 
 **Platform normalization.** `DualAudioCapture.create()` (`capture.py`) is the
 single authoritative point that resolves `AUDIO_CAPTURE_METHOD` and
@@ -214,8 +219,14 @@ A Bluetooth headset works fine in `audiotee_call` mode because the tap is on the
 not the audio device. **On Windows this seam has no fix:** WASAPI whole-endpoint loopback
 cannot follow a single process the way AudioTee's process-tap does, so an explicit
 `PROSPECT_SOURCE=audiotee_call` on Windows normalizes back to `blackhole` instead of
-raising, and `CallTapStream` is never constructed there. Windows users get video-call
-capture (Teams/Zoom/Meet), not telephony capture.
+raising, and `CallTapStream` is never constructed there — there is no way to isolate
+telephony audio from the rest of the system mix on Windows. Whether the whole-endpoint
+tap picks up telephony audio *at all* (the same principle `tap_all` uses on macOS,
+since a relayed call played through the render endpoint is just more audio on that
+endpoint) is a separate, open question: a 2026-09-07 field test confirmed the audio
+reaches the Windows output pipeline, but confirming that `WasapiLoopbackStream` itself
+catches it is still outstanding — see INSTALL.md's Windows section ("Telephony
+capture") for the exact, dated evidence.
 
 The `DualAudioCapture` factory in `capture.py` selects the implementation based
 on `AUDIO_CAPTURE_METHOD` and `PROSPECT_SOURCE` in `.env`. `RecorderEngine`
@@ -225,7 +236,7 @@ on `AUDIO_CAPTURE_METHOD` and `PROSPECT_SOURCE` in `.env`. `RecorderEngine`
 does not exist on Windows. One consequence of the short-circuit: the free-tier
 telephony-exclusion guard is a no-op on Windows, because WASAPI whole-endpoint
 loopback has no per-process exclusion to apply it to (operator-approved
-position for the experimental Windows track).
+position for the Windows track).
 
 Sessions are recorded to `data/sessions/<id>/{mic,system}.wav` via
 `AudioRecorder` (PR-97). Recording can be disabled with `RECORD_AUDIO=false`.
@@ -302,7 +313,7 @@ The detector subscribes to `/ws/transcript` and processes only prospect speech
 
 1. `SlidingWindowBuffer` (`sliding_window.py`): a deque of the last N
    `TranscriptChunk` objects (default `DETECTOR_WINDOW_SIZE=5`). Requires a
-   minimum of `DETECTOR_MIN_CHUNKS=2` chunks before classifying.
+   minimum of `DETECTOR_MIN_CHUNKS=3` chunks before classifying.
 
 2. `WindowClassifier` (`window_classifier.py`): makes a single LLM call per
    window that returns all detection types at once, using `instructor` for
@@ -324,8 +335,34 @@ The detector subscribes to `/ws/transcript` and processes only prospect speech
 Detection results publish to `/ws/pain-points`, `/ws/objections`,
 `/ws/buying-signals`, and `/ws/coaching` (for doubt events).
 
-The legacy semantic-router path (`router.py`) is still present but is no longer
-the default classification path.
+The consume loop also publishes its own per-reason counters to
+`/ws/detector-status` (`status_publisher.py`), at a bounded cadence and carrying
+counters and timestamps only. That channel is what lets the dashboard tell
+"listening, nothing to report yet" from "something upstream is broken" without
+reading a log; its payload is specified in `docs/TTD.md` section 7.
+
+The semantic-router path (`router.py`) is not the default classification path,
+but it is not dormant either: `WindowClassifier.classify()` is a no-op when no
+LLM provider is configured, so on a provider-less install that router is what
+produces pain-point detections. It runs a keyword fast path before the
+embedding match; both are described in [MODULE3.md](MODULE3.md).
+
+**What the detector says about itself.** The consume loop is instrumented at
+DEBUG throughout, and `LOG_LEVEL` defaults to INFO, so for a long time a
+detector that dropped every chunk and a detector that was never started looked
+identical in the log. Since the observability round the loop also emits, at
+INFO: a line on the first transcript chunk it receives, a bounded heartbeat
+every `_HEARTBEAT_CHUNK_INTERVAL` chunks, and a closing summary when the loop
+exits. The heartbeat and the summary carry per-reason counters — `received`,
+`skipped_not_prospect`, `buffered_below_min`, `debounced`, `classified`,
+`dropped_none`, `dropped_low_confidence`, `dispatched` — so "nothing is
+happening" always resolves to a reason without raising the log level. No
+transcript text is logged at INFO; content stays at DEBUG.
+
+The orchestrator (`src/sales_copilot/__main__.py`) complements this at call
+start: next to `Enabled modules` it logs `Disabled modules` with the source of
+each disabled flag, and warns explicitly when the detector is off. An absence
+in a list is not a signal a human notices.
 
 LLM provider is configurable via `LLM_PROVIDER` in `.env` (Gemini — shipped
 default, OpenRouter, Groq, OpenAI, Ollama, Vertex AI, Azure OpenAI). All LLM
@@ -362,7 +399,19 @@ Several coaching sub-systems run alongside the main detection loop:
   transitions). Stores everything in memory during the call.
 - `ReportGenerator` (`generator.py`): called at call end. Produces a JSON export
   and Markdown summary in `data/sessions/<id>/`. The post-call self-batch
-  transcription step runs here if `TRANSCRIBE_SELF_LIVE=false`.
+  transcription step runs here if `TRANSCRIBE_SELF_LIVE=false`. The local write
+  to `data/reports/` is unconditional and always happens first; it also carries
+  `call_started_at`/`call_ended_at` (ISO-8601) so a downstream consumer can
+  answer "when did this call happen".
+- `delivery.py` (#218): two optional, independent, default-off sinks invoked
+  right after the local write — a directory (`REPORT_DELIVERY_DIR`, atomic
+  write so a directory-watcher never sees a partial file) and an HTTP endpoint
+  (`REPORT_DELIVERY_ENDPOINT`, one `POST` with bounded retries). Both run on a
+  background daemon thread so a slow or hung endpoint never delays shutdown.
+  The delivered payload is byte-identical to the local report file. The HTTP
+  endpoint sink is Pro/Enterprise-gated (`reports.delivery.endpoint`); on Free
+  it is skipped with one `WARNING` per process and the directory sink still
+  runs. See [MODULE4.md](MODULE4.md) ("Report Delivery") for the full contract.
 
 Offline batch analysis is available via `scripts/label_and_summarize.py` (PR-108),
 which runs a Gemini pipeline over a raw transcript to produce a structured summary
@@ -407,6 +456,48 @@ advances it over `/ws/slide-control` as the conversation develops.
 Three named presets swap routes, UI labels, and LLM prompt addenda at startup:
 `sales` (default), `coach`, `recruitment`. Selected via `PRESET=` env var or the
 `/api/start-call` payload. See [PRESETS.md](PRESETS.md) for full spec.
+
+### Cross-cutting: Client folders (klantmap)
+
+**Files:** `src/sales_copilot/core/klant_config.py`,
+`src/sales_copilot/core/privacy_gate.py`,
+`src/sales_copilot/core/cloud_sync_warning.py`
+
+A client folder under `KLANTEN_ROOT` (env override; falls back to
+`context_docs.UPLOAD_ROOT`) may contain a `klant.yaml` naming the client's
+company, industry, contact people, and glossary terms, plus an optional
+`privacy` ceiling (`local`/`tenant`/`public`) and an optional `bewaren_dagen`
+retention window. The dashboard's setup screen resolves a single client picker
+(`/api/v1/clients`) instead of free-typed prospect fields; `hub_core.
+extract_start_call_config` loads the selected client's `klant.yaml` to fill
+`prospect_company`, `prospect_industry`, `call_terms`, and the privacy
+ceiling. A client folder without `klant.yaml` keeps working exactly as before
+(folder name as company, loose files as dossier).
+
+- `klant_config.py`: schema, loader, and path safety for `klant.yaml`. A slug
+  that resolves outside `KLANTEN_ROOT` (`..` segments, an absolute path, a
+  symlink escape) is a hard error.
+- `privacy_gate.py`: rejects `/api/start-call` with a 400 before any capture
+  starts if the configured LLM provider does not meet the client's `privacy`
+  ceiling. Uses the same `outbound_policy.tier_of()` classification as
+  `PII_REDACTION`'s `cloud_only` mode, so the privacy gate and the PII policy
+  can never disagree about what counts as local, tenant, or public.
+- `cloud_sync_warning.py`: detects when `KLANTEN_ROOT` lives under iCloud
+  Drive, `Library/CloudStorage` (Dropbox/OneDrive/Google Drive via the File
+  Provider), Dropbox, or an iCloud-synced Desktop/Documents. Detect-only,
+  never blocks — the setup screen surfaces the warning and the choice stays
+  with the operator.
+
+A client-linked call archives its transcript and report into
+`<klantmap>/gesprekken/<datum>-<session_id>/` on call end (`core/retention.py`
+and the reports runner). Retention runs two independent layers: the global
+`DATA_RETENTION_DAYS` sweep, and a client's own `bewaren_dagen` window, which
+fires even when the global sweep is disabled and is never capped by a shorter
+global window. Purging a session (GDPR Art. 17) removes only that session's
+own `gesprekken/` archive and its own auto-saved dossier transcript — never
+another session's archive or a hand-curated dossier note.
+
+These client-folder capabilities are part of the Free tier.
 
 ### Cross-cutting: Auth — license gate and feature entitlement
 
@@ -483,6 +574,32 @@ It never prevents a call from starting. Enabled by default; disable with
 `DATA_RETENTION_DAYS` sets the window in days; `0` disables auto-purge. Actual
 deletion runs via `scripts/retention_purge.py` (scheduled via cron).
 
+### Optional: MCP bridge (Pro)
+
+**Files:** `src/sales_copilot/mcp_bridge/`
+
+The deep-insight lane can be driven by the operator's own MCP host instead of
+by `core/llm_client.py`. The bridge is a standalone process
+(`python -m sales_copilot.mcp_bridge`) that connects to a running hub as an
+authenticated local WebSocket client and speaks MCP JSON-RPC over stdio to
+whatever host launched it. It exposes three read tools (`get_session_brief`,
+`get_transcript`, `get_detections`) and one write-back tool (`push_insight`)
+that publishes onto the same insights channel the built-in engine uses, labeled
+by origin so the operator always sees which reasoning path produced a row.
+
+The two directions are not symmetric. Outbound, everything passes through
+`core/outbound_policy.py` and is PII-redacted, because an MCP host counts as a
+public-cloud destination even when it runs on the same Mac. Inbound,
+`push_insight` originates on the host and is validated and rate-capped per
+session rather than redacted.
+
+Because stdout carries the JSON-RPC wire protocol, the bridge logs nowhere near
+it: it writes to stderr, which the host swallows, and to its own rotating
+`data/logs/mcp-bridge.log`. That file is the only durable record of the
+bridge's lifecycle. Requires `FEATURE_MCP_BRIDGE` (Pro/Enterprise) and
+`MCP_BRIDGE_ENABLED=true`; both refusal paths are logged. Full detail,
+including host wiring and troubleshooting, in `docs/MCP_BRIDGE.md`.
+
 ### Optional: Diarizer (pyannote v3)
 
 **Files:** `src/sales_copilot/modules/diarizer/`
@@ -541,6 +658,7 @@ Total end-to-end: approximately 1.5s–3.5s from speech to slide visible
 | Vanilla HTML/CSS/JS dashboard | No framework, no build step | Eliminates build toolchain complexity. Breathing bar is pure CSS animation. Dashboard is served as static files from the hub. |
 | AGPL-3.0 + commercial dual license | AGPL for community, commercial for AGPL-incompatible use | AGPL requires SaaS-hosters to open-source their modifications. Commercial license available for organizations that cannot comply with AGPL. |
 | Platform-normalized capture instead of OS-specific branches downstream | `AudioStream` protocol + `DualAudioCapture` factory + `normalize_capture_method()`/`resolve_prospect_source()` | Isolates the one genuinely Mac-vs-Windows-specific seam (system-audio capture) behind a single factory. `RecorderEngine`, the VAD, and the transcriber consume any implementation identically — the Windows port needed one new stream class, not a rewrite. |
+| Three-mode resource resolution (`core/paths.py`, #223) | Dev/editable checkout reads the repo tree as-is; a plain (non-editable) `pip install` reads bundled `_resources/` (`dashboard/`, `presentation/`, `config/` force-included into the wheel via `[tool.hatch.build.targets.wheel.force-include]`) and writes to a per-OS user data directory; a frozen `.app` reads `Contents/Resources` and writes to Application Support | A plain `pip install .` used to ship only `src/sales_copilot`, so the dashboard 404'd on both a non-editable install and the documented macOS pipx path, and writable app-support data silently fell back to `site-packages` (not guaranteed writable, wiped on upgrade). |
 
 ---
 
@@ -556,6 +674,8 @@ Four security fixes were implemented and verified in commit `0163451`:
 | **F04** WS origin check | P1 | WebSocket channels verify the `Origin` header on connect. External origins are closed immediately with code 1008. |
 
 **Dashboard access:** the dashboard is served at `http://localhost:8760/dashboard`. Opening `dashboard/index.html` directly via `file://` deliberately fails (CORS policy — F02). Always use the hub URL.
+
+**Credential scope for worker/build processes (#211, CI gate 9).** A separate concern from the app's own runtime security above: `.gitleaks.toml` rule `worker-env-credential-literal` and `scripts/check_env_credential_scope.py` guard against a credential-shaped variable with a literal value landing in a file that populates a process environment (`.env*`, the `env` block of `.claude/settings*.json`, `*.plist`) — the shape that let an unrelated credential (`VNX_SMTP_PASS`, from outside this repo) reach a build worker's process environment on 2026-09-05. See [SECURITY.md](../SECURITY.md) ("Credential scope for worker processes") for the full mechanism and operator remediation.
 
 ---
 
@@ -575,4 +695,6 @@ Four security fixes were implemented and verified in commit `0163451`:
 | Preset system (sales/coach/recruitment) | [PRESETS.md](PRESETS.md) |
 | License key system | [LICENSE_KEY.md](LICENSE_KEY.md) |
 | Multi-speaker diarization | [DIARIZATION.md](DIARIZATION.md) |
+| Report delivery (trigger sinks) | [MODULE4.md](MODULE4.md) |
+| Security policy and credential-scope CI gate | [SECURITY.md](../SECURITY.md) |
 | Audit ledger (AI Act) | [AUDIT_LEDGER.md](AUDIT_LEDGER.md) |

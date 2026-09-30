@@ -30,8 +30,17 @@ To keep the browser from opening automatically, set `SALES_COPILOT_NO_BROWSER=1`
 
 **To update:**
 ```bash
-pipx upgrade live-sales-copilot
+pipx reinstall live-sales-copilot
 ```
+
+Use `reinstall`, not `upgrade`. This install tracks the git branch, whose version
+number changes per release, not per commit. `pipx upgrade` asks pip, pip sees the
+same version it already has, and stops — it prints "already at latest version"
+and installs nothing. That is silent for new code and silent in a second way for
+new commands: the `bin/` wrappers for anything under `[project.scripts]` are
+written at install time only, so a command added since your install never
+appears, with no error to notice. `pipx reinstall` rebuilds from the branch head
+and writes them.
 
 **To uninstall:**
 ```bash
@@ -106,6 +115,23 @@ The default AudioTee tap needs no audio setup. If you use the manual `blackhole`
 6. Add your API key to `.env` (free Gemini key: aistudio.google.com/app/apikey)
 7. Double-click `Start OnCue.app` to launch
 
+**Checking your setup before a real call.** From a checkout of the repo you can
+run the preflight, which changes nothing and starts nothing:
+
+```bash
+bash scripts/oncue_chain.sh check
+```
+
+It answers, per line, whether the backend is up and which copy of OnCue owns it,
+whether your install carries every command this version declares, whether
+exactly one meeting app is running (which gates automatic call start; the tap
+itself follows the whole system mix and needs no meeting app), whether AI
+detection will be on for your
+next call, and whether the logs are writable. Anything that is not OK comes
+with the command that fixes it. `bash scripts/oncue_chain.sh up` runs the same
+checks and then starts what is missing, so the only step left is starting the
+call.
+
 **Updating:**
 
 Download the new release ZIP from GitHub Releases and replace the existing folder.
@@ -144,12 +170,18 @@ OnCue supports Windows via a WASAPI loopback capture path (no virtual-audio-devi
 - Windows 10 2004+ or Windows 11 (WASAPI loopback + per-process loopback API)
 - Python 3.11+ (3.13 verified working as of 2026-07-26)
 - A headset — WASAPI loopback captures the whole system-output endpoint, not a single app; speakers cause echo/self-capture
-- No telephony (phone/FaceTime-relay) capture — that feature is macOS-only (Apple Continuity); Windows covers video-call audio (Zoom/Teams/Meet)
+- Telephony (phone-relay) audio is confirmed recordable on Windows via Stereo Mix, but whether it reaches the render pipeline OnCue's WASAPI tap reads from is unconfirmed — Stereo Mix and WASAPI loopback tap different points in the audio stack and can diverge; you must also start the session manually, since automatic call detection is macOS-only; see **Telephony capture** under Known Windows caveats below
 - An NVIDIA GPU with 4+ GB VRAM if you want GPU-accelerated transcription (CPU-only transcription also works, see below)
 
 ### Install
 
-The install is a four-step sequence. Running `pip install ".[windows]"` alone is not enough to boot the app — the orchestrator imports the detector and reports modules unconditionally at startup, so those dependencies are always required even for a capture-only run.
+```bash
+pip install ".[windows]"
+```
+
+That's enough to boot a capture-only run — talk-time tracking and live transcription, no pain-point detection. The orchestrator (`src/sales_copilot/__main__.py`) only imports the detector and reports modules from inside `_run_call()`, once a call actually enables them, so a plain `.[windows]` install never needs `litellm`, `instructor`, `semantic-router`, `sentence-transformers`, or `aiosqlite` just to start.
+
+**Full install, with pain-point detection:**
 
 ```bash
 pip install ".[windows]"
@@ -158,11 +190,9 @@ pip install ".[detector]"
 pip install aiosqlite --only-binary=:all:
 ```
 
-**Why this sequence:**
+**Why the four-step sequence for the full install:**
 
 `litellm` cannot build from source on Windows — its sdist requires Rust/Cargo. Forcing `--only-binary=:all:` picks the pure-Python wheel instead, which installs cleanly. `.[detector]` pulls in `semantic-router`, `sentence-transformers`, and `instructor` (which depends on `litellm`, hence step 2 first). `aiosqlite` is needed by the reports/coaching import chain and lives in the `slides` extra, not in `windows` or `detector` — installing it separately closes that gap.
-
-A parallel code change (lazy imports in the orchestrator) will shrink this to `pip install ".[windows]"` for capture-only runs once it lands. Until then, follow the four steps above.
 
 **Audio capture config:**
 ```env
@@ -219,15 +249,29 @@ Until an offline/bundled embedding model or a certifi-based downloader lands, pa
 
 ### Known Windows caveats
 
-**Autostart monitor (`pgrep` crash).** The autostart monitor calls `pgrep` to detect meeting apps, but `pgrep` does not exist on Windows. This throws a `FileNotFoundError` every poll cycle (every 2 seconds by default). The feature is non-functional on Windows. **Workaround:** set `AUTOSTART_MONITOR_ENABLED=false` in `.env`. A code fix (Windows-native process check) is under way.
+**Telephony capture.** *A 2026-09-06 note in this section claimed the WASAPI level meter itself showed a relayed call — that was wrong. What moved was Windows' own `mmsys.cpl` level meter, not OnCue's, because OnCue was not running at the time.* Below is what is actually established, measured 2026-09-07 on Windows 11 build 26200.9278.
 
-**WASAPI loopback taps the default output device.** `WasapiLoopbackStream` captures from `default_speaker()` — the Windows default audio output. If your call audio goes to a different device (e.g. a headset selected inside Zoom but not set as the Windows default), loopback captures silence. Set your call-audio device as the Windows default before starting OnCue, or use the dashboard's audio-level indicator to confirm the prospect stream is getting signal.
+Measured: a phone call relayed over Bluetooth to the PC *is* recordable on that machine — captured via Stereo Mix (host MME), confirmed by WAV analysis (exact digital silence from 0-21s, then speech peaking at 0.69).
+
+Not established: whether that audio ever passes through the render pipeline WASAPI loopback taps. Stereo Mix is a Realtek codec feature — it captures the codec's own output mix. WASAPI loopback taps a different point: the Windows audio engine's render pipeline. Those are usually the same signal, but not necessarily: if the Bluetooth stack mixes relayed call audio directly into the codec's mix without routing it through the audio engine, Stereo Mix would still catch it while WASAPI loopback would not, with nothing broken on either side. Which of the two is happening here is unknown, and it isn't a minor detail — Stereo Mix is off by default on most Windows machines and isn't available on every codec, so an OnCue that depended on it wouldn't behave the same across hardware. One measurement would resolve it: change the Windows default output device mid-call and check whether the relayed audio follows. If it does, it's routed through the audio engine and WASAPI loopback should see it; if it stays on the Realtek endpoint, it doesn't, and telephony audio won't reach OnCue's own tap on setups like this one.
+
+Not established either: whether OnCue's own WASAPI loopback tap (`WasapiLoopbackStream`) catches that same relayed call. On this machine OnCue crashed about a second after start (root cause fixed in #224 — see below — but not re-verified on real Windows hardware), and a separate WASAPI-loopback probe in Audacity returned `-9996 (Invalid device)` on this Realtek endpoint. For a call carried by a PC app instead of a relayed phone (WhatsApp), OnCue's WASAPI loopback did capture signal — so the whole-endpoint tap works on this hardware for at least one audio source; telephony specifically remains unverified through OnCue itself.
+
+What Windows does *not* have, independent of the above: (1) automatic call detection — the `avconferenced` process check the runtime autostart monitor uses on macOS to arm a session on its own has no Windows equivalent, since `avconferenced` is a macOS daemon — and (2) the per-process telephony tap (`PROSPECT_SOURCE=audiotee_call`, Sales Pro) that isolates call audio from the rest of the system mix on macOS; an explicit `audiotee_call` on Windows normalizes back to `blackhole`/WASAPI with a logged warning instead of failing. In practice: on Windows, start OnCue's capture manually before the call. Whether the relayed call ends up in the transcript is, per the above, not yet confirmed — treat it as untested until someone reports back on real hardware.
+
+**Native crash ~1s after start — fixed in code, not yet re-verified on real hardware.** The 2026-09-06 field test hit a native crash (no Python traceback) about a second after "Audio transcriber started", on every audio configuration tried on that machine. Root cause: `soundcard`'s WASAPI recorder is a COM object bound to whichever thread creates it, and the reader thread that read it never joined that COM apartment — a cross-apartment violation. Fixed in #224 by moving the recorder's entire lifecycle (open, read, periodic re-attach, close) onto one COM-joined reader thread. A follow-up adversarial review (#227) found and fixed five further reader-thread lifecycle defects in that same fix — two of them regressions #224 itself introduced (a recorder handle leak on open-failure, and a `start()`/`stop()` race after a timed-out join), plus a COM-uninitialize call that could run without a matching init, a swallowed open-failure that never reached `tap_health` or the dashboard, and a COM join failure that could wedge `start()`/`stop()` forever. Both #224 and #227 are verified from source only, since no Windows host was available to confirm either fix on real hardware. The same field test found and fixed five other real-install defects (#223): the wheel didn't ship `dashboard/`/`presentation/`/`config/` for a plain (non-editable) `pip install` — this also affected the documented macOS pipx path — `httpx` was missing from the `windows` extra so transcription silently fell back to a backend that cannot run outside Apple Silicon, a blank `MIC_INPUT_DEVICE` crashed PortAudio, the shipped `.env.example` carried an override that defeated Windows auto-detection, and a zero-frame recording finalized silently. All five are fixed on `main`.
+
+**Autostart monitor: the `pgrep` crash is fixed, and video-app auto-detection is now Windows-aware.** Process lookups dispatch on `sys.platform` (`_find_pid_win32` in `audio/capture.py`, backed by `tasklist`), so the monitor no longer throws `FileNotFoundError` polling on Windows. The built-in video-meeting candidate list is now platform-aware too (`_default_meeting_app_candidates()` in `audio/capture.py`): `chrome.exe`, `Teams.exe`, `ms-teams.exe` (both Teams client generations are checked), and `Zoom.exe` on Windows, versus `Google Chrome`/`Microsoft Teams`/`zoom.us` on macOS. Matching stays *exact* on both platforms, deliberately with no fuzzy fallback (see `resolve_meeting_app_target()`). Telephony-based auto-arm is still moot on Windows for the reason above (no `avconferenced`) — only the video-app trigger works there.
+
+**WASAPI loopback follows the default output device — or a device you pin.** By default `WasapiLoopbackStream` follows whatever Windows currently calls the default playback device, and re-attaches automatically if that default changes mid-call (e.g. a Bluetooth headset connecting or disconnecting), logging the switch. If your call audio instead goes to a device that is *not* the Windows default (e.g. a headset selected inside Zoom but never set as the system default), you have two options: set that device as the Windows default before starting OnCue, or set `AUDIO_WASAPI_ENDPOINT_NAME` in `.env` to a substring of the device name (e.g. `Realtek` or `Headset`) to pin the tap to it regardless of what Windows calls the default — a pinned endpoint is never displaced by a later default-device change. Either way, use the dashboard's audio-level indicator to confirm the prospect stream is getting signal.
 
 **First-chunk whisper onset.** The very first partial transcription segment may be garbled before the model settles. This is cosmetic and clears within the first few seconds of a call.
 
-> **Experimental.** Windows support was verified on physical hardware 2026-07-26: WASAPI loopback capture (312/312 real-audio chunks), whisper.cpp GPU transcription (RTX 2050, cuBLAS, large-v3-turbo), and the full dashboard + transcript pipeline all passed end-to-end. See [GitHub issue #148](https://github.com/Vinix24/OnCue/issues/148) for the full test report. The 2026-07-14 VM run confirmed the capture path imports and works; this physical-hardware run confirmed real drivers, real GPU, and real install friction.
+> **Experimental.** Windows support was verified on physical hardware 2026-07-26: WASAPI loopback capture (312/312 real-audio chunks), whisper.cpp GPU transcription (RTX 2050, cuBLAS, large-v3-turbo), and the full dashboard + transcript pipeline all passed end-to-end for a PC-app call. See [GitHub issue #148](https://github.com/Vinix24/OnCue/issues/148) for the full test report. The 2026-07-14 VM run confirmed the capture path imports and works; this physical-hardware run confirmed real drivers, real GPU, and real install friction. None of that 2026-07-26 run touched telephony/Bluetooth-relayed audio — that was first tried on 2026-09-06, on a different machine (see **Telephony capture** above).
 >
-> What remains untested: device hotplug, day-to-day reliability across diverse hardware, and pain-point detection on machines without TLS inspection. Windows users are welcome to try it and report back on [GitHub Issues](https://github.com/Vinix24/OnCue/issues): what worked, what didn't, and your audio setup. Your results are what move Windows from experimental to fully supported.
+> That 2026-09-06/07 field test (Windows 11 build 26200.9278) hit a native crash the 2026-07-26 run did not report, plus five install defects — see **Native crash** and **Telephony capture** above. A follow-up code review (#227) found and fixed five further defects in the native-crash fix itself, two of them regressions the original fix (#224) introduced. All are fixed on `main`; none of the fixes has been re-verified on real Windows hardware since landing.
+>
+> What remains untested: the #223, #224 and #227 fixes on real hardware, telephony audio through OnCue's own WASAPI tap, device hotplug, day-to-day reliability across diverse hardware, and pain-point detection on machines without TLS inspection. Windows users are welcome to try it and report back on [GitHub Issues](https://github.com/Vinix24/OnCue/issues): what worked, what didn't, and your audio setup. Your results are what move Windows from experimental to fully supported.
 
 ---
 
@@ -274,8 +318,10 @@ Requires Ollama running locally. The `/v1` suffix is required (the OpenAI-compat
 
 **Path 1 (pipx):**
 ```bash
-pipx upgrade live-sales-copilot
+pipx reinstall live-sales-copilot
 ```
+`pipx upgrade` short-circuits on an unchanged version number and then installs
+nothing at all — see [Path 1](#path-1-power-user-pipx) above.
 
 **Path 2 (git clone):**
 ```bash
@@ -283,9 +329,16 @@ cd OnCue
 git pull
 bash scripts/install.sh
 ```
+The second step is not optional bookkeeping. `git pull` updates the source; only
+the reinstall writes the `bin/` wrappers for commands the new version declares.
 
 **Path 3 (.app):**
 Download the new release zip from GitHub Releases and replace the existing .app.
+
+**Checking that an update actually landed:** from a checkout,
+`bash scripts/oncue_chain.sh check` compares the commands declared in
+`pyproject.toml` against the ones present in `.venv/bin` and names any that are
+missing (line `1b. Entrypoints`).
 
 ---
 

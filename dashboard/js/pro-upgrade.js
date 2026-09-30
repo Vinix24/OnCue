@@ -33,6 +33,9 @@ const PRO_UPGRADE_URL = window.PRO_UPGRADE_URL;
   /** True when the Pro entitlement "coaching.script_tracking" is active. */
   let hasScriptTracking = false;
 
+  /** True when the Pro entitlement "coaching.deep_insights" is active. */
+  let hasDeepInsights = false;
+
   /** The element that had focus before the upgrade modal was opened. */
   let _preModalFocus = null;
 
@@ -73,6 +76,7 @@ const PRO_UPGRADE_URL = window.PRO_UPGRADE_URL;
       hasCalltap = data.features.includes("audio.calltap");
       hasDynamicSlides = data.features.includes("presentation.dynamic_slides");
       hasScriptTracking = data.features.includes("coaching.script_tracking");
+      hasDeepInsights = data.features.includes("coaching.deep_insights");
     } catch (_e) {
       // Server unreachable — stay in Free-gated mode (safe default).
     }
@@ -329,6 +333,38 @@ const PRO_UPGRADE_URL = window.PRO_UPGRADE_URL;
   };
 
   /**
+   * When the "coaching.deep_insights" entitlement is absent:
+   *   - Hide the Diepte-inzichten side-panel feed/ask-box and show a compact
+   *     upgrade hint in its place.
+   *   - Keep the section in the DOM so tests and layout remain stable.
+   */
+  const applyInsightsGating = () => {
+    const section = document.getElementById("insights-section");
+    if (!section) {
+      return;
+    }
+    if (hasDeepInsights) {
+      return;
+    }
+
+    const panel = document.getElementById("insights-panel");
+    if (panel) {
+      const message = window.t("insights.pro_gate_message");
+      const upgradeLabel = window.t("insights.upgrade_button");
+      panel.innerHTML =
+        `<div class="insights-empty insights-upgrade">${message} <button type="button" class="insights-upgrade-btn">${upgradeLabel}</button></div>`;
+      const upgradeBtn = panel.querySelector(".insights-upgrade-btn");
+      if (upgradeBtn) {
+        upgradeBtn.addEventListener("click", openUpgradeModal);
+      }
+    }
+    const askForm = document.getElementById("insights-ask-form");
+    if (askForm) {
+      askForm.hidden = true;
+    }
+  };
+
+  /**
    * When the "presentation.dynamic_slides" entitlement is absent:
    *   - Hide the Slide Injector module-toggle row entirely (display:none via
    *     the element's hidden attribute) so Free users never see it.
@@ -381,6 +417,7 @@ const PRO_UPGRADE_URL = window.PRO_UPGRADE_URL;
     observeSelectSync();
     applyDynamicSlidesGating();
     applyScriptTrackingGating();
+    applyInsightsGating();
   };
 
   // Run after all other scripts have loaded (setup.js runs on DOMContentLoaded

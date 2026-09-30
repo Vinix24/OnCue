@@ -62,6 +62,7 @@
       module_talk_time: "Talk Time",
       module_transcript: "Live Transcript",
       module_pain_points: "AI detection",
+      detection_off_indicator: "AI detection is off for this call.",
       module_presentation: "Slide Injector",
       module_post_call_report: "Post-call Report",
       llm_prospect_title: "LLM & Prospect",
@@ -78,10 +79,9 @@
       own_transcript_info:
         "By default you only see the prospect during the call (faster and more stable). Enable this to see your own text live. whisper.cpp is the default backend and supports this most reliably; MLX Whisper is experimental.",
       show_toggle: "Show",
-      prospect_company_label: "Prospect company",
-      prospect_company_placeholder: "Customer name",
-      prospect_industry_label: "Industry",
-      prospect_industry_placeholder: "Manufacturing",
+      client_label: "Client",
+      client_none_option: "No client",
+      client_info: "Picks a client folder under KLANTEN_ROOT. Company, industry, call documents and the privacy gate then come from klant.yaml.",
       documents_title: "Documents",
       dropzone_text: "Drop quote docs or cases here",
       dropzone_filetypes: "PDF, DOCX, or TXT",
@@ -209,6 +209,36 @@
       case_match_label: "→ Case {caseId}",
       no_case_match: "No case match",
     },
+    detector: {
+      status_waiting: "Detection not started yet",
+      status_listening: "Listening, nothing in yet",
+      status_active: "Listening · {received} heard · {detections} detected",
+      status_no_input: "Listening, but nothing is coming in",
+      status_stale: "No signal from detection",
+      status_stopped: "Detection stopped",
+      toggle_title: "Show what detection is doing",
+      reason_waiting: "Detection has not reported in yet. Start the call, or check that AI detection is switched on.",
+      reason_stale: "Detection gave a last sign of life and then went quiet. The module has most likely stopped.",
+      reason_no_input: "Detection is running, but no speech has come through yet. Check transcription and audio input.",
+      reason_nothing_received: "No speech has come through yet.",
+      reason_healthy: "{detections} detections sent to the dashboard.",
+      reason_not_prospect: "{count} utterances skipped: that was your own speech, detection only looks at the prospect.",
+      reason_below_min: "Not enough context yet: {min} sentences are needed for a classification.",
+      reason_debounced: "Skipped {count} times because the previous classification was too recent.",
+      reason_low_confidence: "{count} matches fell below the confidence threshold.",
+      reason_dropped_none: "Classified as 'no pain point' {count} times.",
+      reason_nothing_matched: "Speech is coming in, nothing has surfaced yet.",
+      count_received: "Received",
+      count_skipped_not_prospect: "Not prospect",
+      count_buffered_below_min: "Too little context",
+      count_debounced: "Too soon after previous",
+      count_classified: "Classified",
+      count_dropped_none: "No pain point",
+      count_dropped_low_confidence: "Below threshold",
+      count_dispatched: "Surfaced",
+      confidence_high: "Strong match",
+      confidence_uncertain: "Weak match, not confirmed",
+    },
     opportunities: {
       title: "Opportunities",
       empty_state: "No opportunities detected yet.",
@@ -305,6 +335,7 @@
       module_talk_time: "Talk Time",
       module_transcript: "Live Transcript",
       module_pain_points: "AI detectie",
+      detection_off_indicator: "AI-detectie staat uit voor dit gesprek.",
       module_presentation: "Slide Injector",
       module_post_call_report: "Post-call Report",
       llm_prospect_title: "LLM & Prospect",
@@ -321,10 +352,9 @@
       own_transcript_info:
         "Standaard zie je tijdens de call alleen de prospect (sneller en stabieler). Schakel dit in om je eigen tekst live te zien. whisper.cpp is de standaard-backend en ondersteunt dit het meest stabiel; MLX Whisper is experimenteel.",
       show_toggle: "Tonen",
-      prospect_company_label: "Prospect bedrijf",
-      prospect_company_placeholder: "Klantnaam",
-      prospect_industry_label: "Industry",
-      prospect_industry_placeholder: "Manufacturing",
+      client_label: "Klant",
+      client_none_option: "Geen klant",
+      client_info: "Kiest een klantmap onder KLANTEN_ROOT. Bedrijf, industry, gespreksdocumenten en de privacy-poort komen dan uit klant.yaml.",
       documents_title: "Documenten",
       dropzone_text: "Drop offertedocs of cases hier",
       dropzone_filetypes: "PDF, DOCX, of TXT",
@@ -451,6 +481,36 @@
       empty_state: "Nog geen detections binnen.",
       case_match_label: "→ Case {caseId}",
       no_case_match: "Geen case match",
+    },
+    detector: {
+      status_waiting: "Detectie nog niet actief",
+      status_listening: "Luistert, nog niets binnen",
+      status_active: "Luistert · {received} gehoord · {detections} gedetecteerd",
+      status_no_input: "Luistert, maar er komt niets binnen",
+      status_stale: "Geen signaal van de detectie",
+      status_stopped: "Detectie gestopt",
+      toggle_title: "Toon wat de detectie doet",
+      reason_waiting: "De detectie heeft zich nog niet gemeld. Start het gesprek, of controleer of AI-detectie aan staat.",
+      reason_stale: "De detectie gaf een laatste teken van leven en is daarna stil gevallen. Waarschijnlijk is de module gestopt.",
+      reason_no_input: "De detectie draait, maar er is nog geen spraak doorgekomen. Controleer de transcriptie en de audio-invoer.",
+      reason_nothing_received: "Nog geen spraak doorgekomen.",
+      reason_healthy: "{detections} detecties naar het dashboard gestuurd.",
+      reason_not_prospect: "{count} uitingen overgeslagen: dat was jouw spraak, de detectie kijkt alleen naar de prospect.",
+      reason_below_min: "Nog te weinig context: er zijn {min} zinnen nodig voor een classificatie.",
+      reason_debounced: "{count} keer overgeslagen omdat de vorige classificatie nog te kort geleden was.",
+      reason_low_confidence: "{count} matches vielen onder de betrouwbaarheidsdrempel.",
+      reason_dropped_none: "{count} keer geclassificeerd als 'geen pijnpunt'.",
+      reason_nothing_matched: "Spraak komt binnen, er kwam nog niets bovendrijven.",
+      count_received: "Binnengekomen",
+      count_skipped_not_prospect: "Niet van prospect",
+      count_buffered_below_min: "Te weinig context",
+      count_debounced: "Te snel na vorige",
+      count_classified: "Geclassificeerd",
+      count_dropped_none: "Geen pijnpunt",
+      count_dropped_low_confidence: "Onder drempel",
+      count_dispatched: "Getoond",
+      confidence_high: "Sterke match",
+      confidence_uncertain: "Zwakke match, niet bevestigd",
     },
     opportunities: {
       title: "Kansen",
@@ -642,7 +702,7 @@
   window.WebSocket = FakeWebSocket;
 
   /** Broadcast `payload` to every fake socket currently open on `channel` (e.g. "transcript", "pain-points"). */
-  window.__demoEmit = (channel, payload) => {
+  const broadcast = (channel, payload) => {
     const set = registry.get(channel);
     if (!set || set.size === 0) {
       return;
@@ -655,4 +715,72 @@
       socket.dispatchEvent(new MessageEvent("message", { data }));
     });
   };
+
+  /* ---- detector status ----
+   * The real dashboard renders the detector-status strip from counters the
+   * detector publishes about itself. The demo has no detector, so the same
+   * counters are derived here from what the timeline actually pushes through
+   * this shim. That keeps the strip truthful about what is on screen instead
+   * of replaying hand-written numbers that would drift from the timeline.
+   */
+  const detectorCounts = {
+    received: 0,
+    skipped_not_prospect: 0,
+    buffered_below_min: 0,
+    debounced: 0,
+    classified: 0,
+    dropped_none: 0,
+    dropped_low_confidence: 0,
+    dispatched: 0,
+  };
+  const detectorStartedAt = Date.now();
+  const DETECTOR_STATUS_INTERVAL_MS = 4000;
+
+  const publishDetectorStatus = () => {
+    broadcast("detector-status", {
+      type: "detector_status",
+      state: detectorCounts.received > 0 ? "active" : "listening",
+      counts: { ...detectorCounts },
+      uptime_ms: Date.now() - detectorStartedAt,
+      last_chunk_age_ms: null,
+      interval_ms: DETECTOR_STATUS_INTERVAL_MS,
+      thresholds: { low: 0.5, high: 0.85 },
+      policy: {
+        only_classify_prospect: true,
+        min_chunks_to_classify: 2,
+        classification_debounce_seconds: 8,
+      },
+      timestamp_ms: Date.now(),
+    });
+  };
+
+  const trackDetectorCounters = (channel, payload) => {
+    if (channel === "transcript" && payload?.type === "transcript") {
+      if (payload.speaker === "prospect") {
+        detectorCounts.received += 1;
+        detectorCounts.classified += 1;
+      } else {
+        detectorCounts.received += 1;
+        detectorCounts.skipped_not_prospect += 1;
+      }
+      return;
+    }
+    if (
+      (channel === "pain-points" && payload?.type === "pain_point")
+      || (channel === "objections" && payload?.type === "objection")
+      || (channel === "buying-signals" && payload?.type === "buying_signal")
+    ) {
+      detectorCounts.dispatched += 1;
+    }
+  };
+
+  window.__demoEmit = (channel, payload) => {
+    trackDetectorCounters(channel, payload);
+    broadcast(channel, payload);
+  };
+
+  // Dashboard modules connect their fake sockets asynchronously (see
+  // FakeWebSocket's open tick), so the first publish waits for them.
+  setTimeout(publishDetectorStatus, 250);
+  setInterval(publishDetectorStatus, DETECTOR_STATUS_INTERVAL_MS);
 })();

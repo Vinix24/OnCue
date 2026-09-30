@@ -5,9 +5,12 @@ Usage:
     python scripts/transcribe_file.py path/to/recording.wav
     python scripts/transcribe_file.py path/to/recording.mp3 --output out.txt
     python scripts/transcribe_file.py path/to/recording.wav --backend whisper.cpp
+    python scripts/transcribe_file.py path/to/recording.wav --model large-v3
 
 The script reads .env for backend config (WHISPER_BACKEND, model paths, etc.)
-and writes the transcript to stdout (or --output path).
+and writes the transcript to stdout (or --output path). `.env` keeps the live
+default (large-v3-turbo); `--model` overrides it for this run only, e.g. for
+higher-quality post-call transcription.
 
 Supports .wav natively; for .mp3/.m4a/.mp4/.ogg it shells out to ffmpeg to
 convert to 16 kHz mono PCM first (requires ffmpeg in PATH).
@@ -89,20 +92,55 @@ def _chunk_audio(audio: np.ndarray, sample_rate: int, chunk_seconds: int = 30) -
     return chunks
 
 
+def _resolve_ggml_path(configured_path: str, model_name: str | None) -> str:
+    """Resolve the whisper.cpp GGML model path for this run.
+
+    When `model_name` overrides `.env`'s WHISPER_MODEL, the file name changes
+    but the directory from WHISPER_CPP_MODEL_PATH stays authoritative (an
+    operator may point it somewhere other than the default vendor/ layout).
+    Falling back silently to the configured model on a missing override would
+    let an operator believe they measured large-v3 while actually measuring
+    turbo, so this raises instead.
+    """
+    if model_name is None:
+        return configured_path
+    if "/" in model_name or "\\" in model_name or ".." in model_name:
+        raise FileNotFoundError(
+            f"Invalid --model {model_name!r}: a model name must be a bare "
+            "filename component (no '/', '\\', or '..'), not a path."
+        )
+    candidate = Path(configured_path).with_name(f"ggml-{model_name}.bin")
+    if not candidate.exists():
+        raise FileNotFoundError(
+            f"GGML model not found for --model {model_name}: expected at "
+            f"{candidate}. Download it with: "
+            f"bash vendor/whisper.cpp/models/download-ggml-model.sh {model_name}"
+        )
+    return str(candidate)
+
+
 async def _transcribe(
     audio_path: Path,
     backend_name: str | None,
     chunk_seconds: int,
     include_timestamps: bool,
+    model_name: str | None = None,
 ) -> str:
     load_env()
     cfg = TranscriberConfig.from_env()
+    model = model_name or cfg.model
+    effective_backend = backend_name or cfg.backend
+    whisper_cpp_model_path = (
+        _resolve_ggml_path(cfg.whisper_cpp_model_path, model_name)
+        if effective_backend == "whisper.cpp"
+        else cfg.whisper_cpp_model_path
+    )
     backend = create_backend({
-        "backend": backend_name or cfg.backend,
+        "backend": effective_backend,
         "language": cfg.language,
-        "model_repo": f"mlx-community/whisper-{cfg.model}",
+        "model_repo": f"mlx-community/whisper-{model}",
         "whisper_cpp_binary": cfg.whisper_cpp_binary,
-        "whisper_cpp_model_path": cfg.whisper_cpp_model_path,
+        "whisper_cpp_model_path": whisper_cpp_model_path,
         "whisper_cpp_threads": cfg.whisper_cpp_threads,
     })
 
@@ -111,7 +149,7 @@ async def _transcribe(
     duration_s = len(audio) / float(sample_rate)
     logger.info("Audio loaded: %.1f seconds (%d samples)", duration_s, len(audio))
 
-    logger.info("Warming up backend: %s", backend_name or cfg.backend)
+    logger.info("Warming up backend: %s", effective_backend)
     await backend.warmup()
 
     try:
@@ -145,6 +183,12 @@ def main(argv: list[str] | None = None) -> int:
         choices=["mlx-whisper", "whisper.cpp"],
         default=None,
         help="Override WHISPER_BACKEND from .env",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Override WHISPER_MODEL from .env for this run (e.g. large-v3 for "
+             "higher-quality post-call transcription; .env keeps the live default)",
     )
     parser.add_argument("--chunk-seconds", type=int, default=30, help="Chunk size in seconds (default 30)")
     parser.add_argument("--no-timestamps", action="store_true", help="Omit [MM:SS] timestamps")
@@ -187,8 +231,12 @@ def main(argv: list[str] | None = None) -> int:
                 backend_name=args.backend,
                 chunk_seconds=args.chunk_seconds,
                 include_timestamps=not args.no_timestamps,
+                model_name=args.model,
             )
         )
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     finally:
         if cleanup is not None:
             cleanup.unlink(missing_ok=True)

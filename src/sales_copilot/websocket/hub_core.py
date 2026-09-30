@@ -11,15 +11,25 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from sales_copilot.audio.tap_health import TRANSCRIPT_MARKER_TYPE
 from sales_copilot.auth.feature_policy import (
     FEATURE_CALLTAP,
+    FEATURE_DEEP_INSIGHTS,
     FEATURE_LIVE_COACHING,
     FEATURE_SCRIPT_TRACKING,
     FeaturePolicy,
     get_feature_policy,
 )
+from sales_copilot.core.config import DetectorConfig, InsightConfig
+from sales_copilot.core.context_docs import parse_client_slug_from_payload
+from sales_copilot.core.klant_config import KlantConfigError, load_klant_config
 from sales_copilot.core.measurement_signals import record_install_attribution
+from sales_copilot.core.privacy_gate import enforce_privacy
 from sales_copilot.websocket.hub_auth import is_valid_token, websocket_token
+
+#: The spoken-transcript event type. Named here so the buffer predicate below
+#: reads as a list of what belongs in the transcript record.
+TRANSCRIPT_EVENT_TYPE = "transcript"
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -41,6 +51,10 @@ def _coaching_enabled() -> bool:
 
 def _script_tracking_enabled() -> bool:
     return _get_feature_policy().allows(FEATURE_SCRIPT_TRACKING)
+
+
+def _deep_insights_enabled() -> bool:
+    return _get_feature_policy().allows(FEATURE_DEEP_INSIGHTS)
 
 
 _subscribers: dict[str, set[WebSocket]] = defaultdict(set)
@@ -85,6 +99,9 @@ async def _broadcast_to_channel(channel: str, data: Any, *, skip: WebSocket | No
         return
     if channel == "script-tracking" and not _script_tracking_enabled():
         _logger.info("Suppressing script-tracking broadcast: not entitled.")
+        return
+    if channel == "insights" and not _deep_insights_enabled():
+        _logger.info("Suppressing insights broadcast: deep insights not entitled.")
         return
     if channel == "transcript" and _call_active and _is_transcript_event(data):
         _transcript_buffer.append(data)
@@ -162,6 +179,126 @@ def apply_end_call() -> None:
     _end_call_event.set()
 
 
+def _resolve_llm_provider(config: dict[str, Any]) -> str:
+    """The detector-lane LLM provider this start-call config selects, for the privacy-poort.
+
+    Mirrors how ``sales_copilot.__main__._parse_call_config`` + ``build_module_configs``
+    resolve the provider: nested ``config["llm"]["provider"]`` wins if the key is present
+    (even empty), flat ``config["llm_provider"]`` is the fallback, and if BOTH keys are
+    entirely absent this falls back to the same global ``DetectorConfig.from_env()``
+    default (``LLM_PROVIDER`` env, default ``"openrouter"``) the detector will actually run
+    with -- ``with_overrides`` only overrides a config field when the call supplied a
+    non-``None`` value, so an omitted ``llm.provider`` never actually reaches the detector
+    as ``""``. Testing an unconfigured request against a literal ``""`` (always "public")
+    used to reject a client with ``privacy: local`` even when the operator's global
+    ``LLM_PROVIDER=ollama`` -- a false rejection this mirror fixes.
+    """
+    llm_payload = config.get("llm")
+    nested = llm_payload.get("provider") if isinstance(llm_payload, dict) else None
+    provider = nested if nested is not None else config.get("llm_provider")
+    if provider is None:
+        return DetectorConfig.from_env().llm_provider
+    return provider if isinstance(provider, str) else ""
+
+
+def _resolve_insight_provider(llm_provider: str) -> str | None:
+    """The deep-insight-lane provider for this conversation, or ``None`` if that lane
+    will not run at all.
+
+    The insight lane (``modules/insight/engine.py``) reads its OWN dossier/profile
+    context and can call a DIFFERENT provider than the detector: ``INSIGHT_PROVIDER``,
+    falling back to the conversation's own detector provider when unset (mirrors
+    ``InsightEngine.__init__``'s ``self.provider = (insight_config.llm_provider or
+    detector_config.llm_provider or "").strip().lower()``).
+
+    The lane only actually starts when BOTH hold (mirrors
+    ``modules/detector/__main__.py``'s two-layer gate): ``INSIGHT_ENABLED`` is set, AND
+    the license entitles ``FEATURE_DEEP_INSIGHTS``. When either is false the lane never
+    reads the dossier, so there is nothing to test against the privacy ceiling and this
+    returns ``None`` -- checking it anyway would be a false rejection (klant.yaml gap #2's
+    twin, for the insight lane).
+    """
+    insight_config = InsightConfig.from_env()
+    if not insight_config.enabled:
+        return None
+    if not _deep_insights_enabled():
+        return None
+    return (insight_config.llm_provider or llm_provider or "").strip().lower()
+
+
+def _set_prospect_field(config: dict[str, Any], field_name: str, value: str, *, client_slug: str) -> None:
+    """Write a klant.yaml-derived prospect field so it wins regardless of reader.
+
+    ``sales_copilot.__main__._parse_call_config`` reads the *nested*
+    ``config["prospect"][field_name]`` before falling back to the flat
+    ``config[f"prospect_{field_name}"]`` -- so the nested key is the one that must be set
+    for klant.yaml to actually override a caller-supplied value. Both are set so either
+    shape a caller sent is consistently overridden, and a pre-existing different value is
+    logged as a conflict klant.yaml won (plan: "bij een conflict wint klant.yaml met een
+    logregel").
+    """
+    prospect = config.get("prospect")
+    if not isinstance(prospect, dict):
+        prospect = {}
+        config["prospect"] = prospect
+    flat_key = f"prospect_{field_name}"
+    existing = prospect.get(field_name) or config.get(flat_key)
+    if existing and existing != value:
+        logger.warning(
+            "klant.yaml voor '%s' overschrijft prospect_%s: payload=%r wordt klant.yaml=%r",
+            client_slug,
+            field_name,
+            existing,
+            value,
+        )
+    prospect[field_name] = value
+    config[flat_key] = value
+
+
+def _apply_klant_config(config: dict[str, Any]) -> None:
+    """Server-side derivation from the selected client's ``klant.yaml`` (klantmap-als-
+    eenheid D2). "Server leidt af, dashboard kiest alleen": the dashboard sends only
+    ``client_slug`` (or nothing, "geen klant"). A client without a ``klant.yaml`` (or no
+    client at all) leaves ``config`` untouched -- the pre-D2, API-caller-supplied
+    ``prospect_company``/``prospect_industry`` behaviour.
+
+    Raises ``ValueError`` (via ``KlantConfigError``/``PrivacyGateError``, both subclasses)
+    for an invalid ``klant.yaml`` or a provider that does not meet the client's ``privacy``
+    ceiling -- ``hub_api.start_call_api`` maps that to an HTTP 400 before any capture starts.
+    """
+    client_slug = parse_client_slug_from_payload(config)
+    if client_slug is None:
+        return
+    # Reflect the normalized slug back into config: `_parse_call_config` re-parses this
+    # same dict later and must land on the exact slug this function resolved klant.yaml for.
+    config["client_slug"] = client_slug
+
+    try:
+        klant = load_klant_config(client_slug)
+    except KlantConfigError as exc:
+        raise ValueError(str(exc)) from exc
+    if klant is None:
+        return
+
+    _set_prospect_field(config, "company", klant.bedrijf, client_slug=client_slug)
+    if klant.branche is not None:
+        _set_prospect_field(config, "industry", klant.branche, client_slug=client_slug)
+    # transcript-normalisatie-na-asr (D3 of a later plan) is the first intended reader of
+    # call_terms; nothing consumes it yet, but it belongs in the config as soon as a client
+    # supplies termen, so it is visible and not a silent promise.
+    config["call_terms"] = list(klant.termen)
+    if klant.aflevering is not None:
+        config["aflevering"] = klant.aflevering
+
+    llm_provider = _resolve_llm_provider(config)
+    enforce_privacy(klant.privacy, llm_provider, client_slug=client_slug, lane="detector")
+    insight_provider = _resolve_insight_provider(llm_provider)
+    if insight_provider is not None:
+        enforce_privacy(klant.privacy, insight_provider, client_slug=client_slug, lane="insight")
+    if klant.privacy is not None:
+        config["privacy"] = klant.privacy
+
+
 def extract_start_call_config(payload: dict[str, Any]) -> dict[str, Any]:
     """Accept both `{config: {...}}` and flat config payloads.
 
@@ -190,6 +327,8 @@ def extract_start_call_config(payload: dict[str, Any]) -> dict[str, Any]:
     config["install_code"] = install_code
     if install_code.strip() == "":
         logger.warning("start-call intake received an empty install_code")
+
+    _apply_klant_config(config)
 
     return config
 
@@ -238,8 +377,15 @@ def reset_config_state() -> None:
 
 
 def _is_transcript_event(data: Any) -> bool:
+    """Does this payload belong in the replayable transcript record?
+
+    ``transcript_marker`` is in because the session tracker joins late and a
+    lost-audio marker it never receives leaves the saved transcript reading as
+    if the speaker went quiet, which is the failure it exists to prevent.
+    """
+
     if isinstance(data, dict):
-        return data.get("type") == "transcript"
+        return data.get("type") in (TRANSCRIPT_EVENT_TYPE, TRANSCRIPT_MARKER_TYPE)
     return False
 
 
@@ -267,6 +413,11 @@ _ALLOWED_CHANNELS = frozenset(
         "buying-signals",
         "coaching",
         "config",
+        # The detector's own counters (received/skipped/dropped/dispatched).
+        # Counters and timestamps only -- never transcript text. Ungated on
+        # purpose: knowing whether detection is alive is not a paid feature.
+        "detector-status",
+        "insights",
         "objections",
         "pain-points",
         "phase",

@@ -68,7 +68,7 @@ All components talk to each other over WebSocket on `localhost:8760`. Every modu
 
 ## Quickstart
 
-Requires Python 3.11+. macOS is the primary, working platform; Windows support is experimental (WASAPI loopback, verified on physical hardware 2026-07-26, see [Platform support](#platform-support)).
+Requires Python 3.11+. macOS is the primary platform. Windows works through WASAPI loopback, with one limitation around phone-call audio (see [Platform support](#platform-support)).
 
 ```bash
 git clone https://github.com/Vinix24/OnCue.git
@@ -119,7 +119,11 @@ Python 3.11+ backend, FastAPI + websockets for the hub, `instructor` + `semantic
 
 **macOS** is primary and working. AudioTee's whole-system audio tap is the default capture path (no BlackHole routing needed); BlackHole remains available as a manual fallback.
 
-**Windows** is experimental. WASAPI loopback capture (`src/sales_copilot/audio/wasapi.py`) is implemented and was verified in a Windows 11 VM with a real hardware-audio probe, then confirmed on physical Windows hardware 2026-07-26 (RTX 2050, cuBLAS transcription, live WASAPI capture). See [CONTRIBUTING.md](CONTRIBUTING.md#help-wanted--good-first-areas) if you want to be the first data point there.
+**Windows** works. WASAPI loopback capture (`src/sales_copilot/audio/wasapi.py`) is the capture path, confirmed on physical hardware on 2026-07-26 (RTX 2050, cuBLAS transcription, live WASAPI capture) and on a second Windows machine since. Anything playing through the system is captured, so calls in Teams, Zoom and Meet behave the same as on macOS.
+
+One thing Windows cannot do: capture telephony. On macOS a relayed iPhone call runs through the `avconferenced` daemon, and OnCue taps that process directly with a Core Audio process tap (`CallTapStream`, macOS only, Pro). Windows has no equivalent process-tap API, so phone calls stay out of reach. Video calls are unaffected: those play through the system endpoint and WASAPI captures them like any other audio.
+
+macOS remains the primary platform and gets new capture work first.
 
 Current pilot limitations and known issues: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 

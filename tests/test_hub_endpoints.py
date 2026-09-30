@@ -9,8 +9,13 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from sales_copilot.core import feedback_store
-from sales_copilot.websocket import hub, hub_auth, hub_upload
+from sales_copilot.core import context_docs, feedback_store
+from sales_copilot.core.autostart_monitor import (
+    AutostartMonitorConfig,
+    RuntimeAutostartMonitor,
+    set_active_monitor,
+)
+from sales_copilot.websocket import hub, hub_auth, hub_core, hub_upload
 from sales_copilot.websocket.hub_auth import get_hub_token
 
 
@@ -61,6 +66,90 @@ def test_upload_endpoint_defaults_company_slug(tmp_path: Path, authed_client: Te
     assert response.status_code == 200
     payload = response.json()
     assert payload["id"].startswith("default/")
+
+
+def test_clients_endpoint_empty_when_no_folders(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(context_docs, "UPLOAD_ROOT", tmp_path)
+
+    response = TestClient(hub.app).get("/api/v1/clients")
+
+    assert response.status_code == 200
+    assert response.json() == {"clients": [], "cloud_sync_warning": None}
+
+
+def test_clients_endpoint_lists_existing_client_folders(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(context_docs, "UPLOAD_ROOT", tmp_path)
+    (tmp_path / "acme-corp").mkdir()
+    (tmp_path / "beta-nv").mkdir()
+
+    response = TestClient(hub.app).get("/api/v1/clients")
+
+    assert response.json() == {
+        "clients": [
+            {"slug": "acme-corp", "bedrijf": "acme-corp"},
+            {"slug": "beta-nv", "bedrijf": "beta-nv"},
+        ],
+        "cloud_sync_warning": None,
+    }
+
+
+def test_clients_endpoint_reads_bedrijf_from_klant_yaml(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(context_docs, "UPLOAD_ROOT", tmp_path)
+    client_dir = tmp_path / "acme-corp"
+    client_dir.mkdir()
+    (client_dir / "klant.yaml").write_text("bedrijf: Acme Corp B.V.\n", encoding="utf-8")
+
+    response = TestClient(hub.app).get("/api/v1/clients")
+
+    assert response.json()["clients"] == [{"slug": "acme-corp", "bedrijf": "Acme Corp B.V."}]
+
+
+def test_clients_endpoint_falls_back_to_slug_on_invalid_klant_yaml(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(context_docs, "UPLOAD_ROOT", tmp_path)
+    client_dir = tmp_path / "acme-corp"
+    client_dir.mkdir()
+    (client_dir / "klant.yaml").write_text("aflevering: hubspot\n", encoding="utf-8")
+
+    response = TestClient(hub.app).get("/api/v1/clients")
+
+    assert response.json()["clients"] == [{"slug": "acme-corp", "bedrijf": "acme-corp"}]
+
+
+def test_clients_endpoint_reports_cloud_sync_warning(tmp_path: Path, monkeypatch) -> None:
+    from sales_copilot.core.cloud_sync_warning import CloudSyncKind, CloudSyncWarning
+
+    monkeypatch.setattr(context_docs, "UPLOAD_ROOT", tmp_path)
+    fake_warning = CloudSyncWarning(
+        kind=CloudSyncKind.ICLOUD_DRIVE,
+        path=tmp_path,
+        message="Deze klantmap staat in iCloud Drive.",
+    )
+    monkeypatch.setattr(hub_upload, "klanten_root_cloud_sync_warning", lambda: fake_warning)
+
+    response = TestClient(hub.app).get("/api/v1/clients")
+
+    assert response.json()["cloud_sync_warning"] == {
+        "kind": "icloud_drive",
+        "message": "Deze klantmap staat in iCloud Drive.",
+    }
+
+
+def test_upload_and_clients_endpoint_share_the_same_slug(
+    tmp_path: Path, authed_client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setattr(hub_upload, "UPLOAD_ROOT", tmp_path)
+    monkeypatch.setattr(context_docs, "UPLOAD_ROOT", tmp_path)
+
+    authed_client.post(
+        "/upload",
+        data={"company_slug": "Acme Corp!"},
+        files={"file": ("notes.txt", b"hello", "text/plain")},
+    )
+
+    assert TestClient(hub.app).get("/api/v1/clients").json() == {
+        "clients": [{"slug": "acme-corp", "bedrijf": "acme-corp"}],
+        "cloud_sync_warning": None,
+    }
 
 
 def test_config_endpoint_returns_ws_config() -> None:
@@ -357,6 +446,59 @@ def test_detection_feedback_forwards_when_opt_in_on(
     assert "trigger_phrase" not in payload
 
 
+def test_insights_ask_requires_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SHUTDOWN_TOKEN", _TOKEN)
+    client = TestClient(hub.app)
+
+    response = client.post("/api/insights/ask", json={"text": "wat weet hij al?"})
+
+    assert response.status_code == 401
+
+
+def test_insights_ask_broadcasts_onto_insights_channel(
+    authed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The vraag-box question must reach `InsightEngine` via the same `insights`
+    channel it already publishes to -- see docs/TTD.md's `/ws/insights` ask doc."""
+    broadcast_calls: list[tuple[str, dict]] = []
+
+    async def _fake_broadcast(channel: str, data: dict) -> None:
+        broadcast_calls.append((channel, data))
+
+    monkeypatch.setattr(hub_core, "broadcast", _fake_broadcast)
+
+    response = authed_client.post(
+        "/api/insights/ask", json={"text": "  wat weet hij al over Lime CRM?  ", "ts": 123}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert len(broadcast_calls) == 1
+    channel, payload = broadcast_calls[0]
+    assert channel == "insights"
+    assert payload == {"type": "ask", "text": "wat weet hij al over Lime CRM?", "ts": 123}
+
+
+def test_insights_ask_rejects_blank_text(authed_client: TestClient) -> None:
+    response = authed_client.post("/api/insights/ask", json={"text": "   "})
+
+    assert response.status_code == 422
+
+
+def test_insights_ask_accepts_missing_ts(authed_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    broadcast_calls: list[tuple[str, dict]] = []
+
+    async def _fake_broadcast(channel: str, data: dict) -> None:
+        broadcast_calls.append((channel, data))
+
+    monkeypatch.setattr(hub_core, "broadcast", _fake_broadcast)
+
+    response = authed_client.post("/api/insights/ask", json={"text": "vat het gesprek samen"})
+
+    assert response.status_code == 200
+    assert broadcast_calls[0][1]["ts"] is None
+
+
 def test_session_token_endpoint_returns_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SHUTDOWN_TOKEN", _TOKEN)
     client = TestClient(hub.app)
@@ -579,3 +721,92 @@ def test_hint_feedback_defaults_session_id(
     assert response.status_code == 200
     record = json.loads((tmp_path / "hints.ndjson").read_text(encoding="utf-8").strip())
     assert record["session_id"]
+
+
+# ---------------------------------------------------------------------------
+# Autostart consent endpoints
+# ---------------------------------------------------------------------------
+
+
+def test_autostart_confirm_409_when_no_pending_prompt(authed_client: TestClient) -> None:
+    """POST /api/autostart/confirm returns 409 when no monitor has a pending prompt."""
+    set_active_monitor(None)
+    hub.reset_config_state()
+
+    response = authed_client.post("/api/autostart/confirm")
+
+    assert response.status_code == 409
+    assert "No pending autostart consent prompt" in response.json()["detail"]
+
+
+def test_autostart_decline_200_always(authed_client: TestClient) -> None:
+    """POST /api/autostart/decline always returns 200, even with no active monitor."""
+    set_active_monitor(None)
+    hub.reset_config_state()
+
+    response = authed_client.post("/api/autostart/decline")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_autostart_confirm_200_when_pending_consent(authed_client: TestClient) -> None:
+    """POST /api/autostart/confirm returns 200 when a monitor has a pending consent prompt."""
+    hub.reset_config_state()
+
+    armed = False
+    process_name = None
+
+    def on_session_arm(name: str) -> None:
+        nonlocal armed, process_name
+        armed = True
+        process_name = name
+
+    monitor = RuntimeAutostartMonitor(
+        config=AutostartMonitorConfig(debounce_arm_polls=1, debounce_disarm_polls=1),
+        on_session_arm=on_session_arm,
+    )
+    # Transition the monitor directly to consent_pending state so we can test
+    # the confirm endpoint without depending on real process detection.
+    monitor.state = "consent_pending"
+    monitor._detected_process = "Microsoft Teams"
+    monitor._active_trigger = "video"
+
+    set_active_monitor(monitor)
+
+    response = authed_client.post("/api/autostart/confirm")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert armed is True
+    assert process_name == "Microsoft Teams"
+    # Verify the monitor has advanced to armed state
+    assert monitor.state == "armed"
+    # Verify no race condition on a second call: confirm again = 409
+    response2 = authed_client.post("/api/autostart/confirm")
+    assert response2.status_code == 409
+
+    set_active_monitor(None)
+
+
+def test_autostart_decline_resets_pending_state(authed_client: TestClient) -> None:
+    """POST /api/autostart/decline resets a pending consent to idle."""
+    hub.reset_config_state()
+
+    monitor = RuntimeAutostartMonitor(
+        config=AutostartMonitorConfig(debounce_arm_polls=1, debounce_disarm_polls=1),
+    )
+    monitor.state = "consent_pending"
+    monitor._detected_process = "Zoom"
+    monitor._active_trigger = "video"
+
+    set_active_monitor(monitor)
+
+    response = authed_client.post("/api/autostart/decline")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert monitor.state == "idle"
+    assert monitor._detected_process is None
+
+    set_active_monitor(None)

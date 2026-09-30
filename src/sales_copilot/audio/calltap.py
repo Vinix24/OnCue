@@ -27,6 +27,7 @@ from typing import Any
 import numpy as np
 
 from .capture import AudioConfig, _drop_oldest_and_put, _find_pid
+from .tap_health import TapHealth, TapHealthTracker
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class CallTapStream:
         self._chunks_received = 0
         self._restart_attempted = False
         self._degraded = False
+        self._health = TapHealthTracker()
 
     @property
     def chunks_received(self) -> int:
@@ -59,6 +61,11 @@ class CallTapStream:
     @property
     def device_label(self) -> str:
         return f"call-tap:{self._process_name}"
+
+    def tap_health(self) -> TapHealth:
+        """Report whether the call-tap is attached, and whether audio is flowing."""
+
+        return self._health.snapshot()
 
     def start(self) -> None:
         """Resolve the call process and start the supervised AudioTee tap.
@@ -75,10 +82,10 @@ class CallTapStream:
 
             if not os.path.exists(self._config.audiotee_path):
                 self._emit_warning(
-                    f"AudioTee-binary niet gevonden ({self._config.audiotee_path}); "
-                    "prospect-call-tap kan niet starten."
+                    f"AudioTee-binary niet gevonden ({self._config.audiotee_path}); prospect-call-tap kan niet starten."
                 )
                 self._degraded = True
+                self._health.mark_attach_failed("binary ontbreekt")
                 return
 
             pid = _find_pid(self._process_name)
@@ -88,6 +95,7 @@ class CallTapStream:
                     "Start een gesprek (of controleer of avconferenced draait) en probeer opnieuw."
                 )
                 self._degraded = True
+                self._health.mark_attach_failed(f"'{self._process_name}' draait niet")
                 return
 
             self._stop_event.clear()
@@ -106,13 +114,13 @@ class CallTapStream:
         while not self._stop_event.is_set():
             proc = self._spawn(current_pid)
             if proc is None:
-                self._emit_warning(
-                    f"Kon AudioTee-call-tap niet starten voor '{self._process_name}'."
-                )
+                self._emit_warning(f"Kon AudioTee-call-tap niet starten voor '{self._process_name}'.")
+                self._health.mark_attach_failed("subprocess kon niet starten")
                 return
 
             with self._lock:
                 self._proc = proc
+            self._health.mark_attached(f"{self.device_label} (pid {current_pid})")
             self._pump_stdout(proc)
 
             if self._stop_event.is_set():
@@ -121,9 +129,8 @@ class CallTapStream:
             # Subprocess exited unexpectedly. avconferenced can restart between
             # calls, so attempt one re-resolve + tap-restart before warning.
             if self._restart_attempted:
-                self._emit_warning(
-                    f"AudioTee-call-tap voor '{self._process_name}' is opnieuw gestopt; geef het op."
-                )
+                self._emit_warning(f"AudioTee-call-tap voor '{self._process_name}' is opnieuw gestopt; geef het op.")
+                self._health.mark_detached("subprocess opnieuw gestopt", already_warned=True)
                 return
             self._restart_attempted = True
             logger.error(
@@ -135,6 +142,7 @@ class CallTapStream:
                 self._emit_warning(
                     f"Telefonie-proces '{self._process_name}' verdween en kwam niet terug; prospect-audio gestopt."
                 )
+                self._health.mark_detached(f"'{self._process_name}' verdween", already_warned=True)
                 return
 
     def _spawn(self, pid: int) -> subprocess.Popen[bytes] | None:
@@ -190,11 +198,21 @@ class CallTapStream:
                 raw = bytes(buffer[:bytes_per_chunk])
                 del buffer[:bytes_per_chunk]
                 frame = np.frombuffer(raw, dtype=input_dtype).reshape((-1, self._config.channels))
+                # Measure on the normalized float32 view whatever dtype the
+                # consumer asked for: raw int16 sits thousands of times above a
+                # float32 silence floor and would make every tap look alive.
+                normalized = frame.astype(np.float32) / 32768.0
                 if self._config.dtype == "float32":
-                    frame = frame.astype(np.float32) / 32768.0
+                    frame = normalized
                 else:
                     frame = frame.astype(np.dtype(self._config.dtype))
                 self._chunks_received += 1
+                if self._health.observe(normalized):
+                    logger.info(
+                        "Call-tap carrying signal: target=%s first audible frame after %s chunks.",
+                        self.device_label,
+                        self._chunks_received,
+                    )
                 _drop_oldest_and_put(self._queue, frame)
 
     def _drain_stderr(self, proc: subprocess.Popen[bytes]) -> None:
@@ -222,6 +240,24 @@ class CallTapStream:
             )
         except Exception:
             logger.warning("on_warning callback raised for call-tap", exc_info=True)
+
+    def reattach(self) -> None:
+        """Force a clean stop/start cycle, re-resolving the telephony PID.
+
+        The fix for a call-tap that is attached but delivers nothing except
+        digital silence (``ATTACHED_SIGNAL_LOST``). The death-triggered
+        one-shot restart in ``_supervise_loop`` never fires for this case: the
+        subprocess never exits, it just stops carrying anything real. ``start()``
+        already re-resolves ``self._process_name`` to a fresh PID on every
+        call, which is exactly what a route change needs. Safe to call while
+        attached: it does not raise, matching every other public method on
+        this stream.
+        """
+
+        logger.info("Reattaching call-tap (%s): stopping and restarting.", self.device_label)
+        self.stop()
+        self._restart_attempted = False
+        self.start()
 
     def stop(self) -> None:
         with self._lock:

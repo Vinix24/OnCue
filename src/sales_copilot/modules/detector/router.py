@@ -93,16 +93,58 @@ class PainPointRouter:
     # inference). Subclasses (ObjectionRouter) inherit it.
     _CLASSIFY_TIMEOUT_S: float = 30.0
 
-    def __init__(self, config: DetectorConfig | None = None, language: str = "nl") -> None:
+    # A single shared token is coincidence, not evidence that the utterance
+    # was actually said -- the keyword fast path requires at least this many
+    # independent overlapping content words before it will produce a match.
+    # See _keyword_match: measured live over-match (2026-09-05, "een maand of
+    # vijf, zes" -> rapportage at a hardcoded 0.95) traced to a single 7+ char
+    # token clearing the old score>=2 bar on its own.
+    _MIN_KEYWORD_OVERLAP: int = 2
+
+    def __init__(
+        self,
+        config: DetectorConfig | None = None,
+        language: str = "nl",
+        *,
+        include_negatives: bool | None = None,
+    ) -> None:
         self.config = config or DetectorConfig.from_env()
         self.language = (language or self.config.call_language).strip().lower()
         self.routes = _load_routes(self.config.pain_points_config, self.language)
+        self._configure_negative_class(include_negatives)
         self._router: SemanticRouter | None = None
         self._router_lock = threading.Lock()
         self._route_utterances: dict[str, list[str]] = {
             route.name: [utterance.strip().lower() for utterance in route.utterances if utterance.strip()]
             for route in self.routes
         }
+
+    def _configure_negative_class(self, include_negatives: bool | None) -> None:
+        """Load the shared negative/"none" class into ``self.routes``.
+
+        Structural precision fix (mirrors ObjectionRouter's INCLUDE_NEGATIVES):
+        generic non-topic prospect speech (rambling, questions, confirmations,
+        numbers/time-spans) competes directly against the real routes for the
+        best match instead of being forced into the closest category. A match
+        that resolves to this class is filtered out in ``classify()``. Shared
+        by PainPointRouter and ObjectionRouter so both get the same fix.
+        """
+        self._include_negatives = (
+            include_negatives if include_negatives is not None else self.config.include_negatives
+        )
+        self._negative_categories: frozenset[str] = frozenset()
+        if not self._include_negatives:
+            return
+        try:
+            negative_routes = _load_routes(self.config.negatives_config, self.language)
+        except FileNotFoundError:
+            logger.warning(
+                "Negatives config '%s' not found — continuing without negative class",
+                self.config.negatives_config,
+            )
+            negative_routes = []
+        self._negative_categories = frozenset(route.name for route in negative_routes)
+        self.routes = self.routes + negative_routes
 
     @staticmethod
     def _tokens(value: str) -> set[str]:
@@ -116,52 +158,104 @@ class PainPointRouter:
                 self._router = _build_router(self.routes, self.config.embedding_model)
         return self._router
 
+    def _tier_for_score(self, score: float) -> Literal["high", "uncertain"]:
+        return "high" if score >= self.config.confidence_threshold_high else "uncertain"
+
     def _keyword_match(self, text: str) -> RouteMatch | None:
-        best_category: str | None = None
-        best_score = 0
         text_tokens = self._tokens(text)
+        if not text_tokens:
+            return None
+
+        best_category: str | None = None
+        best_confidence = 0.0
         for category, utterances in self._route_utterances.items():
             for utterance in utterances:
-                if utterance in text or text in utterance:
-                    return RouteMatch(category=category, confidence=1.0, tier="high", source="keyword")
-                utterance_tokens = self._tokens(utterance)
-                overlap = utterance_tokens & text_tokens
-                if not overlap:
-                    continue
-                long_token_overlap = any(len(token) >= 7 for token in overlap)
-                score = len(overlap) + (1 if long_token_overlap else 0)
-                if score > best_score:
-                    best_category = category
-                    best_score = score
-        if best_category is None:
+                if utterance in text:
+                    # The full reference phrase was said verbatim -- an exact
+                    # quote of *known* pain-point content is the strongest
+                    # possible evidence, regardless of how long the utterance
+                    # or the surrounding transcript is.
+                    confidence = 1.0
+                else:
+                    # Deliberately NOT also treating `text in utterance` as an
+                    # exact quote: that direction means the live transcript
+                    # (often a single short/generic word or fragment) merely
+                    # happens to appear somewhere inside a longer route
+                    # utterance -- containment of a fragment says nothing
+                    # about what the fragment itself carries as evidence. It
+                    # falls through to the same token-overlap evidence as any
+                    # other candidate below.
+                    utterance_tokens = self._tokens(utterance)
+                    if not utterance_tokens:
+                        continue
+                    overlap = utterance_tokens & text_tokens
+                    if len(overlap) < self._MIN_KEYWORD_OVERLAP:
+                        continue
+                    # Confidence reflects how much of the utterance's content
+                    # is actually present, scaled into the same [0, 1] space
+                    # embedding scores live in so classify() can threshold
+                    # both paths identically instead of hardcoding a constant.
+                    coverage = len(overlap) / len(utterance_tokens)
+                    confidence = min(0.97, 0.55 + 0.40 * coverage)
+                if confidence > best_confidence:
+                    best_category, best_confidence = category, confidence
+
+        if best_category is None or best_confidence < self.config.confidence_threshold_low:
+            logger.debug(
+                "Keyword match below threshold: best_route=%s score=%.3f threshold=%.3f",
+                best_category,
+                best_confidence,
+                self.config.confidence_threshold_low,
+            )
             return None
-        if best_score < 2:
-            return None
-        return RouteMatch(category=best_category, confidence=0.95, tier="high", source="keyword")
+        return RouteMatch(
+            category=best_category,
+            confidence=best_confidence,
+            tier=self._tier_for_score(best_confidence),
+            source="keyword",
+        )
 
     def classify(self, text: str) -> RouteMatch | None:
         cleaned = text.strip()
         if not cleaned:
             return None
 
+        # The keyword path only short-circuits the embedding layer on "high"
+        # tier evidence -- confidence at or above the same
+        # confidence_threshold_high the embedding layer itself is judged
+        # against, which measured near-perfect precision on this fixture
+        # (43/44). "uncertain" tier keyword evidence (partial word overlap)
+        # measured far worse (31/54, ~57%) and is not worth trusting on its
+        # own: it is discarded here and the embedding layer decides instead,
+        # exactly as it would if the keyword path had found nothing at all.
         keyword_match = self._keyword_match(cleaned.lower())
-        if keyword_match is not None:
-            return keyword_match
+        match = keyword_match if keyword_match is not None and keyword_match.tier == "high" else None
+        if match is None:
+            choice = self._ensure_router()(cleaned)
+            if isinstance(choice, list):
+                choice = choice[0] if choice else None
+            if choice is None or choice.name is None or choice.similarity_score is None:
+                logger.debug("Embedding router returned no route for this chunk")
+                return None
+            score = float(choice.similarity_score)
+            if score < self.config.confidence_threshold_low:
+                logger.debug(
+                    "Embedding match below threshold: best_route=%s score=%.3f threshold=%.3f",
+                    choice.name,
+                    score,
+                    self.config.confidence_threshold_low,
+                )
+                return None
+            match = RouteMatch(category=choice.name, confidence=score, tier=self._tier_for_score(score))
 
-        choice = self._ensure_router()(cleaned)
-        if isinstance(choice, list):
-            choice = choice[0] if choice else None
-        if choice is None or choice.name is None or choice.similarity_score is None:
+        if match.category in self._negative_categories:
+            logger.debug(
+                "Match discarded as negative class: category=%s score=%.3f",
+                match.category,
+                match.confidence,
+            )
             return None
-        score = float(choice.similarity_score)
-        if score < self.config.confidence_threshold_low:
-            return None
-        tier: Literal["high", "uncertain", "none"]
-        if score >= self.config.confidence_threshold_high:
-            tier = "high"
-        else:
-            tier = "uncertain"
-        return RouteMatch(category=choice.name, confidence=score, tier=tier)
+        return match
 
     async def classify_async(self, text: str) -> RouteMatch | None:
         """Event-loop-safe entrypoint for ``classify``.

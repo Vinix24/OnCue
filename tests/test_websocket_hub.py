@@ -218,6 +218,43 @@ async def test_script_tracking_broadcast_gated_in_free_tier(running_hub: int, mo
 
 
 @pytest.mark.asyncio
+async def test_insights_broadcast_gated_in_free_tier(running_hub: int, monkeypatch) -> None:
+    """Free tier must not deliver deep-insight events; Pro tier must allow them."""
+
+    class _FreePolicy(FeaturePolicy):
+        def current_tier(self) -> str:  # type: ignore[override]
+            return "free"
+
+        def allows(self, feature_id: str) -> bool:
+            return feature_id in TIER_FEATURES.get("free", set())
+
+    class _ProPolicy(FeaturePolicy):
+        def current_tier(self) -> str:  # type: ignore[override]
+            return "pro"
+
+        def allows(self, feature_id: str) -> bool:
+            return feature_id in TIER_FEATURES.get("pro", set())
+
+    uri = _ws_url(running_hub, "insights")
+
+    monkeypatch.setattr(hub_core, "get_feature_policy", lambda: _FreePolicy())
+    hub_core._feature_policy = None
+
+    async with websockets.connect(uri) as ws_sender, websockets.connect(uri) as ws_receiver:
+        await ws_sender.send(json.dumps({"type": "insight", "text": "free-test"}))
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(ws_receiver.recv(), timeout=0.3)
+
+    monkeypatch.setattr(hub_core, "get_feature_policy", lambda: _ProPolicy())
+    hub_core._feature_policy = None
+
+    async with websockets.connect(uri) as ws_sender, websockets.connect(uri) as ws_receiver:
+        await ws_sender.send(json.dumps({"type": "insight", "text": "pro-test"}))
+        payload = await asyncio.wait_for(ws_receiver.recv(), timeout=1)
+        assert json.loads(payload)["text"] == "pro-test"
+
+
+@pytest.mark.asyncio
 async def test_transcript_subscribers_receive_buffered_replay(running_hub: int) -> None:
     from sales_copilot.websocket import hub_core
 
@@ -251,6 +288,44 @@ async def test_transcript_subscribers_receive_buffered_replay(running_hub: int) 
                 assert first["speaker"] == "self"
                 assert second["text"] == "tweede zin"
                 assert second["speaker"] == "prospect"
+    finally:
+        hub_core.reset_config_state()
+
+
+@pytest.mark.asyncio
+async def test_audio_loss_marker_is_replayed_to_late_subscribers(running_hub: int) -> None:
+    """The session tracker joins late; a marker it misses leaves a misleading transcript."""
+
+    from sales_copilot.websocket import hub_core
+
+    hub_core.reset_config_state()
+    try:
+        async with hub_core._config_lock:
+            hub_core.apply_start_call({"preset_name": "demo"})
+
+        marker = {
+            "type": "transcript_marker",
+            "marker": "audio_signal_lost",
+            "stream": "prospect",
+            "speaker": "system",
+            "text": "[audio ontbreekt vanaf hier: de prospect-tap levert geen signaal meer.]",
+            "start_ms": 960000,
+            "end_ms": 960000,
+        }
+        uri = _ws_url(running_hub, "transcript")
+        async with websockets.connect(uri) as ws_sender:
+            await ws_sender.send(json.dumps(marker))
+
+            for _ in range(40):
+                if hub_core._transcript_buffer:
+                    break
+                await asyncio.sleep(0.05)
+
+            async with websockets.connect(uri) as late_subscriber:
+                replayed = json.loads(await asyncio.wait_for(late_subscriber.recv(), timeout=1))
+                assert replayed["type"] == "transcript_marker"
+                assert replayed["stream"] == "prospect"
+                assert replayed["start_ms"] == 960000
     finally:
         hub_core.reset_config_state()
 

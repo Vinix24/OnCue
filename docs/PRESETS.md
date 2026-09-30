@@ -100,6 +100,24 @@ Assessment remains solely with the human consultant (EU AI Act Annex III).
 
 ---
 
+## Presets that switch detection off
+
+Two of the shipped module presets set `modules.pain_points: false` on purpose:
+`discovery` ("talk-time coaching only, no slides") and `coaching_only`
+("live coaching metrics without detector or slides"). That is a legitimate
+choice, not a defect, and it stays selectable.
+
+What changed on 2026-09-05 is that the choice can no longer be made *for* you.
+`discovery` is the first preset in `config/presets.yaml`, and the dashboard used
+to apply the first preset on every page load, which silently unticked detection
+on every reload regardless of what you had chosen. It now writes the module
+checkboxes once on a genuinely fresh browser, a deliberate preset click or a
+restored session always wins, and a call running without detection shows a
+standing indicator rather than simply producing nothing.
+
+Both `full_demo` and `pitch` enable detection. `bash scripts/oncue_chain.sh
+check` reports which way the next call will start.
+
 ## Adding a new preset
 
 1. Create `config/presets/<name>.yaml` with all required fields:

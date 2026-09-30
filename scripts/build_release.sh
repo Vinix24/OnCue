@@ -47,6 +47,41 @@ echo "Version : $TAG"
 echo "Output  : dist/${DIST_NAME}.zip"
 echo ""
 
+# ── Version gate ─────────────────────────────────────────────────────────────
+# pip decides whether to reinstall by comparing versions, so the version in
+# pyproject.toml is what makes an upgrade happen at all. Cut a release without
+# bumping it and `pipx upgrade live-sales-copilot` reports "already at latest
+# version" and does nothing: no new code, and — the part that stays invisible —
+# none of the console scripts the new version declares. Measured 2026-09-04:
+# version had stood at 0.9.0 since 2026-04-08 across the v0.10.0 and v1.0.0-rc1
+# tags. Every install made in that window is frozen at whatever `bin/` it had.
+# So: refuse to package a tag whose version is not the declared one.
+_declared_version() {
+    python3 - "$ROOT_DIR/pyproject.toml" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as fh:
+    print(tomllib.load(fh)["project"]["version"])
+PY
+}
+
+command -v python3 &>/dev/null || _fail "python3 not found — needed to read the version from pyproject.toml"
+DECLARED_VERSION="$(_declared_version)" || _fail "could not read [project] version from pyproject.toml"
+
+if [[ "$CLEAN_VERSION" != "$DECLARED_VERSION" ]]; then
+    _fail "version mismatch: building tag $TAG but pyproject.toml declares $DECLARED_VERSION.
+  An install upgraded across an unchanged version keeps its old console scripts, silently.
+  Bump both copies, commit, then re-run:
+    pyproject.toml            version = \"$CLEAN_VERSION\"
+    src/sales_copilot/__init__.py  __version__ = \"$CLEAN_VERSION\""
+fi
+
+PKG_VERSION="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$ROOT_DIR/src/sales_copilot/__init__.py" | head -1)"
+if [[ "$PKG_VERSION" != "$DECLARED_VERSION" ]]; then
+    _fail "version mismatch inside the repo: pyproject.toml says $DECLARED_VERSION, src/sales_copilot/__init__.py says ${PKG_VERSION:-<unreadable>}.
+  Set both to $CLEAN_VERSION and re-run."
+fi
+_green "Version gate: pyproject.toml, __version__ and tag all say $CLEAN_VERSION"
+
 # ── Preflight checks ─────────────────────────────────────────────────────────
 [[ -d "$ROOT_DIR/scripts/launcher/Start OnCue.app" ]] || _fail "Start OnCue.app not found"
 [[ -d "$ROOT_DIR/scripts/launcher/Setup OnCue.app" ]] || _fail "Setup OnCue.app not found"
