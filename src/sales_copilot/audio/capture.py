@@ -641,7 +641,7 @@ class MicStream:
         self._stream = None
         self._lock = threading.Lock()
         self._chunks_received = 0
-        self._health = TapHealthTracker()
+        self._health = TapHealthTracker(is_microphone=True)
 
     @property
     def chunks_received(self) -> int:

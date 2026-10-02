@@ -281,3 +281,48 @@ async def test_publish_reconnects_after_send_failure(monkeypatch: pytest.MonkeyP
 )
 def test_is_hallucination_filters_known_patterns(text: str, expected: bool) -> None:
     assert DirectWhisperEngine._is_hallucination(text) is expected  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_direct_engine_call_terms_reach_normalize_and_clear(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _run_once(configure) -> dict:
+        stop_event = asyncio.Event()
+        frames = np.ones((1600, 1), dtype=np.float32)
+        ws = _FinalTranscriptWs(stop_event)
+
+        async def _connect(*_args, **_kwargs):
+            return ws
+
+        monkeypatch.setattr(
+            "sales_copilot.modules.transcriber.whisper_direct.websockets.connect",
+            _connect,
+        )
+        monkeypatch.setattr(DirectWhisperEngine, "_load_vad", staticmethod(lambda: None))
+        monkeypatch.setattr(DirectWhisperEngine, "_is_speech", lambda self, chunk: bool(np.mean(chunk) > 0))
+        engine = DirectWhisperEngine(
+            audio_stream=_FakeAudioStream([frames, None]),
+            ws_config=WebSocketConfig(),
+            speaker="self",
+            backend=_FakeBackend(text="de VWA sheet"),
+            silence_gap_seconds=0.0,
+        )
+        engine._base_normalization_lists = NormalizationLists(  # noqa: SLF001
+            enabled=True, terms=(), variants={"VWA": "Fixed-VBA"}
+        )
+        configure(engine)
+        await engine.run(stop_event)
+        finals = [json.loads(m) for m in ws.sent if json.loads(m)["type"] == "transcript"]
+        assert len(finals) == 1
+        return finals[0]
+
+    def _with_terms(engine: DirectWhisperEngine) -> None:
+        engine.set_call_terms(("VWA -> VBA",))
+
+    def _cleared(engine: DirectWhisperEngine) -> None:
+        engine.set_call_terms(("VWA -> VBA",))
+        engine.set_call_terms(())
+
+    with_terms = await _run_once(_with_terms)
+    assert with_terms["text"] == "de VBA sheet"
+    assert set(with_terms.keys()) == {"type", "text", "speaker", "start_ms", "end_ms", "is_final"}
+    assert (await _run_once(_cleared))["text"] == "de Fixed-VBA sheet"

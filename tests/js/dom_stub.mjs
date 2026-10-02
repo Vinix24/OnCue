@@ -186,6 +186,13 @@ class Element {
     return child;
   }
 
+  // report.js removes its temporary download link this way after the click.
+  remove() {
+    if (this.parentNode) {
+      this.parentNode.removeChild(this);
+    }
+  }
+
   replaceChildren(...nodes) {
     this.children.forEach((child) => {
       child.parentNode = null;

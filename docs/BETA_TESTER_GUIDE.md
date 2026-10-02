@@ -36,7 +36,7 @@ What I give back: a free license key for the Pro features, early access to new f
 
 **Broadband connection:**
 
-- Needed for the LLM classification step (only short text fragments go to the API, no audio)
+- Only needed if you configure an LLM provider (none by default). Transcript text goes to that provider per task, never audio
 - Offline mode via Ollama is possible but requires extra setup; I don't cover that in this guide
 
 ---
@@ -152,7 +152,7 @@ AudioTee taps the entire system output mix, so first check whether system audio 
 
 **3. Pain points aren't detected**
 
-The LLM API key is missing or expired. Open `.env` in the project folder (hidden file, use Finder > Go > Go to Folder and type in the path). Check whether `GROQ_API_KEY` or `GEMINI_API_KEY` is filled in. Groq and Gemini both offer a free tier.
+The LLM API key is missing or expired. Open `.env` in the project folder (hidden file, use Finder > Go > Go to Folder and type in the path). If you configured a provider, check whether the matching key (for example `GROQ_API_KEY` or `GEMINI_API_KEY`) is filled in. Groq and Gemini both offer a free tier.
 
 **4. .app won't start, "damaged" message**
 
@@ -190,7 +190,7 @@ Audio is processed locally on your Apple Silicon chip via whisper.cpp (the defau
 
 Transcripts are stored locally on your Mac in `data/sessions/`. I don't see those files unless you send them to me yourself.
 
-Pain-point classification works differently: short text fragments (1 to 3 sentences) go to the LLM provider you've configured (Groq or Gemini by default). That's text, not audio. If you want to work fully offline, Ollama is an option - contact me in that case.
+LLM features work differently: no LLM is configured by default. If you configure a provider, text goes to it per task: detection windows, a rolling summary, live suggestions and, after the call, the whole transcript for the report. That's text, not audio. Without a provider, or with Ollama, nothing leaves the machine.
 
 For the recruitment use case: an extra PII filter is active that strips personal data from fragments before they reach the API. A local audit log in NDJSON format records which fragments were sent.
 

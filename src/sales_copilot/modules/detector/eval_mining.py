@@ -22,8 +22,9 @@ _SPEAKER_LINE = re.compile(r"^\*\*(.+?)\*\*\s*\*\[\d+:\d+\]\*:\s*(.*)$")
 # Sales reps whose lines should never be mined as prospect utterances. Real
 # Fireflies transcripts label speakers by their actual name (not a generic
 # "Prospect" placeholder), so every other speaker on the call counts as the
-# prospect unless a more specific --prospect-name is given.
-_DEFAULT_EXCLUDED_SPEAKERS = ("Vincent van Deth", "Lucas Hendriks", "Theun Dingemans")
+# prospect unless a more specific --prospect-name is given. No names are
+# hardcoded: the caller passes them (CLI flag or EVAL_EXCLUDED_SPEAKERS env var).
+_DEFAULT_EXCLUDED_SPEAKERS: tuple[str, ...] = ()
 
 
 def _normalize_speaker_name(name: str) -> str:
@@ -161,7 +162,7 @@ def utterances_from_markdown(
 
     Every speaker line matches ``**Name** *[mm:ss]*: text``. If ``prospect_name``
     is given, only lines from that speaker are mined. Otherwise every speaker
-    NOT in ``exclude_speakers`` (default: the sales reps) counts as the
+    NOT in ``exclude_speakers`` (default: none; pass the sales reps) counts as the
     prospect. Speaker names are matched case-insensitively and after stripping
     a Fireflies `` | Company`` suffix.
     """

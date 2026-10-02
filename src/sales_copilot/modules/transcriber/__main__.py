@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from collections.abc import Awaitable, Callable
-from typing import Literal
+from typing import Any, Literal
 
 import websockets
 
@@ -43,6 +43,7 @@ from sales_copilot.modules.transcriber.backends import create_backend
 from sales_copilot.modules.transcriber.engine import swap_speaker
 from sales_copilot.modules.transcriber.inference_queue import SharedInferenceQueue
 from sales_copilot.modules.transcriber.inference_worker import InferenceWorker
+from sales_copilot.modules.transcriber.normalize import sanitize_call_terms
 from sales_copilot.modules.transcriber.whisper_direct import DirectWhisperEngine
 from sales_copilot.websocket.hub import broadcast, get_latest_config, run_hub
 from sales_copilot.websocket.hub_auth import channel_ws_url
@@ -196,11 +197,45 @@ def _backend_config(transcription_engine: TranscriptionEngine, config: Transcrib
     }
 
 
+async def _handle_config_event(
+    payload: dict[str, Any],
+    on_swap: Callable[[], None],
+    on_start_call: Callable[[], Awaitable[None]],
+    on_call_terms: Callable[[tuple[str, ...]], None],
+) -> None:
+    """Act on one decoded config-channel event.
+
+    Call-terms ordering: ``start_call`` / ``call_started`` carrying a non-empty
+    ``config`` replace the per-conversation list with that config's
+    ``call_terms`` (absent key = empty). A start event WITHOUT a config
+    (``_emit_config_event(..., "call_started")`` follows the ``start_call``
+    that carried the terms) leaves the list untouched. ``call_ended`` /
+    ``end_call`` clears it. The list is PII: never logged, not even its size
+    beyond DEBUG.
+    """
+    event_type = payload.get("type")
+    if event_type == "swap_speakers":
+        on_swap()
+        logger.info("Speaker mapping swapped.")
+    if event_type in ("start_call", "call_started"):
+        logger.info("Transcriber received %s event", event_type)
+        config = payload.get("config")
+        if isinstance(config, dict) and config:
+            call_terms = sanitize_call_terms(config.get("call_terms"))
+            on_call_terms(call_terms)
+            logger.debug("Per-conversation normalization terms set (%d)", len(call_terms))
+        await on_start_call()
+    elif event_type in ("call_ended", "end_call"):
+        on_call_terms(())
+        logger.debug("Per-conversation normalization terms cleared")
+
+
 async def _listen_config_events(
     ws_config: WebSocketConfig,
     on_swap: Callable[[], None],
     on_start_call: Callable[[], Awaitable[None]],
     stop_event: asyncio.Event,
+    on_call_terms: Callable[[tuple[str, ...]], None] = lambda _terms: None,
 ) -> None:
     config_url = channel_ws_url(ws_config, "config")
     backoff = 1.0
@@ -216,13 +251,7 @@ async def _listen_config_events(
                     payload = _decode_payload(raw)
                     if not isinstance(payload, dict):
                         continue
-                    event_type = payload.get("type")
-                    if event_type == "swap_speakers":
-                        on_swap()
-                        logger.info("Speaker mapping swapped.")
-                    if event_type in ("start_call", "call_started"):
-                        logger.info("Transcriber received %s event", event_type)
-                        await on_start_call()
+                    await _handle_config_event(payload, on_swap, on_start_call, on_call_terms)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -239,6 +268,11 @@ def _decode_payload(raw: str | bytes) -> object:
         return json.loads(raw)
     except json.JSONDecodeError:
         return raw
+
+
+def _set_direct_call_terms(engines: list[DirectWhisperEngine], call_terms: tuple[str, ...]) -> None:
+    for engine in engines:
+        engine.set_call_terms(call_terms)
 
 
 def _swap_direct_speakers(engines: list[DirectWhisperEngine]) -> None:
@@ -453,6 +487,7 @@ async def main(
                 lambda: None,
                 _warmup_backends_on_start_call,
                 stop_event,
+                worker.set_call_terms,
             )
         )
     else:
@@ -505,6 +540,7 @@ async def main(
                 lambda: _swap_direct_speakers(direct_engines),
                 _warmup_backends_on_start_call,
                 stop_event,
+                lambda terms: _set_direct_call_terms(direct_engines, terms),
             )
         )
 

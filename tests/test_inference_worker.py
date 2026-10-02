@@ -329,3 +329,28 @@ async def test_worker_run_processes_high_priority_before_low(
     assert len(ws.sent) == 2
     first = json.loads(ws.sent[0])
     assert first["speaker"] == "prospect"
+
+
+_CALL_TERMS_BASE = NormalizationLists(enabled=True, terms=(), variants={"VWA": "Fixed-VBA"})
+
+
+async def test_worker_call_terms_reach_normalize_and_take_precedence() -> None:
+    backend = _FakeBackend(text="de VWA sheet")
+    worker = _make_worker(backend)
+    worker._base_normalization_lists = _CALL_TERMS_BASE  # noqa: SLF001
+    worker.set_call_terms(())
+    ws = _FakeWs()
+    worker._ws = ws  # noqa: SLF001
+
+    await worker._process_item(_item(_HIGH, "prospect", 1))  # noqa: SLF001
+    assert json.loads(ws.sent[-1])["text"] == "de Fixed-VBA sheet"
+
+    worker.set_call_terms(("VWA -> VBA",))
+    await worker._process_item(_item(_HIGH, "prospect", 2))  # noqa: SLF001
+    final = json.loads(ws.sent[-1])
+    assert final["text"] == "de VBA sheet"
+    assert set(final.keys()) == {"type", "text", "speaker", "start_ms", "end_ms", "is_final"}
+
+    worker.set_call_terms(())
+    await worker._process_item(_item(_HIGH, "prospect", 3))  # noqa: SLF001
+    assert json.loads(ws.sent[-1])["text"] == "de Fixed-VBA sheet"

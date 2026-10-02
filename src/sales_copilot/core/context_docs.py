@@ -73,7 +73,7 @@ def _sanitize_for_destination(content: str, *, provider: str | None) -> str:
     """
     if provider is not None:
         return apply_outbound_pii(content, provider=provider, allow_local=True)
-    return sanitize_for_outbound(content, allow_local=True)
+    return sanitize_for_outbound(content, provider=None, allow_local=True)
 
 
 def load_context_documents(

@@ -6,7 +6,7 @@ This document describes the hard architecture invariants of the OnCue project. T
 
 | # | Invariant | Why | Check |
 |---|---|---|---|
-| 1 | **Local-first data plane** | Audio, transcript, embeddings, session DB, and case DB stay on the device. The default outbound class is short, PII-redacted LLM fragments. A deliberate second class — the deep-insight lane — may send the PII-redacted full session transcript to an operator-configured frontier/enterprise destination (see "Deep-insight lane outbound class" below). | Provider SDKs may only be imported in `core/llm_client.py`. Network-client imports in `src/` are on an allow-list; new network code must be deliberately reviewed. |
+| 1 | **Local-first data plane** | Audio, transcript, embeddings, session DB, and case DB stay on the device. No LLM is configured by default (`LLM_PROVIDER=none`), so by default no transcript text leaves. With an LLM configured, the outbound class is PII-redacted transcript text per task (detection windows, a rolling summary of up to 40 lines per minute, live suggestions, and the whole transcript for the post-call report), sent only to the LLM destination the operator configured. A deliberate second class — the deep-insight lane (Pro) — may send the PII-redacted full session transcript to an operator-configured frontier/enterprise destination (see "Deep-insight lane outbound class" below). | Provider SDKs may only be imported in `core/llm_client.py`. Network-client imports in `src/` are on an allow-list; new network code must be deliberately reviewed. |
 | 2 | **BYO-tenant / provider-agnostic** | No hardcoded provider. The app uses `instructor` via `core/llm_client.py`. | Direct imports of `openai`, `google.genai`, `anthropic`, `groq`, `vertexai`, etc. outside `core/llm_client.py` fail. `import anthropic` is forbidden repo-wide. |
 | 3 | **Dashboard = vanilla HTML/CSS/JS** | No build step or framework dependency; the hub serves the dashboard statically. | `dashboard/` may not contain `package.json`, `node_modules`, `.jsx`/`.tsx`, or framework references. |
 | 4 | **WebSocket localhost-only** | The hub is only reachable on the same machine. | `hub.py`/`hub_core.py` bind/CORS only to `localhost`/`127.0.0.1`; `0.0.0.0`, `::`, and wildcard CORS are rejected. |
@@ -17,27 +17,28 @@ This document describes the hard architecture invariants of the OnCue project. T
 
 Invariants 1 and 2 together define a spectrum, not an on/off switch:
 
-1. **Local**: maximum privacy, nothing leaves the device. Default for sensitive/regulated conversations (invariant 1).
-2. **BYO-tenant cloud**: the user's own Azure/Vertex/Bedrock tenant and keys, via `core/llm_client.py` (invariant 2). Also cloud, but within boundaries organizations already accept: data stays in their own, managed tenant.
-3. **Public cloud**: a public API (e.g. OpenAI, OpenRouter), likewise allowed via `core/llm_client.py` (invariant 2), opt-in when the sensitivity of that specific conversation allows it.
+1. **No LLM (default)**: `LLM_PROVIDER=none`. The live cues run fully local and no transcript text leaves the device. Default for sensitive/regulated conversations (invariant 1).
+2. **Local LLM of the user's choice**: for example `LLM_PROVIDER=ollama` with a model the user runs themselves. The text stays on the machine.
+3. **Own cloud tenant**: the user's own Azure/Vertex/Bedrock tenant and keys, via `core/llm_client.py` (invariant 2). Also cloud, but within boundaries organizations already accept: data stays in their own, managed tenant.
+4. **Public provider with the user's own key**: a public API (e.g. OpenAI, OpenRouter, Groq, Gemini), likewise allowed via `core/llm_client.py` (invariant 2), opt-in when the sensitivity of that specific conversation allows it.
 
-The choice is made **per conversation**, not per customer and not once at installation: the same user can pick tier 1 for a sensitive customer conversation and tier 3 for an internal sales training. Privacy stays the default; cloud is a deliberate, explicit choice, never the silent default. See also `docs/PRIVACY.md` (configurable privacy tiers) and the root `CLAUDE.md` (product positioning).
+The choice is made **per conversation**, not per customer and not once at installation: the same user can pick tier 1 for a sensitive customer conversation and tier 4 for an internal sales training. Privacy stays the default; cloud is a deliberate, explicit choice, never the silent default. See also `docs/PRIVACY.md` (configurable privacy tiers) and the root `CLAUDE.md` (product positioning).
 
-## Deep-insight lane outbound class (revised 2026-08-04)
+## Deep-insight lane outbound class (Pro, revised 2026-08-04)
 
-Invariant 1 originally stated a single outbound class: *only short, PII-redacted LLM fragments may leave the device.* That holds for the detection and coaching tracks (tracks 1 and 2). The deep-insight lane (track 3) is a deliberate, documented second outbound class and is not smuggled in as a footnote exception.
+Invariant 1 originally stated a single outbound class: *only short, PII-redacted LLM fragments may leave the device.* The detection and coaching tracks (tracks 1 and 2) send PII-redacted per-task text as listed in `docs/PRIVACY.md`, which includes a rolling summary of up to 40 lines per minute and the whole transcript for the post-call report. The deep-insight lane (track 3, Pro; the code does not ship in the open source distribution) is a separate, deliberate, documented second outbound class on top of that and is not smuggled in as a footnote exception.
 
 **What leaves the device under this class.** The full session transcript — not a sliding window, not a fragment — plus prep-docs and, when opted in, earlier transcripts of the same customer. All of it is PII-redacted through the existing `core/outbound_policy.py` seam before it leaves. The destination is an operator-configured frontier or enterprise-grade endpoint: a BYO-tenant cloud (Azure OpenAI / Vertex / Bedrock), a public frontier API, or an MCP host the operator connects. The lane never runs against a local-only provider; that is by design, not a gap.
 
 **Three hard conditions, all required:**
 
 1. **Opt-in per conversation.** The lane is off by default and must be turned on for the specific conversation. The same user can run one call fully local (tracks 1/2 only) and route the next through the deep lane.
-2. **Default off.** No installation, no preset, no license tier silently enables the deep lane. If the operator has not explicitly opted in for this conversation, invariant 1 behaves exactly as before: only short fragments may leave.
+2. **Default off.** No installation, no preset, no license tier silently enables the deep lane. If the operator has not explicitly opted in for this conversation, invariant 1 behaves exactly as before: only the per-task text listed in `docs/PRIVACY.md` may leave.
 3. **Through the existing outbound_policy seam.** Every byte the lane sends goes through `core/outbound_policy.py` (`apply_outbound_pii` / `sanitize_for_outbound`). PII redaction applies on the exit, with the same `cloud_only` default the rest of the system uses. The deep lane adds a new *destination class*, never a new *policy path*.
 
 This revision does not weaken any other invariant. Raw audio, session recordings, and embeddings still never leave the device. The provider-agnostic and `no-anthropic-sdk` rules (invariant 2) are untouched: the deep lane speaks through `core/llm_client.py` or through the MCP protocol (JSON-RPC), never through a vendor SDK imported elsewhere. With the lane off, the system is byte-for-byte identical to the pre-revision behavior.
 
-**The MCP host as a destination, in both directions.** When the operator connects an MCP host, the bridge (`src/sales_copilot/mcp_bridge/`) is the exit. Its three read tools — `get_session_brief`, `get_transcript`, `get_detections` — are the outbound direction and carry the class described above, redacted through `core/outbound_policy.py` on the way out. An MCP host counts as a public-cloud destination even when it runs on the same machine, so the redaction is not conditional on the host being local.
+**The MCP host as a destination, in both directions (Pro).** When the operator connects an MCP host, the bridge (`src/sales_copilot/mcp_bridge/`) is the exit. Its three read tools — `get_session_brief`, `get_transcript`, `get_detections` — are the outbound direction and carry the class described above, redacted through `core/outbound_policy.py` on the way out. An MCP host counts as a public-cloud destination even when it runs on the same machine, so the redaction is not conditional on the host being local.
 
 `push_insight` is the opposite direction: it originates on the host and lands on the local insights channel. Nothing about it is outbound, so redaction does not apply to it; it is validated against a schema and rate-capped per session instead, and each row it produces is labeled with its origin so an operator can always tell a host-generated insight from an engine-generated one. Invariant 4 still holds throughout: the bridge reaches the hub as a localhost WebSocket client, and the hub binds nowhere else.
 
@@ -76,8 +77,9 @@ decision for this data, not two independently-configured ones that could disagre
    trusted to point the destination at infrastructure they control, the same trust
    boundary as a BYO-tenant cloud provider.
 3. **Local copy is unconditional and independent of delivery outcome.** The
-   `data/reports/` write in `generator.generate_report()` happens before either sink
-   is attempted and is never rolled back or rewritten by a delivery failure — a failed
+   `data/reports/` write in `generator.write_report()` happens before either sink
+   is attempted (and before the post-call enrichment, which only rewrites it atomically
+   with its own fields) and is never rolled back or rewritten by a delivery failure — a failed
    delivery is loud (a logged `ERROR` naming the local report path) and recoverable
    (redeliver manually once the destination is reachable again), never a silently
    dropped transcript.

@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 from sales_copilot.core import i18n, lang_router
 from sales_copilot.core.paths import is_frozen_app, resolve_app_path, resolve_app_resource
+from sales_copilot.core.privacy_gate import validate_privacy
 
 _ALLOWED_PRESETS = frozenset({"sales", "coach", "recruitment", "acquisitie"})
 
@@ -280,6 +281,12 @@ class DetectorConfig:
     min_chunks_to_classify: int = 3
     classification_debounce_seconds: float = 5.0
     preset_name: str = "sales"
+    # llm-routering-per-taak: this conversation's privacy ceiling (``local``/``tenant``/
+    # ``public``, or None for no ceiling), carried from ``CallConfig.privacy`` (klant.yaml)
+    # so ``core.llm_routing.resolve_llm`` can refuse every task whose provider exceeds it.
+    # Never read from the environment: it is a per-call value, not an install setting.
+    privacy: str | None = None
+    client_slug: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -287,6 +294,7 @@ class DetectorConfig:
             and self.llm_timeout_ms < _OLLAMA_TIMEOUT_FLOOR_MS
         ):
             object.__setattr__(self, "llm_timeout_ms", _OLLAMA_TIMEOUT_FLOOR_MS)
+        object.__setattr__(self, "privacy", validate_privacy(self.privacy))
 
     @classmethod
     def from_env(cls) -> DetectorConfig:
@@ -527,8 +535,13 @@ class CallConfig:
     # or no aflevering set, i.e. the existing global report-delivery-sinks
     # behaviour is unchanged.
     aflevering: str | None = None
+    # klantmap-als-eenheid D2 / llm-routering-per-taak: the selected client's klant.yaml
+    # ``privacy`` ceiling, server-derived in hub_core.extract_start_call_config. None means
+    # no ceiling. An unknown value is refused here (and as a 400 in /api/start-call).
+    privacy: str | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "privacy", validate_privacy(self.privacy))
         if self.screens not in {1, 2}:
             raise ValueError("screens must be 1 or 2")
         if self.screens == 1 and self.enable_presentation:
@@ -593,7 +606,7 @@ class ReportDeliveryConfig:
 
     Both sinks are optional and independent, and both default OFF: a fresh
     install behaves exactly as before (the report only ever lands in the local
-    ``data/reports/`` directory ``generator.generate_report`` already writes).
+    ``data/reports/`` directory ``generator.write_report`` already writes).
     See ``docs/MODULE4.md`` ("Report Delivery") for the full contract and
     ``docs/ARCHITECTURE_BOUNDARIES.md`` for the outbound-class classification.
     """
@@ -637,6 +650,9 @@ def build_module_configs(call_config: CallConfig) -> dict[str, Any]:
         call_language=call_config.call_language,
         preset_name=call_config.preset_name,
     )
+    # Set unconditionally (not via with_overrides, which skips None): a call without a
+    # ceiling must not inherit anything, and every call gets its own fresh DetectorConfig.
+    detector = replace(detector, privacy=call_config.privacy, client_slug=call_config.client_slug)
     transcriber = with_overrides(transcriber, language=call_config.call_language)
     transcriber = with_overrides(transcriber, transcribe_self_live=call_config.transcribe_self_live)
     slides = with_overrides(slides, prospect_industry=call_config.prospect_industry)

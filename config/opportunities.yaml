@@ -5,9 +5,8 @@
 # Schema mirrort config/objections.yaml 1-op-1 zodat dit drop-in bruikbaar is
 # voor dezelfde semantic-router (PainPointRouter / ObjectionRouter-achtige lader).
 #
-# Categorieen zijn gegrond in de SalesMinds gespreksmethodiek-SSOT
-# (clients/_internal/SalesMinds-BU/.claude/skills/salesminds-context/references/gespreksmethodiek.md)
-# en bewust DISTINCT van de bezwaarcategorieen in objections.yaml: waar een
+# Categorieen volgen een verkoopgesprek-methodiek (gap, intentie, bewijs, DMU)
+# en zijn bewust DISTINCT van de bezwaarcategorieen in objections.yaml: waar een
 # bezwaar een verdedigingsmechanisme is (pushen-triggger), is een kans een moment
 # waarop de prospect zelf een gat, intentie, vraag om bewijs, of DMU-opening blootgeeft.
 routes:

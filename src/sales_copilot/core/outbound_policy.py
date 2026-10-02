@@ -37,9 +37,10 @@ Every public cloud provider (gemini, groq, openai) returns False for both functi
 Two entry points:
   - ``apply_outbound_pii(text, provider=..., allow_local=...)`` — the seam used by the
     provider-agnostic ``LLMClient``; the destination provider is explicit.
-  - ``sanitize_for_outbound(text, allow_local=...)`` — kept for callers (context docs,
-    hardcoded-cloud scripts) that rely on the env ``LLM_PROVIDER`` as the destination. It
-    delegates to ``apply_outbound_pii`` so all three modes apply consistently.
+  - ``sanitize_for_outbound(text, provider=..., allow_local=...)`` — same policy, with a
+    required ``provider``; ``provider=None`` falls back to the env ``LLM_PROVIDER`` and is
+    reserved for callers without a task (the MCP bridge). It delegates to
+    ``apply_outbound_pii`` so all three modes apply consistently.
 """
 
 from __future__ import annotations
@@ -190,13 +191,21 @@ def apply_outbound_pii(text: str, *, provider: str, allow_local: bool = True) ->
     return clean
 
 
-def sanitize_for_outbound(text: str, *, allow_local: bool = False) -> str:
-    """Redact PII by default before text is sent to the env-configured LLM provider.
+def sanitize_for_outbound(text: str, *, provider: str | None, allow_local: bool = False) -> str:
+    """Redact PII by default before text is sent to ``provider``.
 
-    Delegates to ``apply_outbound_pii`` using ``LLM_PROVIDER`` as the destination, so the three
-    redaction modes apply consistently. Pass ``allow_local=True`` only at call-sites whose text
-    goes to the configured provider-agnostic LLM. Callers that hardcode a cloud client (e.g.
-    scripts/label_and_summarize.py) keep the default ``allow_local=False`` and always redact in
-    ``cloud_only``/``always`` mode regardless of any env flag.
+    ``provider`` is required and should be the destination the text actually goes to -- for
+    an LLM task that is the provider ``core.llm_routing.resolve_llm`` resolved, which can
+    differ from the global ``LLM_PROVIDER``. Deciding on the global provider was the latent
+    gap llm-routering-per-taak closed: a task routed to openrouter under a global ollama
+    would otherwise have received raw text. Pass ``provider=None`` only where there is no
+    task and therefore no resolved provider (the MCP bridge); that falls back to
+    ``LLM_PROVIDER``.
+
+    Delegates to ``apply_outbound_pii`` so the three redaction modes apply consistently.
+    Pass ``allow_local=True`` only at call-sites whose text goes to the configured
+    provider-agnostic LLM. Callers that hardcode a cloud client keep the default
+    ``allow_local=False`` and always redact in ``cloud_only``/``always`` mode.
     """
-    return apply_outbound_pii(text, provider=_env_provider(), allow_local=allow_local)
+    destination = provider if provider is not None else _env_provider()
+    return apply_outbound_pii(text, provider=destination, allow_local=allow_local)

@@ -77,6 +77,8 @@ class DetectionPipeline:
         self.router = router or PainPointRouter(self.config)
         self.llm_client = llm_client or LLMConfirmClient(self.config)
         self.provider = getattr(self.llm_client, "provider", self.config.llm_provider)
+        model = getattr(self.llm_client, "model", None)
+        self.model = model if isinstance(model, str) else self.config.llm_model
         self.debouncer = debouncer or PainPointDebouncer(self.config.debounce_seconds)
         self._session_id = session_id or str(uuid.uuid4())
         self._pending_confirmations: set[asyncio.Task[None]] = set()
@@ -167,7 +169,7 @@ class DetectionPipeline:
                     pii_hits=pii_hits,
                     redacted_len=redacted_len,
                     detection_count=1 if event is not None else 0,
-                    model_id=self.config.llm_model,
+                    model_id=self.model,
                     latency_ms=latency_ms,
                 )
             )
@@ -254,7 +256,7 @@ class DetectionPipeline:
                     pii_hits=pii_hits,
                     redacted_len=redacted_len,
                     detection_count=1 if event is not None else 0,
-                    model_id=self.config.llm_model,
+                    model_id=self.model,
                     latency_ms=latency_ms,
                 )
             )

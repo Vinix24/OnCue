@@ -6,6 +6,7 @@ import os
 import shlex
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -16,10 +17,14 @@ import httpx
 import numpy as np
 
 from sales_copilot.core.config import TranscriberConfig
+from sales_copilot.modules.transcriber.orphans import stop_orphans
 from sales_copilot.modules.transcriber.vocabulary import load_vocabulary_config
 from sales_copilot.modules.transcriber.wav_utils import encode_wav_bytes, write_wav
 
 logger = logging.getLogger(__name__)
+
+_GUARD_MODULE = "sales_copilot.modules.transcriber.server_guard"
+_GUARD_EXIT_TIMEOUT_S = 8.0
 
 
 class WhisperCppBackend:
@@ -172,10 +177,14 @@ class WhisperCppBackend:
         host = self._config.whisper_cpp_server_host
         port = self._pick_port(host)
         command = self._server_command(host, port)
+        stop_orphans(self._server_binary)
         logger.info("Starting whisper-server: %s", shlex.join(command))
         try:
+            # The guard owns the server and stops it when our end of the stdin
+            # pipe closes, which the kernel does when this process dies, also on SIGKILL.
             proc = subprocess.Popen(  # noqa: S603 - args are config-derived, not user input
-                command,
+                [sys.executable, "-m", _GUARD_MODULE, "--", *command],
+                stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -288,7 +297,19 @@ class WhisperCppBackend:
         self._server_proc = None
         self._server_url = None
         self._server_started = False
-        if proc is None or proc.poll() is not None:
+        if proc is None:
+            return
+        stdin = getattr(proc, "stdin", None)
+        if stdin is not None:
+            try:
+                stdin.close()
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=_GUARD_EXIT_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                pass
+        if proc.poll() is not None:
             return
         proc.terminate()
         try:

@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from sales_copilot.core.config import DetectorConfig, WebSocketConfig
+from sales_copilot.core.llm_routing import TASK_DEFAULT_MAX_OUTPUT_TOKENS
 from sales_copilot.modules.detector.suggestions import (
-    SUGGESTIONS_MAX_OUTPUT_TOKENS,
     ObjectionResponsePicker,
     SuggestionEngine,
     SuggestionLLMClient,
@@ -242,7 +242,7 @@ async def test_suggest_passes_max_output_tokens_cap_in_both_modes(
 
     streaming_client._llm._create_partial = _fake_create_partial
     await streaming_client.suggest(["We lopen vast."])
-    assert streaming_calls[0]["max_tokens"] == SUGGESTIONS_MAX_OUTPUT_TOKENS
+    assert streaming_calls[0]["max_tokens"] == TASK_DEFAULT_MAX_OUTPUT_TOKENS["suggestions"] == 512
 
     non_streaming_config = DetectorConfig(llm_provider="openrouter", llm_model="m", llm_streaming=False)
     non_streaming_client = SuggestionLLMClient(non_streaming_config)
@@ -254,7 +254,7 @@ async def test_suggest_passes_max_output_tokens_cap_in_both_modes(
 
     non_streaming_client._llm._create = _fake_create
     await non_streaming_client.suggest(["We lopen vast."])
-    assert non_streaming_calls[0]["max_tokens"] == SUGGESTIONS_MAX_OUTPUT_TOKENS
+    assert non_streaming_calls[0]["max_tokens"] == TASK_DEFAULT_MAX_OUTPUT_TOKENS["suggestions"]
 
 
 # ---------------------------------------------------------------------------

@@ -309,6 +309,11 @@ def _parse_call_config(payload: dict[str, Any]) -> CallConfig:
         # from the selected client's klant.yaml (aflevering: lokaal). None (no client, or
         # no aflevering set) means the existing global report-delivery-sinks behaviour.
         "aflevering": payload.get("aflevering") if isinstance(payload.get("aflevering"), str) else None,
+        # llm-routering-per-taak: the conversation's privacy ceiling, set (and validated)
+        # server-side by hub_core.extract_start_call_config. CallConfig refuses an unknown
+        # value; build_module_configs carries it onto the DetectorConfig every task
+        # resolves its provider from.
+        "privacy": payload.get("privacy"),
     }
     transcribe_self_live_raw = transcript_payload.get("transcribe_self_live")
     if isinstance(transcribe_self_live_raw, bool):
@@ -465,24 +470,44 @@ async def _health_check_providers(
 
     Publishes a module_warning coaching event immediately on failure so the
     operator knows something is wrong before the detector/insight engine
-    crashes silently. Checks the detector's resolved provider and, separately,
-    the deep-insight provider (when INSIGHT_ENABLED) since INSIGHT_PROVIDER may
-    differ from LLM_PROVIDER. Both checks are gated on ``enable_detector``: the
-    insight engine only ever runs nested inside the detector module (see
-    ``modules/detector/__main__.py``), so there is nothing to health-check for
-    either when the detector itself is disabled.
+    crashes silently. Checks every distinct provider the per-task resolver
+    (``core.llm_routing``) hands out for this conversation -- a task can have its
+    own ``<TAAK>_LLM_PROVIDER`` and the deep lane its ``INSIGHT_PROVIDER`` -- once
+    per provider. The live tasks, the insight engine included, only ever run
+    nested inside the detector module (see ``modules/detector/__main__.py``), so
+    they are gated on ``enable_detector``; the post-call ``report`` and
+    ``report_terms`` tasks run in the reports module and are gated on
+    ``enable_reports``.
     """
-    if not call_config.enable_detector:
-        return
+    from sales_copilot.core.llm_routing import active_tasks, resolve_llm
 
-    provider = (detector_config.llm_provider or "").lower()
-    if provider:
-        await _health_check_one_provider(provider, "detector", ws_config)
-
-    if insight_config.enabled:
-        insight_provider = (insight_config.llm_provider or provider or "").lower()
-        if insight_provider:
-            await _health_check_one_provider(insight_provider, "insight", ws_config)
+    checked: set[str] = set()
+    tasks = active_tasks(
+        detector_config,
+        insight_active=insight_config.enabled,
+        report_active=call_config.enable_reports,
+    )
+    for task in tasks:
+        if task in ("report", "report_terms"):
+            module = "reports"
+        elif not call_config.enable_detector:
+            continue
+        else:
+            module = "insight" if task == "insight" else "detector"
+        try:
+            provider = resolve_llm(task, detector_config, insight_config=insight_config).provider
+        except ValueError as exc:
+            logger.error(
+                "LLM routing refused task at start_call: task=%s exc_type=%s msg=%s",
+                task,
+                type(exc).__name__,
+                str(exc)[:300],
+            )
+            await _publish_module_warning(module, f"LLM task '{task}' refused: {str(exc)[:200]}", ws_config)
+            continue
+        if provider and provider not in checked:
+            checked.add(provider)
+            await _health_check_one_provider(provider, module, ws_config)
 
 
 async def _health_check_one_provider(provider: str, module: str, ws_config: WebSocketConfig) -> None:
@@ -496,18 +521,24 @@ async def _health_check_one_provider(provider: str, module: str, ws_config: WebS
             type(exc).__name__,
             str(exc)[:300],
         )
-        payload: dict[str, Any] = {
-            "type": "module_warning",
-            "module": module,
-            "warning": f"LLM provider '{provider}' init failed: {str(exc)[:200]}",
-            "at_ms": int(time.time() * 1000),
-        }
-        url = channel_ws_url(ws_config, "coaching")
-        try:
-            async with websockets.connect(url) as ws:
-                await ws.send(json.dumps(payload))
-        except Exception:
-            logger.warning("Could not publish module_warning for provider health-check (module=%s)", module)
+        await _publish_module_warning(
+            module, f"LLM provider '{provider}' init failed: {str(exc)[:200]}", ws_config
+        )
+
+
+async def _publish_module_warning(module: str, warning: str, ws_config: WebSocketConfig) -> None:
+    payload: dict[str, Any] = {
+        "type": "module_warning",
+        "module": module,
+        "warning": warning,
+        "at_ms": int(time.time() * 1000),
+    }
+    url = channel_ws_url(ws_config, "coaching")
+    try:
+        async with websockets.connect(url) as ws:
+            await ws.send(json.dumps(payload))
+    except Exception:
+        logger.warning("Could not publish module_warning for provider health-check (module=%s)", module)
 
 
 async def _guarded_task(
@@ -625,6 +656,7 @@ async def _run_call(
                         session_id=session_id,
                         client_slug=call_config.client_slug,
                         aflevering=call_config.aflevering,
+                        detector_config=module_configs["detector"],
                     ),
                     "reports",
                     crashed_modules,
@@ -885,6 +917,13 @@ def main() -> None:
             )
             await _emit_config_event(ws_config, "call_ended")
             hub.reset_config_state()
+
+        # A report whose post-call enrichment is still running (LLM step -> rewrite ->
+        # delivery) finishes before the process exits. Each one is bounded by its own
+        # REPORT_LLM_TIMEOUT_MS, and its local copy was already on disk before it started.
+        from sales_copilot.modules.reports.enrichment import wait_for_pending_reports
+
+        await wait_for_pending_reports()
 
         for background_task in (warmup_task, retention_task):
             if background_task is not None and not background_task.done():

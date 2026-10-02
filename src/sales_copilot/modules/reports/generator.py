@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 import stat
+import tempfile
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +14,7 @@ from sales_copilot.core.config import ReportDeliveryConfig, env_bool
 from sales_copilot.core.paths import resolve_app_path
 from sales_copilot.core.pii_filter import redact_pii
 from sales_copilot.modules.reports import delivery
+from sales_copilot.modules.reports.enrichment import ReportEnrichment
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +76,22 @@ class InsightEntry:
 
 
 @dataclass(frozen=True)
+class TermCorrectionEntry:
+    """One accepted term correction (termenlijst-in-uitwerking D2, ``term_corrections.py``).
+
+    A layer on top of ``full_transcript``, which keeps the original: the
+    ``occurrence``-th whole-word ``source`` in segment ``segment_index`` was meant as
+    ``target``. Validated in code against the original segment; never a character offset.
+    """
+
+    segment_index: int
+    source: str
+    occurrence: int
+    target: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class CallReport:
     session_id: str
     call_duration_ms: int
@@ -101,6 +121,42 @@ class CallReport:
     # downstream automation could not tell "when" a call happened.
     call_started_at: str | None = None
     call_ended_at: str | None = None
+    # Post-call enrichment (belapp-junkfilter-rapportschema D1, ``enrichment.py``): written
+    # after the LLM step, into the local copy that already exists. The defaults are the
+    # fail-open result, so a report the step never reached (or could not enrich) reads as
+    # "conversation held, nothing to add" -- never as hidden, never with invented text.
+    gesprek_gevoerd: bool = True
+    short_summary: str = ""
+    overview: str = ""
+    keywords: list[str] = field(default_factory=list)
+    action_items: list[str] = field(default_factory=list)
+    # Junk decision (D2+D3, ``junk.py``): the model said no conversation took place. The
+    # local copy is kept and marked; delivery to the sinks is skipped. ``junk_reason`` is a
+    # fixed category plus a count, never transcript text. Reports written before this
+    # existed lack both keys and read as not junk.
+    junk: bool = False
+    junk_reason: str | None = None
+    # Term correction (termenlijst-in-uitwerking D2): written with the enrichment. The
+    # transcript above stays the original; these say where a list term was meant.
+    # ``term_corrections_pii_limited`` counts the segments with candidate terms the PII policy
+    # changed before the model saw them, where a stripped name could not be corrected.
+    # Reports written before this existed lack both keys and read as "no corrections".
+    term_corrections: list[TermCorrectionEntry] = field(default_factory=list)
+    term_corrections_pii_limited: int = 0
+
+
+@dataclass(frozen=True)
+class WrittenReport:
+    """A report plus its local copy: where it lives and the exact JSON written there.
+
+    ``payload`` is what is on disk (redacted when ``REPORT_REDACT_PII`` is on), so the
+    delivery sinks hand over exactly the local copy, never a second, differently-built one.
+    """
+
+    report: CallReport
+    path: Path
+    payload: str
+
 
 try:  # pragma: no cover - prefer PR-36 definitions when available
     from sales_copilot.modules.reports.session import (  # type: ignore
@@ -299,9 +355,13 @@ def _redact_field(value: str | None) -> str | None:
 def _redact_report(report: CallReport) -> CallReport:
     """Return a copy of the report with PII redacted in the on-disk artifact.
 
-    Redacts the prospect name/company and every transcript segment's text via
-    ``redact_pii``. Only the persisted file is affected; the returned in-memory
-    report (used for the operator's own live coaching payload) stays verbatim.
+    Redacts the prospect name/company, every transcript segment's text, the insights and
+    the post-call enrichment text (summary, overview, keywords, action items, and each term
+    correction's source, target and reason) via ``redact_pii``. The enrichment fields are
+    redacted whatever provider wrote them: a local or trusted-tenant model receives the
+    transcript raw (``apply_outbound_pii``), so its output can carry the same PII. Only the
+    persisted file is affected; the returned in-memory report (used for the operator's own
+    live coaching payload) stays verbatim.
     """
     redacted_transcript = [
         replace(entry, text=redact_pii(entry.text)[0]) for entry in report.full_transcript
@@ -321,24 +381,31 @@ def _redact_report(report: CallReport) -> CallReport:
         prospect_company=_redact_field(report.prospect_company),
         insights=redacted_insights,
         full_transcript=redacted_transcript,
+        short_summary=redact_pii(report.short_summary)[0],
+        overview=redact_pii(report.overview)[0],
+        keywords=[redact_pii(keyword)[0] for keyword in report.keywords],
+        action_items=[redact_pii(item)[0] for item in report.action_items],
+        term_corrections=[
+            replace(
+                entry,
+                source=redact_pii(entry.source)[0],
+                target=redact_pii(entry.target)[0],
+                reason=redact_pii(entry.reason)[0],
+            )
+            for entry in report.term_corrections
+        ],
     )
 
 
-def generate_report(session: SessionData, *, aflevering: str | None = None) -> CallReport:
-    """Build the call report and write it to disk.
-
-    ``aflevering`` is the selected client's ``klant.yaml`` delivery mode (klantmap-als-
-    eenheid D2). ``"lokaal"`` means the global ``ReportDeliveryConfig`` sinks (directory /
-    endpoint) are skipped entirely for this report, even when they are configured --
-    ``None`` (no client, or no ``aflevering`` set) keeps the existing global behaviour.
-    """
+def build_report(session: SessionData) -> CallReport:
+    """The call report for ``session``, with the post-call enrichment fields at their defaults."""
     call_duration_ms = max(0, session.call_end_ms - session.call_start_ms)
     total_self_ms, total_prospect_ms = _compute_talk_totals(session.speech_events)
     total_ms = total_self_ms + total_prospect_ms
     total_self_pct = total_self_ms / total_ms if total_ms > 0 else 0.0
     total_prospect_pct = total_prospect_ms / total_ms if total_ms > 0 else 0.0
 
-    report = CallReport(
+    return CallReport(
         session_id=session.session_id,
         call_duration_ms=call_duration_ms,
         prospect_name=session.prospect_name,
@@ -359,40 +426,107 @@ def generate_report(session: SessionData, *, aflevering: str | None = None) -> C
         call_ended_at=getattr(session, "ended_at", None),
     )
 
-    _ensure_reports_dir()
-    filename = f"{datetime.now():%Y-%m-%dT%H-%M-%S}_{session.session_id}_report.json"
-    output_path = REPORTS_DIR / filename
+
+def _write_local_copy(path: Path, report: CallReport) -> str:
+    """Atomically write ``report`` to ``path``, owner-only, and return the JSON written.
+
+    A temp file in the same directory, fsynced, then ``os.replace``: a reader, a crash or a
+    SIGTERM mid-write only ever sees the previous complete file or the new one. ``mkstemp``
+    creates the temp file 0600, so the report is owner-only from its first byte.
+    """
     # Default OFF: the local 0600 report is the operator's own owner-only record,
     # so unredacted PII is by-design. Set REPORT_REDACT_PII=true for compliance-strict
     # deployments. Consent-gating the write is the separate follow-up (backlog #12).
     disk_report = _redact_report(report) if env_bool("REPORT_REDACT_PII", False) else report
     payload = _to_json(disk_report)
-    output_path.write_text(payload, encoding="utf-8")
-    output_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.remove(tmp_name)
+        raise
+    return payload
 
-    # Customer-configured trigger delivery (docs/MODULE4.md, "Report Delivery"):
-    # both sinks default off, so this is a no-op for every install that has not
-    # opted in. Delivers exactly the payload just written to disk -- same
-    # redaction state, same shape -- never a second, differently-built copy.
-    # klantmap-als-eenheid D2: a client with ``aflevering: lokaal`` in klant.yaml opts
-    # this call OUT of the global sinks entirely, even when they are configured --
-    # the local disk write above already happened unconditionally.
+
+def write_report(session: SessionData) -> WrittenReport:
+    """Build the call report and write its local copy, before any LLM step or delivery.
+
+    The local copy exists from here on: a slow report model, a failed enrichment or a
+    SIGTERM during it can no longer cost the operator the report.
+    """
+    report = build_report(session)
+    _ensure_reports_dir()
+    filename = f"{datetime.now():%Y-%m-%dT%H-%M-%S}_{session.session_id}_report.json"
+    path = REPORTS_DIR / filename
+    return WrittenReport(report=report, path=path, payload=_write_local_copy(path, report))
+
+
+def rewrite_with_enrichment(
+    written: WrittenReport,
+    enrichment: ReportEnrichment,
+    *,
+    junk: bool = False,
+    junk_reason: str | None = None,
+) -> WrittenReport:
+    """Put the post-call enrichment fields and the junk decision into the report and rewrite its local copy atomically.
+
+    Same path, same redaction rule (``REPORT_REDACT_PII``) as the first write.
+    """
+    report = replace(
+        written.report,
+        gesprek_gevoerd=enrichment.gesprek_gevoerd,
+        short_summary=enrichment.short_summary,
+        overview=enrichment.overview,
+        keywords=list(enrichment.keywords),
+        action_items=list(enrichment.action_items),
+        junk=junk,
+        junk_reason=junk_reason,
+        term_corrections=[
+            TermCorrectionEntry(
+                segment_index=correction.segment_index,
+                source=correction.source,
+                occurrence=correction.occurrence,
+                target=correction.target,
+                reason=correction.reason,
+            )
+            for correction in enrichment.term_corrections
+        ],
+        term_corrections_pii_limited=enrichment.term_corrections_pii_limited,
+    )
+    return WrittenReport(report=report, path=written.path, payload=_write_local_copy(written.path, report))
+
+
+def deliver_report(written: WrittenReport, *, aflevering: str | None = None) -> None:
+    """Hand the local copy to the customer-configured sinks (docs/MODULE4.md, "Report Delivery").
+
+    Both sinks default off, so this is a no-op for every install that has not opted in.
+    Delivers exactly ``written.payload`` -- the bytes on disk, same redaction state, same
+    shape -- never a second, differently-built copy.
+
+    ``aflevering`` is the selected client's ``klant.yaml`` delivery mode (klantmap-als-
+    eenheid D2). ``"lokaal"`` opts this call OUT of the global sinks entirely, even when
+    they are configured; ``None`` (no client, or no ``aflevering`` set) keeps the global
+    behaviour. The local copy is written either way.
+    """
+    session_id = written.report.session_id
     if aflevering == "lokaal":
         logger.info(
             "Report delivery sinks skipped for session=%s: client aflevering=lokaal",
-            session.session_id,
+            session_id,
         )
-    else:
-        delivery_config = ReportDeliveryConfig.from_env()
-        delivery.deliver_report_in_background(
-            payload.encode("utf-8"),
-            filename,
-            delivery_config,
-            session_id=session.session_id,
-            local_report_path=output_path,
-        )
-
-    return report
+        return
+    delivery.deliver_report_in_background(
+        written.payload.encode("utf-8"),
+        written.path.name,
+        ReportDeliveryConfig.from_env(),
+        session_id=session_id,
+        local_report_path=written.path,
+    )
 
 
 def _to_json(report: CallReport) -> str:

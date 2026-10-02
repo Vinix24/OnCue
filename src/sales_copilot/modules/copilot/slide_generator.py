@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from sales_copilot.core.config import DetectorConfig
 from sales_copilot.core.llm_client import LLMClient
+from sales_copilot.core.llm_routing import ResolvedLLM, build_llm_client, resolve_llm
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +17,20 @@ SLIDE_PROMPT_TEMPLATE = (
     "Generate a case study slide for pain point '{category}'. "
     "Include title, description, and 1-2 metrics."
 )
-# Output-token cap for one dynamic-slide generation call. Bounds generation wall-clock for
-# the 5s-to-screen SLA; slide_payload() truncates title/description/metrics well under this
-# budget already, so this is a generous ceiling, not a tight fit.
-SLIDE_MAX_OUTPUT_TOKENS = 512
 
 
 class GeneratedSlide(BaseModel):
     title: str
     description: str
     metrics: list[str]
+
+
+def _same_route(client: LLMClient, resolved: ResolvedLLM) -> bool:
+    return (
+        client.provider == resolved.provider
+        and client.timeout_ms == resolved.timeout_ms
+        and client.privacy == resolved.privacy
+    )
 
 
 class SlideGenerator:
@@ -35,25 +40,26 @@ class SlideGenerator:
         *,
         llm_client: object | None = None,
     ) -> None:
+        inherited_config = getattr(llm_client, "config", None)
+        if config is None and isinstance(inherited_config, DetectorConfig):
+            config = inherited_config
         self.config = config or DetectorConfig.from_env()
 
-        # Reuse an already-built LLMClient from a sibling site (the pipeline's LLMConfirmClient)
-        # so we do not rebuild the provider client and instructor patch for slide generation.
+        # Slides resolve their OWN route (SLIDES_LLM_* plus the conversation's privacy
+        # ceiling) instead of silently inheriting whatever the detector's confirm client
+        # happens to call.
+        self.resolved = resolve_llm("slides", self.config)
+        self.provider = self.resolved.provider
+        self._model = self.resolved.model
+
+        # Reuse the sibling site's already-built LLMClient (the pipeline's LLMConfirmClient)
+        # only when it is exactly the route slides resolved to -- same provider, timeout and
+        # ceiling -- so we do not rebuild the provider client and instructor patch for nothing.
         inherited = getattr(llm_client, "_llm", None)
-        if isinstance(inherited, LLMClient):
+        if isinstance(inherited, LLMClient) and _same_route(inherited, self.resolved):
             self._llm = inherited
-            self.provider = inherited.provider
-            inherited_cfg = getattr(llm_client, "config", None)
-            inherited_model = getattr(inherited_cfg, "llm_model", None)
-            self._model = inherited_model if isinstance(inherited_model, str) else self.config.llm_model
         else:
-            self.provider = self.config.llm_provider.lower()
-            self._model = self.config.llm_model
-            self._llm = LLMClient(
-                self.provider,
-                timeout_ms=self.config.llm_timeout_ms,
-                prompt_cache=self.config.llm_prompt_cache,
-            )
+            self._llm = build_llm_client(self.resolved, prompt_cache=self.config.llm_prompt_cache)
 
     async def generate(
         self,
@@ -79,7 +85,7 @@ class SlideGenerator:
                         response_model=GeneratedSlide,
                         temperature=self.config.llm_temperature,
                         allow_local=True,
-                        max_tokens=SLIDE_MAX_OUTPUT_TOKENS,
+                        max_tokens=self.resolved.output_limit(),
                     ),
                     timeout=SLIDE_GENERATION_TIMEOUT_SECONDS,
                 )
@@ -107,7 +113,7 @@ class SlideGenerator:
                 response_model=GeneratedSlide,
                 temperature=self.config.llm_temperature,
                 allow_local=True,
-                max_tokens=SLIDE_MAX_OUTPUT_TOKENS,
+                max_tokens=self.resolved.output_limit(),
             ):
                 last = partial
                 if on_partial is not None:

@@ -67,8 +67,8 @@ def _llm_client(provider: str) -> LLMClient:
 def label_speakers(
     transcript: str, prospect_name: str, model: str, provider: str
 ) -> LabelingResult:
-    transcript = sanitize_for_outbound(transcript, allow_local=True)
-    prospect_name = sanitize_for_outbound(prospect_name, allow_local=True)
+    transcript = sanitize_for_outbound(transcript, provider=provider, allow_local=True)
+    prospect_name = sanitize_for_outbound(prospect_name, provider=provider, allow_local=True)
     system = (
         "Je labelt een Nederlandse sales-call transcript. "
         "VINCENT is een solo AI-consultant die zijn diensten pitcht en daarnaast "
@@ -99,9 +99,9 @@ def label_speakers(
 def summarize_for_pitch(
     labeled: LabelingResult, prospect_name: str, model: str, provider: str
 ) -> CallSummary:
-    prospect_name = sanitize_for_outbound(prospect_name, allow_local=True)
+    prospect_name = sanitize_for_outbound(prospect_name, provider=provider, allow_local=True)
     labeled_text = "\n".join(
-        f"[{t.timestamp}] {t.speaker}: {sanitize_for_outbound(t.text, allow_local=True)}"
+        f"[{t.timestamp}] {t.speaker}: {sanitize_for_outbound(t.text, provider=provider, allow_local=True)}"
         for t in labeled.turns
     )
     system = (

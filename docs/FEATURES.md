@@ -39,7 +39,7 @@ Feature entitlement is enforced in code by `FeaturePolicy` (`src/sales_copilot/a
 | HubSpot / CRM sync | Roadmap | Roadmap |
 | Team dashboard + shared case library | Roadmap | Roadmap |
 
-> **Note:** Consent tracking, retention/auto-purge, and the purge-session CLI are currently env-configurable and work in both tiers. Enforcing them as Pro-only compliance features is on the roadmap, but is not license-gated in the current code.
+> **Note:** Consent tracking, retention/auto-purge, and the purge-session CLI are currently env-configurable and work in both tiers.
 
 **Verified Pro feature IDs in code:**
 
@@ -74,7 +74,7 @@ The Free tier is the full open-source copilot engine. You get:
   call starts, an optional per-client retention window, a warning when the client
   folder root lives under a cloud-synced location (iCloud Drive, Dropbox, or a
   File-Provider cloud-storage mount), and an automatic `gesprekken/` call archive.
-- Choice of 7 LLM providers (Gemini, OpenRouter, Groq, OpenAI, Ollama, Vertex AI, Azure OpenAI), including fully local Ollama.
+- No LLM by default (`LLM_PROVIDER=none`); the live cues run local without one. Optional providers: Gemini, OpenRouter, Groq, OpenAI, Ollama, Vertex AI, Azure OpenAI, including fully local Ollama.
 
 The Free tier is AGPL-3.0. Self-hosting is required; there is no managed cloud service.
 
@@ -86,7 +86,7 @@ Pro unlocks the license-gated capabilities enforced by `FeaturePolicy`:
 
 1. **Presentation automation** (`presentation.dynamic_slides`). Pro-gated presentation control during the call.
 2. **Telephony capture** (`audio.calltap`). Route iPhone-relay and FaceTime audio via `PROSPECT_SOURCE=audiotee_call` without virtual audio devices.
-3. **Central tamper-evident audit** (`compliance.central_audit`). Pro sends only SHA-256 hashes (no PII) to a central audit endpoint.
+3. **Central tamper-evident audit** (`compliance.central_audit`). The raw record never leaves the machine. The server receives a pseudonymous SHA-256 hash of each record plus the license key. It is on by default for Pro because `CONSENT_TRACKING_ENABLED=true`.
 4. **Autostart on login** (`system.autostart`). The app starts automatically when you log in to macOS, configured through the setup wizard.
 5. **Runtime auto-arm (video calls)** (`system.autostart`). While the app is already running, Pro installs detect a supported video meeting app (Google Chrome / Microsoft Teams / zoom.us) becoming active and surface a consent-tick prompt to arm the call session automatically -- the manual Start Call button stays available in every tier.
 6. **Runtime auto-arm (phone calls)** (`system.autostart`). The same monitor also detects an active macOS phone/FaceTime call via the `avconferenced` daemon and surfaces the same consent-tick prompt. The copilot only *detects* an in-progress call -- macOS places the underlying call itself via Continuity/iPhone-relay; this is not a dialer or CRM click-to-call integration.

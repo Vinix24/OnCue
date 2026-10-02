@@ -74,7 +74,7 @@ def load_profile_context(
         return ""
     if provider is not None:
         return apply_outbound_pii(content, provider=provider, allow_local=True)[:max_chars]
-    return sanitize_for_outbound(content, allow_local=True)[:max_chars]
+    return sanitize_for_outbound(content, provider=None, allow_local=True)[:max_chars]
 
 
 def write_profile_document(content: str, *, root: Path | None = None) -> Path:

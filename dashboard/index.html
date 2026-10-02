@@ -636,6 +636,13 @@
                   </div>
                 </div>
 
+                <p class="report-block report-status" id="report-status" style="display:none" role="status"></p>
+
+                <div class="report-block report-junk-banner" id="report-junk-banner" style="display:none" role="status">
+                  <strong data-i18n="report.junk_title">Not a conversation</strong>
+                  <span id="report-junk-reason" class="report-junk-reason"></span>
+                </div>
+
                 <div class="report-block" id="report-scorecard-block" style="display:none">
                   <h3 class="report-subtitle" data-i18n="report.scorecard_title">Scorecard (gedetecteerd)</h3>
                   <div id="report-scorecard" class="report-list"></div>
@@ -659,6 +666,23 @@
                 <div class="report-block">
                   <h3 class="report-subtitle" data-i18n="report.insights_title">Deep insights</h3>
                   <div id="report-insights" class="report-list"></div>
+                </div>
+
+                <div class="report-block" id="report-enrichment-block" style="display:none">
+                  <h3 class="report-subtitle" data-i18n="report.short_summary_title">Short summary</h3>
+                  <p id="report-short-summary" class="report-summary-text"></p>
+                  <h3 class="report-subtitle" data-i18n="report.overview_title">Overview</h3>
+                  <p id="report-overview" class="report-summary-text"></p>
+                  <h3 class="report-subtitle" data-i18n="report.keywords_title">Keywords</h3>
+                  <p id="report-keywords" class="report-summary-text"></p>
+                  <h3 class="report-subtitle" data-i18n="report.action_items_title">Action items</h3>
+                  <div id="report-action-items" class="report-list"></div>
+                </div>
+
+                <div class="report-block" id="report-term-corrections-block" style="display:none">
+                  <h3 class="report-subtitle" data-i18n="report.term_corrections_title">Term corrections</h3>
+                  <div id="report-term-corrections" class="report-list"></div>
+                  <p id="report-term-corrections-note" class="report-term-corrections-note"></p>
                 </div>
 
                 <div class="report-block">

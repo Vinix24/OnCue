@@ -3007,6 +3007,68 @@ body.in-call .rec-dot {
   padding: 12px 14px;
 }
 
+.report-junk-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--raise);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn, #d9a441);
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
+}
+
+.report-status {
+  font-size: 13px;
+  color: var(--faintest);
+  background: var(--raise);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
+  margin: 0;
+}
+
+.report-junk-reason {
+  color: var(--faintest);
+  font-size: 12.5px;
+}
+
+/* Term corrections: the transcript's original next to the meant term. */
+.term-correction-pair span {
+  margin-left: 0;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+.term-correction-pair .term-correction-label {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 400;
+  margin-right: 4px;
+}
+
+.term-correction-pair .term-correction-original {
+  color: var(--faint);
+}
+
+.term-correction-pair .term-correction-arrow {
+  margin: 0 8px;
+  color: var(--faintest);
+}
+
+.report-term-corrections-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--faintest);
+}
+
+.report-term-corrections-note:empty {
+  display: none;
+}
+
 .report-actions {
   display: flex;
   gap: 10px;

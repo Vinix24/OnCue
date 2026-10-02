@@ -12,6 +12,12 @@ from sales_copilot.modules.transcriber.backends import whisper_cpp_backend as wc
 from sales_copilot.modules.transcriber.backends.whisper_cpp_backend import WhisperCppBackend
 
 
+@pytest.fixture(autouse=True)
+def _no_orphan_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The orphan scan shells out to ``ps``; these tests count subprocess.run calls."""
+    monkeypatch.setattr(wcb, "stop_orphans", lambda _binary: [])
+
+
 class FakePopen:
     """Stand-in for a live whisper-server subprocess."""
 

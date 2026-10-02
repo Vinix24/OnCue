@@ -246,7 +246,7 @@ async def test_full_system_e2e(running_hub: int, tmp_path: Path, pro_feature_pol
 
         session = await session_tracker.end_session()
         report_session = _build_generator_session(session)
-        report = report_generator.generate_report(report_session)
+        report = report_generator.write_report(report_session).report
         report_files = list(report_generator.REPORTS_DIR.glob("*_report.json"))
 
         assert report.session_id == session.session_id

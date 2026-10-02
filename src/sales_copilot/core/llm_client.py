@@ -46,6 +46,7 @@ import httpx
 import instructor
 
 from sales_copilot.core.outbound_policy import apply_outbound_pii
+from sales_copilot.core.privacy_gate import enforce_privacy
 from sales_copilot.core.thinking_policy import ThinkingPolicy, thinking_request_kwargs
 
 logger = logging.getLogger(__name__)
@@ -218,6 +219,71 @@ def build_create_partial(client: Any, provider: str) -> Any:
         return patched.create_partial
     patched = instructor.from_openai(client)
     return patched.create_partial
+
+
+# Models that reject a forced tool choice (``tool_choice`` of type "tool"/"any"), e.g.
+# ``anthropic/claude-sonnet-5.5`` on OpenRouter. Learned at runtime from the upstream 400 rather
+# than listed by name, so it cannot go stale. Maps (provider, model) -> instructor mode name.
+_NO_FORCED_TOOL_MODE = "OPENROUTER_STRUCTURED_OUTPUTS"
+_no_forced_tool_models: dict[tuple[str, str], str] = {}
+_no_forced_tool_lock = threading.Lock()
+
+
+def _exception_chain(exc: BaseException) -> list[BaseException]:
+    chain: list[BaseException] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    return chain
+
+
+def _is_forced_tool_choice_error(exc: BaseException) -> bool:
+    """True only for the upstream 400 ``tool_choice ... not supported for this model``.
+
+    instructor wraps the SDK error in an ``InstructorRetryException``, so the whole
+    ``__cause__``/``__context__`` chain is inspected. Any other 400 or error is not a match.
+    """
+    for err in _exception_chain(exc):
+        text = str(err).lower()
+        status = getattr(err, "status_code", None)
+        is_400 = status == 400 or (status is None and "error code: 400" in text)
+        if is_400 and "tool_choice" in text and "not supported" in text:
+            return True
+    return False
+
+
+def _remember_no_forced_tool(provider: str, model: str) -> None:
+    key = (provider, model)
+    with _no_forced_tool_lock:
+        if key in _no_forced_tool_models:
+            return
+        _no_forced_tool_models[key] = _NO_FORCED_TOOL_MODE
+    logger.info(
+        "Model %s on %s rejects a forced tool choice; using instructor mode %s for it from now on",
+        model,
+        provider,
+        _NO_FORCED_TOOL_MODE,
+    )
+
+
+def _uses_no_forced_tool_mode(provider: str, model: str) -> bool:
+    with _no_forced_tool_lock:
+        return (provider, model) in _no_forced_tool_models
+
+
+def build_create_no_forced_tool(client: Any):
+    """Like ``build_create`` for an OpenAI-compatible client, without a forced tool choice."""
+    mode = getattr(instructor.Mode, _NO_FORCED_TOOL_MODE)
+    return instructor.from_openai(client, mode=mode).chat.completions.create
+
+
+def build_create_partial_no_forced_tool(client: Any):
+    """Like ``build_create_partial`` for an OpenAI-compatible client, without a forced tool choice."""
+    mode = getattr(instructor.Mode, _NO_FORCED_TOOL_MODE)
+    return instructor.from_openai(client, mode=mode).create_partial
 
 
 def _ollama_num_ctx() -> int:
@@ -409,8 +475,24 @@ class LLMClient:
     one place.
     """
 
-    def __init__(self, provider: str, *, timeout_ms: int, prompt_cache: bool = True) -> None:
+    def __init__(
+        self,
+        provider: str,
+        *,
+        timeout_ms: int,
+        prompt_cache: bool = True,
+        privacy: str | None = None,
+        task: str | None = None,
+        client_slug: str | None = None,
+    ) -> None:
         self.provider = provider.strip().lower()
+        # The conversation's privacy ceiling (``core.llm_routing`` passes it in). Checked
+        # here once and again before every call: ``tier_of()`` reads TRUST_OWN_TENANT /
+        # OLLAMA_BASE_URL from the environment, which can change while this client lives.
+        self.privacy = privacy
+        self.task = task
+        self._client_slug = client_slug
+        self._enforce_ceiling()
         self._prompt_cache_enabled = prompt_cache
         self._timeout_ms = timeout_ms
         self._timeout_s = timeout_ms / 1000.0
@@ -426,6 +508,9 @@ class LLMClient:
         # summary, window_classifier, ...) never stream, and patching the same client with
         # instructor a second time at construction time is wasted work no caller asked for.
         self._create_partial: Any = None
+        # Same for the no-forced-tool-choice variants, built only when a model needs them.
+        self._create_no_forced_tool: Any = None
+        self._create_partial_no_forced_tool: Any = None
         # Only ollama needs this: the derived-model num_ctx workaround POSTs to the same host
         # ``build_client`` pointed the OpenAI-compatible client at.
         self._ollama_base_url = (
@@ -435,6 +520,19 @@ class LLMClient:
         )
         self._last_usage: dict[str, int] | None = None
         self._last_ttft_ms: float | None = None
+
+    def _enforce_ceiling(self) -> None:
+        """Raise ``PrivacyGateError`` when this client's provider exceeds its ceiling.
+
+        Fail-closed: raised before any text is assembled or sent, so a refused call
+        never reaches the provider.
+        """
+        enforce_privacy(self.privacy, self.provider, client_slug=self._client_slug, lane=self.task)
+
+    @property
+    def timeout_ms(self) -> int:
+        """The SDK-level request timeout this client was built with."""
+        return self._timeout_ms
 
     @property
     def last_usage(self) -> dict[str, int] | None:
@@ -480,6 +578,32 @@ class LLMClient:
                 model,
             )
 
+    def _forced_tool_fallback_applies(self) -> bool:
+        return self.provider not in _GENAI_PROVIDERS and self.provider != "ollama"
+
+    def _create_without_forced_tool(self) -> Any:
+        if self._create_no_forced_tool is None:
+            self._create_no_forced_tool = build_create_no_forced_tool(self._client)
+        return self._create_no_forced_tool
+
+    def _invoke_create(self, model: str, kwargs: dict[str, Any]) -> Any:
+        """Call the patched client; on the forced-tool-choice 400, retry once without it.
+
+        The learned mode is remembered per (provider, model) for the rest of the process, so
+        later calls skip the failing attempt. Every other error propagates unchanged.
+        """
+        if not self._forced_tool_fallback_applies():
+            return self._create(**kwargs)
+        if _uses_no_forced_tool_mode(self.provider, model):
+            return self._create_without_forced_tool()(**kwargs)
+        try:
+            return self._create(**kwargs)
+        except Exception as exc:
+            if not _is_forced_tool_choice_error(exc):
+                raise
+            _remember_no_forced_tool(self.provider, model)
+            return self._create_without_forced_tool()(**kwargs)
+
     def create(
         self,
         *,
@@ -509,6 +633,7 @@ class LLMClient:
         value here: a low cap truncates the reasoning trace before the final answer and the
         structured-output call comes back with ``finish_reason='length'``.
         """
+        self._enforce_ceiling()
         safe_text = apply_outbound_pii(user_text, provider=self.provider, allow_local=allow_local)
         cacheable = self._prompt_cache_enabled and _model_supports_prompt_cache(self.provider, model)
         messages = [
@@ -549,13 +674,14 @@ class LLMClient:
 
                 extra["thinking_config"] = types.ThinkingConfig(thinking_budget=budget)
             kwargs.update(extra)
-        response = self._create(**kwargs)
+        response = self._invoke_create(model, kwargs)
         self._last_usage = _extract_usage(response)
         self._log_cache_hit(model)
         return response
 
     async def acreate(self, **kwargs: Any) -> Any:
         """Async wrapper used on the live path: offloads ``create`` and caps the wall-clock."""
+        self._enforce_ceiling()
         if self._create is None:
             logger.warning("LLM provider is 'none'; skipping async LLM call.")
             return None
@@ -563,6 +689,34 @@ class LLMClient:
             asyncio.to_thread(self.create, **kwargs),
             timeout=self.live_timeout_s,
         )
+
+    def _stream_partials(
+        self, create_partial: Any, model: str, response_model: Any, call_kwargs: dict[str, Any]
+    ) -> Any:
+        """Yield partials; on the forced-tool-choice 400 (raised before any item), retry once
+        in the no-forced-tool mode. A failure after items were yielded is never retried."""
+        if not self._forced_tool_fallback_applies():
+            yield from create_partial(response_model=response_model, **call_kwargs)
+            return
+
+        def _fallback() -> Any:
+            if self._create_partial_no_forced_tool is None:
+                self._create_partial_no_forced_tool = build_create_partial_no_forced_tool(self._client)
+            return self._create_partial_no_forced_tool(response_model=response_model, **call_kwargs)
+
+        if _uses_no_forced_tool_mode(self.provider, model):
+            yield from _fallback()
+            return
+        yielded = False
+        try:
+            for item in create_partial(response_model=response_model, **call_kwargs):
+                yielded = True
+                yield item
+        except Exception as exc:
+            if yielded or not _is_forced_tool_choice_error(exc):
+                raise
+            _remember_no_forced_tool(self.provider, model)
+            yield from _fallback()
 
     async def astream(
         self,
@@ -596,6 +750,7 @@ class LLMClient:
         ``acreate`` uses bounds the full stream here too, not each individual chunk.
         """
         self._last_ttft_ms = None
+        self._enforce_ceiling()
         if self._create is None:
             logger.warning("LLM provider is 'none'; skipping streaming LLM call.")
             return
@@ -662,7 +817,7 @@ class LLMClient:
                     call_kwargs["model"] = _ensure_ollama_num_ctx_model(
                         self._ollama_base_url, model, ollama_num_ctx
                     )
-                for item in create_partial(response_model=response_model, **call_kwargs):
+                for item in self._stream_partials(create_partial, model, response_model, call_kwargs):
                     loop.call_soon_threadsafe(queue.put_nowait, item)
             except Exception as exc:  # noqa: BLE001 -- forwarded to the consumer, never swallowed
                 loop.call_soon_threadsafe(queue.put_nowait, exc)

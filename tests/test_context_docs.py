@@ -59,7 +59,7 @@ def test_report_includes_context_doc_names() -> None:
         transcript=[],
     )
 
-    report = generator.generate_report(session)
+    report = generator.write_report(session).report
 
     assert report.prospect_name == "Sam"
     assert report.context_docs == ["intro.md", "notes.txt"]

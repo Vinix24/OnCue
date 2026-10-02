@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import replace
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
 from sales_copilot.core.config import DetectorConfig, load_yaml
-from sales_copilot.core.llm_client import LLMClient
+from sales_copilot.core.llm_routing import build_llm_client, resolve_llm
 from sales_copilot.core.preset import Preset, load_preset
 from sales_copilot.modules.detector.sliding_window import TranscriptChunk
 
@@ -125,7 +126,13 @@ class WindowClassifier:
         hooks: WindowClassifierHooks | None = None,
     ) -> None:
         self.config = config
-        self.provider = provider.lower()
+        # ``provider`` is this classifier's global fallback (callers pass the conversation's
+        # provider); WINDOW_CLASSIFIER_LLM_PROVIDER still wins over it inside the resolver.
+        if provider.strip().lower() != config.llm_provider.strip().lower():
+            config = replace(config, llm_provider=provider)
+        self.resolved = resolve_llm("window_classifier", config)
+        self.provider = self.resolved.provider
+        self.model = self.resolved.model
         self._hooks = hooks or _NoOpWindowClassifierHooks()
         if self.provider in {"none", ""}:
             self._llm = None
@@ -144,7 +151,7 @@ class WindowClassifier:
         )
         self._buying_categories = self._extract_category_names(self.preset.buying_signals)
         self._doubt_categories = self._extract_category_names(self.preset.doubts)
-        self._llm = LLMClient(self.provider, timeout_ms=config.llm_timeout_ms)
+        self._llm = build_llm_client(self.resolved)
         self.system_prompt = self._build_system_prompt()
 
     async def classify(
@@ -174,7 +181,7 @@ class WindowClassifier:
         logger.debug(
             "WindowClassifier classify start: provider=%s model=%s phase=%s latest_chunk=%r window_text=%r",
             self.provider,
-            self.config.llm_model,
+            self.model,
             phase,
             (latest_chunk.text[:200] if latest_chunk is not None else None),
             window_text[:1200],
@@ -228,36 +235,38 @@ class WindowClassifier:
             if use_streaming:
                 last: WindowAnalysis | None = None
                 async for partial in self._llm.astream(
-                    model=self.config.llm_model,
+                    model=self.model,
                     system_prompt=self.system_prompt,
                     user_text=user_prompt,
                     response_model=WindowAnalysis,
                     temperature=self.config.llm_temperature,
                     allow_local=True,
+                    max_tokens=self.resolved.output_limit(),
                 ):
                     last = partial
                 return last if last is not None else WindowAnalysis(detections=[])
             return await self._llm.acreate(
-                model=self.config.llm_model,
+                model=self.model,
                 system_prompt=self.system_prompt,
                 user_text=user_prompt,
                 response_model=WindowAnalysis,
                 temperature=self.config.llm_temperature,
                 allow_local=True,
+                max_tokens=self.resolved.output_limit(),
             )
         except TimeoutError:
             logger.warning(
                 "WindowClassifier classify timed out after %.1fs: provider=%s model=%s",
                 self._llm.live_timeout_s,
                 self.provider,
-                self.config.llm_model,
+                self.model,
             )
             return WindowAnalysis(detections=[])
         except Exception as exc:
             logger.error(
                 "WindowClassifier LLM call failed: provider=%s model=%s exc_type=%s msg=%s window_preview=%r",
                 self.provider,
-                self.config.llm_model,
+                self.model,
                 type(exc).__name__,
                 str(exc)[:300],
                 window_text[:200],

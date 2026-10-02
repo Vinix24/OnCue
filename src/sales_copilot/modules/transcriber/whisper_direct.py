@@ -21,6 +21,7 @@ from sales_copilot.modules.transcriber.normalize import (
     NormalizationLists,
     get_default_normalization_lists,
     normalize,
+    with_call_terms,
 )
 from sales_copilot.websocket.hub_auth import channel_ws_url
 
@@ -54,6 +55,7 @@ class DirectWhisperEngine:
     _loop_count: int = field(init=False, default=0, repr=False)
     _diarizer: object | None = field(init=False, default=None, repr=False)
     _normalization_lists: NormalizationLists | None = field(init=False, default=None, repr=False)
+    _base_normalization_lists: NormalizationLists | None = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
         self._buffer = []
@@ -66,7 +68,13 @@ class DirectWhisperEngine:
         self._vad_model = self._load_vad()
         self.backend = self.backend or create_backend()
         self._diarizer = get_diarizer()
-        self._normalization_lists = get_default_normalization_lists()
+        self._base_normalization_lists = get_default_normalization_lists()
+        self._normalization_lists = self._base_normalization_lists
+
+    def set_call_terms(self, call_terms: tuple[str, ...]) -> None:
+        """Set (or, with an empty tuple, clear) the per-conversation term list."""
+        assert self._base_normalization_lists is not None
+        self._normalization_lists = with_call_terms(self._base_normalization_lists, call_terms)
 
     async def run(self, stop_event: asyncio.Event, start_event: asyncio.Event | None = None) -> None:
         with managed_audio_stream(self.audio_stream):

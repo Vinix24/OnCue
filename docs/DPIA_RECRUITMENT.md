@@ -28,7 +28,7 @@ The **data controller** is the recruiter or recruitment agency that deploys OnCu
 
 **OnCue (software)** is not a processor within the meaning of GDPR Art. 4(8) in a self-hosted setup. The software runs locally on the recruiter's machine. There is no central server to which personal data is sent. In that configuration, the software is a technical tool, comparable to a local word processor.
 
-The **LLM provider (Vertex AI / Gemini / Groq)** is a sub-processor under GDPR Art. 28. The provider receives redacted transcript fragments of 1-3 sentences for classification. No raw audio, no full transcripts, no name or contact details thanks to the active PII filter. A data processing agreement (DPA) with the LLM provider is mandatory for any business use. All named providers offer a standard DPA.
+The **LLM provider (Vertex AI / Gemini / Groq)** is a sub-processor under GDPR Art. 28. The provider receives redacted transcript text per task (detection windows, a rolling summary, live suggestions and, after the call, the whole transcript for the report). No raw audio. The PII filter is pattern based: it removes the patterns it knows (see `docs/PRIVACY.md`), but names that are not on its fixed first-name list are not removed. A data processing agreement (DPA) with the LLM provider is mandatory for any business use. All named providers offer a standard DPA.
 
 **Vincent van Deth as supplier** is not a processor in a self-hosted deployment: I have no access to the recruiter's data. With the Pro tier and central audit logging this changes: then I am a processor and I provide a DPA. See `docs/SCOPE_STATEMENT.md` for the DPA request procedure.
 
@@ -84,7 +84,7 @@ The processing is proportionate because:
 
 - Audio does not leave the machine (local-first architecture)
 - The PII filter is active with the recruitment preset (`apply_pii_filter=True`): BSN, phone number, IBAN, email address, postal code, and date of birth are replaced with placeholders before any LLM processing
-- The LLM receives at most 1-3 sentences per classification call, not the full transcript
+- With an LLM provider configured, the LLM receives redacted transcript text per task, including a rolling summary input and, after the call, the whole transcript for the report enrichment (see `docs/PRIVACY.md`). With `LLM_PROVIDER=none` or a local Ollama model, no text leaves the machine
 - Audio recording can be disabled via `RECORD_AUDIO=false` in `.env`
 
 **Minimization (GDPR Art. 5(1)(c))**
@@ -115,7 +115,7 @@ Measure: enable FileVault disk encryption on the recruiter's machine (operationa
 
 Risk: candidate data is sent to an external LLM provider without a DPA or outside the scope of the DPA.
 
-Measure: PII filter active pre-LLM-call (F01 fix 2026-05-17: the code previously sent the original text, now redacted text). Only redacted fragments are sent to the router and LLM. DPA obligation on the recruiter. Fully local use possible via Ollama. Residual risk after fix: **LOW**.
+Measure: PII filter active pre-LLM-call (F01 fix 2026-05-17: the code previously sent the original text, now redacted text). Only redacted text is sent to the router and LLM. DPA obligation on the recruiter. Fully local use possible via Ollama. Residual risk after fix: **LOW**.
 
 **R4 Bias in pain point classification against candidates with an accent or dialect**
 

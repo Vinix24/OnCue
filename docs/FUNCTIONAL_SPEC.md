@@ -207,9 +207,11 @@ In short:
   does not leave your machine unless you configure a cloud provider for
   transcription (not the default).
 - **Pain point and objection detection** uses an LLM provider of your choice.
-  The default is Gemini Flash via the API. Only short transcript fragments
-  (1-3 sentences) are sent, not full recordings. You can also configure Ollama
-  for fully local processing.
+  No LLM is configured by default (`LLM_PROVIDER=none`); the live cues run
+  locally without one. With a provider configured, text is sent per task
+  (detection windows, a rolling summary, live suggestions and the whole
+  transcript for the post-call report), never audio. See `docs/PRIVACY.md`.
+  You can configure Ollama for fully local processing.
 - **Session recording is off by default** (`RECORD_AUDIO=false`). If you turn it on
   with `RECORD_AUDIO=true`, recordings are stored as WAV files in
   `data/sessions/` on your machine. They are not synchronized to an

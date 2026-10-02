@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import stat
 from pathlib import Path
 
 import pytest
@@ -64,10 +65,11 @@ def _build_session() -> SessionData:
     )
 
 
-def test_generate_report_outputs_json(tmp_path) -> None:
-    generator.REPORTS_DIR = Path(tmp_path) / "reports"
+def test_write_report_outputs_json(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(generator, "REPORTS_DIR", Path(tmp_path) / "reports")
 
-    report = generator.generate_report(_build_session())
+    written = generator.write_report(_build_session())
+    report = written.report
 
     assert isinstance(report, CallReport)
     assert report.session_id == "session-123"
@@ -92,10 +94,17 @@ def test_generate_report_outputs_json(tmp_path) -> None:
     assert report.total_self_pct == 2 / 3
     assert report.total_prospect_pct == 1 / 3
     assert report.context_docs == ["context.md"]
+    # Before the post-call LLM step the enrichment fields carry the fail-open defaults.
+    assert (report.gesprek_gevoerd, report.short_summary, report.overview) == (True, "", "")
+    assert (report.keywords, report.action_items) == ([], [])
 
     output_files = list(generator.REPORTS_DIR.glob("*_report.json"))
-    assert len(output_files) == 1
-    assert output_files[0].read_text(encoding="utf-8")
+    assert output_files == [written.path]
+    assert output_files[0].read_text(encoding="utf-8") == written.payload
+    assert json.loads(written.payload)["gesprek_gevoerd"] is True
+    # Atomic, owner-only write: no temp file left behind, 0600 from the first byte.
+    assert [p.name for p in generator.REPORTS_DIR.iterdir()] == [written.path.name]
+    assert stat.S_IMODE(written.path.stat().st_mode) == 0o600
 
 
 def _build_session_with_pii() -> SessionData:
@@ -135,11 +144,11 @@ def _written_report(reports_dir: Path) -> dict:
     return json.loads(output_files[0].read_text(encoding="utf-8"))
 
 
-def test_report_keeps_pii_verbatim_by_default(tmp_path, monkeypatch) -> None:
+def test_report_keeps_pii_verbatim_by_default(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("REPORT_REDACT_PII", raising=False)
-    generator.REPORTS_DIR = Path(tmp_path) / "reports"
+    monkeypatch.setattr(generator, "REPORTS_DIR", Path(tmp_path) / "reports")
 
-    report = generator.generate_report(_build_session_with_pii())
+    report = generator.write_report(_build_session_with_pii()).report
 
     assert report.prospect_name == "Sophie"
     written = _written_report(generator.REPORTS_DIR)
@@ -147,11 +156,11 @@ def test_report_keeps_pii_verbatim_by_default(tmp_path, monkeypatch) -> None:
     assert written["full_transcript"][0]["text"] == "Bel me op 06-12345678"
 
 
-def test_report_redacts_pii_when_flag_enabled(tmp_path, monkeypatch) -> None:
+def test_report_redacts_pii_when_flag_enabled(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REPORT_REDACT_PII", "true")
-    generator.REPORTS_DIR = Path(tmp_path) / "reports"
+    monkeypatch.setattr(generator, "REPORTS_DIR", Path(tmp_path) / "reports")
 
-    report = generator.generate_report(_build_session_with_pii())
+    report = generator.write_report(_build_session_with_pii()).report
 
     # In-memory report (live coaching payload) stays verbatim.
     assert report.prospect_name == "Sophie"
@@ -167,15 +176,15 @@ def test_report_redacts_pii_when_flag_enabled(tmp_path, monkeypatch) -> None:
     assert "06-12345678" not in json.dumps(written["insights"])
 
 
-def test_generate_report_skips_delivery_when_unconfigured(
+def test_deliver_report_skips_delivery_when_unconfigured(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Both sinks default off: generate_report() still calls the delivery seam
+    """Both sinks default off: deliver_report() still calls the delivery seam
     (so the wiring is exercised), but it must be a true no-op -- no thread
     spawned, nothing attempted."""
     monkeypatch.delenv("REPORT_DELIVERY_DIR", raising=False)
     monkeypatch.delenv("REPORT_DELIVERY_ENDPOINT", raising=False)
-    generator.REPORTS_DIR = Path(tmp_path) / "reports"
+    monkeypatch.setattr(generator, "REPORTS_DIR", Path(tmp_path) / "reports")
 
     real_deliver = generator.delivery.deliver_report_in_background
     results: list[object] = []
@@ -185,12 +194,12 @@ def test_generate_report_skips_delivery_when_unconfigured(
         lambda *args, **kwargs: results.append(real_deliver(*args, **kwargs)),
     )
 
-    generator.generate_report(_build_session())
+    generator.deliver_report(generator.write_report(_build_session()))
 
     assert results == [None]
 
 
-def test_generate_report_delivers_exact_disk_payload_when_configured(
+def test_deliver_report_delivers_exact_disk_payload_when_configured(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The delivery sink receives the SAME bytes as the local file -- same shape,
@@ -199,9 +208,9 @@ def test_generate_report_delivers_exact_disk_payload_when_configured(
     delivery_dir.mkdir()
     monkeypatch.setenv("REPORT_DELIVERY_DIR", str(delivery_dir))
     monkeypatch.delenv("REPORT_DELIVERY_ENDPOINT", raising=False)
-    generator.REPORTS_DIR = Path(tmp_path) / "reports"
+    monkeypatch.setattr(generator, "REPORTS_DIR", Path(tmp_path) / "reports")
 
-    generator.generate_report(_build_session())
+    generator.deliver_report(generator.write_report(_build_session()))
 
     local_files = list(generator.REPORTS_DIR.glob("*_report.json"))
     assert len(local_files) == 1
@@ -218,7 +227,7 @@ def test_generate_report_delivers_exact_disk_payload_when_configured(
     assert delivered.read_bytes() == local_files[0].read_bytes()
 
 
-def test_generate_report_skips_delivery_when_aflevering_is_lokaal(
+def test_deliver_report_skips_delivery_when_aflevering_is_lokaal(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """klantmap-als-eenheid D2: aflevering="lokaal" opts a client OUT of the global
@@ -228,28 +237,28 @@ def test_generate_report_skips_delivery_when_aflevering_is_lokaal(
     delivery_dir.mkdir()
     monkeypatch.setenv("REPORT_DELIVERY_DIR", str(delivery_dir))
     monkeypatch.delenv("REPORT_DELIVERY_ENDPOINT", raising=False)
-    generator.REPORTS_DIR = Path(tmp_path) / "reports"
+    monkeypatch.setattr(generator, "REPORTS_DIR", Path(tmp_path) / "reports")
 
     def _must_not_be_called(*args, **kwargs):
         raise AssertionError("deliver_report_in_background must not run when aflevering=lokaal")
 
     monkeypatch.setattr(generator.delivery, "deliver_report_in_background", _must_not_be_called)
 
-    generator.generate_report(_build_session(), aflevering="lokaal")
+    generator.deliver_report(generator.write_report(_build_session()), aflevering="lokaal")
 
     # The local disk write still happens unconditionally.
     local_files = list(generator.REPORTS_DIR.glob("*_report.json"))
     assert len(local_files) == 1
 
 
-def test_generate_report_aflevering_none_keeps_global_sinks(
+def test_deliver_report_aflevering_none_keeps_global_sinks(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No client (or a client without aflevering set) keeps the existing global
     behaviour -- the delivery seam is still called."""
     monkeypatch.delenv("REPORT_DELIVERY_DIR", raising=False)
     monkeypatch.delenv("REPORT_DELIVERY_ENDPOINT", raising=False)
-    generator.REPORTS_DIR = Path(tmp_path) / "reports"
+    monkeypatch.setattr(generator, "REPORTS_DIR", Path(tmp_path) / "reports")
 
     real_deliver = generator.delivery.deliver_report_in_background
     results: list[object] = []
@@ -259,6 +268,6 @@ def test_generate_report_aflevering_none_keeps_global_sinks(
         lambda *args, **kwargs: results.append(real_deliver(*args, **kwargs)),
     )
 
-    generator.generate_report(_build_session(), aflevering=None)
+    generator.deliver_report(generator.write_report(_build_session()), aflevering=None)
 
     assert results == [None]

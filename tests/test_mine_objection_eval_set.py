@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -15,18 +16,24 @@ from sales_copilot.modules.detector.eval_mining import (
     utterances_from_markdown,
 )
 
+_SCRIPT_PATH = Path(__file__).parent.parent / "scripts" / "mine_objection_eval_set.py"
+_SCRIPT_SPEC = importlib.util.spec_from_file_location("mine_objection_eval_set", _SCRIPT_PATH)
+assert _SCRIPT_SPEC is not None and _SCRIPT_SPEC.loader is not None
+mine_script = importlib.util.module_from_spec(_SCRIPT_SPEC)
+_SCRIPT_SPEC.loader.exec_module(mine_script)
+
 SAMPLE_MARKDOWN = """\
-**Vincent van Deth** *[0:12]*: goedemorgen, hoe gaat het?
+**Eva Verkoper** *[0:12]*: goedemorgen, hoe gaat het?
 **Prospect** *[0:15]*: prima, dank je
-**Vincent van Deth** *[0:18]*: mijn product kost vijfhonderd euro per maand
+**Eva Verkoper** *[0:18]*: mijn product kost vijfhonderd euro per maand
 **Prospect** *[0:22]*: dat is te duur voor ons
 **Prospect** *[0:25]*: we hebben dit jaar al een ander systeem gekozen
 """
 
 NAMED_SPEAKER_MARKDOWN = """\
-**Vincent van Deth** *[0:05]*: goedemorgen, hoe gaat het met jullie?
+**Eva Verkoper** *[0:05]*: goedemorgen, hoe gaat het met jullie?
 **Tom Bakker** *[0:12]*: goed, maar het budget is dit kwartaal krap
-**Vincent van Deth** *[0:20]*: dat begrijp ik, laten we kijken naar de opties
+**Eva Verkoper** *[0:20]*: dat begrijp ik, laten we kijken naar de opties
 **Sander Mulder | Voorbeeld Techniek** *[0:30]*: wij twijfelen nog over de implementatietijd
 """
 
@@ -34,7 +41,7 @@ NAMED_SPEAKER_MARKDOWN = """\
 def test_utterances_from_markdown_extracts_prospect_lines(tmp_path: Path) -> None:
     md_path = tmp_path / "call.md"
     md_path.write_text(SAMPLE_MARKDOWN, encoding="utf-8")
-    utterances = utterances_from_markdown(md_path)
+    utterances = utterances_from_markdown(md_path, exclude_speakers=["Eva Verkoper"])
 
     texts = [u["text"] for u in utterances]
     assert "goedemorgen, hoe gaat het?" not in texts
@@ -50,10 +57,10 @@ def test_utterances_from_markdown_skips_short_fillers(tmp_path: Path) -> None:
     assert utterances == []
 
 
-def test_utterances_from_markdown_real_names_default_excludes_rep(tmp_path: Path) -> None:
+def test_utterances_from_markdown_real_names_exclude_rep(tmp_path: Path) -> None:
     md_path = tmp_path / "real-call.md"
     md_path.write_text(NAMED_SPEAKER_MARKDOWN, encoding="utf-8")
-    utterances = utterances_from_markdown(md_path)
+    utterances = utterances_from_markdown(md_path, exclude_speakers=["Eva Verkoper"])
 
     texts = [u["text"] for u in utterances]
     assert "goedemorgen, hoe gaat het met jullie?" not in texts
@@ -85,8 +92,10 @@ def test_utterances_from_markdown_prospect_name_filters_to_single_speaker(tmp_pa
 def test_utterances_from_jsonl(tmp_path: Path) -> None:
     jsonl_path = tmp_path / "call.jsonl"
     jsonl_path.write_text(
-        json.dumps({"text": "dat is te duur", "speaker": "prospect"}) + "\n"
-        + json.dumps({"text": "oke", "speaker": "prospect"}) + "\n",
+        json.dumps({"text": "dat is te duur", "speaker": "prospect"})
+        + "\n"
+        + json.dumps({"text": "oke", "speaker": "prospect"})
+        + "\n",
         encoding="utf-8",
     )
     utterances = utterances_from_jsonl(jsonl_path)
@@ -148,10 +157,45 @@ def test_classify_records_uses_mock_router() -> None:
 def test_load_jsonl_records_helper(tmp_path: Path) -> None:
     path = tmp_path / "eval.jsonl"
     path.write_text(
-        json.dumps({"text": "a", "label": "prijs"}) + "\n"
-        + json.dumps({"text": "b", "label": "negative"}) + "\n",
+        json.dumps({"text": "a", "label": "prijs"}) + "\n" + json.dumps({"text": "b", "label": "negative"}) + "\n",
         encoding="utf-8",
     )
     records = load_jsonl_records(path)
     assert len(records) == 2
     assert records[1]["label"] == "negative"
+
+
+def test_utterances_from_markdown_default_excludes_nobody(tmp_path: Path) -> None:
+    md_path = tmp_path / "real-call.md"
+    md_path.write_text(NAMED_SPEAKER_MARKDOWN, encoding="utf-8")
+    utterances = utterances_from_markdown(md_path)
+
+    texts = [u["text"] for u in utterances]
+    assert "goedemorgen, hoe gaat het met jullie?" in texts
+    assert "goed, maar het budget is dit kwartaal krap" in texts
+
+
+def test_resolve_excluded_speakers_defaults_to_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EVAL_EXCLUDED_SPEAKERS", raising=False)
+    assert mine_script.resolve_excluded_speakers(None) == []
+
+
+def test_resolve_excluded_speakers_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EVAL_EXCLUDED_SPEAKERS", "Eva Verkoper, Tom Bakker ,")
+    assert mine_script.resolve_excluded_speakers(None) == ["Eva Verkoper", "Tom Bakker"]
+
+
+def test_resolve_excluded_speakers_flag_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EVAL_EXCLUDED_SPEAKERS", "Eva Verkoper")
+    assert mine_script.resolve_excluded_speakers("Tom Bakker") == ["Tom Bakker"]
+
+
+def test_env_excluded_speakers_drive_markdown_mining(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EVAL_EXCLUDED_SPEAKERS", "Eva Verkoper")
+    md_path = tmp_path / "call.md"
+    md_path.write_text(NAMED_SPEAKER_MARKDOWN, encoding="utf-8")
+    utterances = utterances_from_markdown(md_path, exclude_speakers=mine_script.resolve_excluded_speakers(None))
+
+    texts = [u["text"] for u in utterances]
+    assert "goedemorgen, hoe gaat het met jullie?" not in texts
+    assert "goed, maar het budget is dit kwartaal krap" in texts

@@ -1,0 +1,28 @@
+# Junk-filter signals for the post-call report (belapp-junkfilter-rapportschema D2).
+#
+# The decision to treat a call as junk belongs to the report model (`gesprek_gevoerd`).
+# The word count below only confirms it and feeds the `junk_reason` category; it never
+# hides a report on its own.
+
+# Words on the prospect track (prospect + unknown speakers) below which the call reads as
+# "nobody really spoke".
+min_prospect_words: 12
+
+# Phrases whisper is known to hallucinate on silence, in Dutch and English. They are removed
+# from the transcript text before the words are counted. Matched case-insensitively.
+hallucination_phrases:
+  - "Ondertiteling ingediend door de Amara.org gemeenschap"
+  - "Ondertiteling ingediend door"
+  - "Ondertiteld door de Amara.org gemeenschap"
+  - "Ondertiteld door"
+  - "Ondertitels ingediend door de Amara.org gemeenschap"
+  - "Ondertiteling door de Amara.org gemeenschap"
+  - "Bedankt voor het kijken"
+  - "Bedankt voor het luisteren"
+  - "Tot de volgende keer"
+  - "Thanks for watching"
+  - "Thank you for watching"
+  - "Please subscribe"
+  - "Subtitles by"
+  - "Subtitles by the Amara.org community"
+  - "Transcribed by"

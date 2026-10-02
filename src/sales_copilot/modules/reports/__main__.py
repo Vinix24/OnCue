@@ -16,6 +16,7 @@ import websockets
 from sales_copilot.audio.recorder import get_active_recorder
 from sales_copilot.auth.feature_policy import get_feature_policy
 from sales_copilot.core.config import (
+    DetectorConfig,
     InsightConfig,
     ReportDeliveryConfig,
     SlidesConfig,
@@ -29,6 +30,12 @@ from sales_copilot.core.logging import configure_logging
 from sales_copilot.core.session_store import SessionStore
 from sales_copilot.modules.reports import generator
 from sales_copilot.modules.reports.delivery import validate_report_delivery_config
+from sales_copilot.modules.reports.enrichment import (
+    ReportEnrichment,
+    enrich_report,
+    track_pending_report,
+    wait_for_pending_reports,
+)
 from sales_copilot.modules.reports.generator import (
     CallReport,
     InsightEvent,
@@ -37,9 +44,12 @@ from sales_copilot.modules.reports.generator import (
     SessionData,
     SpeechEvent,
     TranscriptSegment,
+    WrittenReport,
 )
+from sales_copilot.modules.reports.junk import JunkVerdict, decide_junk
 from sales_copilot.modules.reports.session import SessionData as TrackerSessionData
 from sales_copilot.modules.reports.session import SessionTracker
+from sales_copilot.modules.reports.term_corrections import load_report_terms
 from sales_copilot.modules.transcriber.backends import create_backend
 from sales_copilot.websocket.hub_auth import channel_ws_url
 
@@ -271,16 +281,6 @@ async def _run_self_batch_if_needed(
     return session
 
 
-def _latest_report_path(session_id: str | None = None) -> Path | None:
-    if not generator.REPORTS_DIR.exists():
-        return None
-    pattern = f"*_{session_id}_report.json" if session_id else "*_report.json"
-    reports = list(generator.REPORTS_DIR.glob(pattern))
-    if not reports:
-        return None
-    return max(reports, key=lambda path: path.stat().st_mtime)
-
-
 def _report_payload(report: CallReport, report_path: Path | None) -> dict[str, object]:
     return {
         "type": "report_ready",
@@ -374,6 +374,112 @@ def _archive_session_to_klantmap(
         )
 
 
+def _enriched_payload(session_id: str, enrichment: ReportEnrichment, verdict: JunkVerdict) -> dict[str, object]:
+    """The ``report_enriched`` event: the junk decision and nothing that identifies anyone.
+
+    ``report_ready`` goes out before the enrichment, so the dashboard learns the decision
+    from this second event. No transcript text, no names, no summary. Of the term corrections
+    only the counts: their source, target and reason stay in the report on disk.
+    """
+    return {
+        "type": "report_enriched",
+        "session_id": session_id,
+        "gesprek_gevoerd": enrichment.gesprek_gevoerd,
+        "junk": verdict.junk,
+        "junk_reason": verdict.reason,
+        "term_correction_count": len(enrichment.term_corrections),
+        "term_corrections_pii_limited": enrichment.term_corrections_pii_limited,
+    }
+
+
+async def _send_report_enriched(coaching_url: str | None, payload: dict[str, object]) -> None:
+    if coaching_url is None:
+        return
+    try:
+        async with websockets.connect(coaching_url) as ws:
+            await ws.send(json.dumps(payload))
+    except Exception:  # vnx-silent-except: the dashboard event is best-effort, the report is already on disk
+        logger.warning("Could not send report_enriched for session=%s", payload.get("session_id"), exc_info=True)
+
+
+def _rewrite_or_keep(written: WrittenReport, enrichment: ReportEnrichment, verdict: JunkVerdict) -> WrittenReport:
+    """The report rewritten with its enrichment, or -- when the disk refuses -- the first copy."""
+    try:
+        return generator.rewrite_with_enrichment(written, enrichment, junk=verdict.junk, junk_reason=verdict.reason)
+    except OSError:
+        logger.error(
+            "Could not rewrite the report for session=%s with its enrichment; the local copy at %s "
+            "stays as first written and is delivered as is.",
+            written.report.session_id,
+            written.path,
+            exc_info=True,
+        )
+        return written
+
+
+async def _finish_report(
+    written: WrittenReport,
+    report_session: SessionData,
+    *,
+    detector_config: DetectorConfig | None,
+    aflevering: str | None,
+    client_slug: str | None,
+    coaching_url: str | None = None,
+) -> None:
+    """The post-call steps that wait for the report model: enrich, decide, rewrite, deliver, archive.
+
+    Runs as its own task, next to ``report_ready``: the model's minute or more holds up
+    neither the dashboard, nor the end of the call, nor the next call. The local copy was
+    written before this started. Delivery comes after the rewrite, so the sinks receive the
+    enriched report and never a junk one. Junk is decided by the model's ``gesprek_gevoerd``
+    (``junk.py``); a junk report stays local (and in the klantmap archive), marked as junk.
+    The ``report_enriched`` event tells the dashboard, since ``report_ready`` went out earlier.
+    The term list for the term correction (the client's ``klant.yaml`` and ``termenlijst.yaml``
+    plus the fixed list) is read here, after the call, off the event loop.
+    """
+    try:
+        terms = await asyncio.to_thread(load_report_terms, client_slug)
+        enrichment = await enrich_report(report_session, detector_config, terms=terms)
+        verdict = decide_junk(enrichment, written.report.full_transcript)
+        written = _rewrite_or_keep(written, enrichment, verdict)
+        await _send_report_enriched(coaching_url, _enriched_payload(written.report.session_id, enrichment, verdict))
+        if verdict.junk:
+            logger.info("Report delivery skipped for session=%s: junk (%s)", written.report.session_id, verdict.reason)
+        else:
+            generator.deliver_report(written, aflevering=aflevering)
+    except Exception:  # vnx-silent-except: logged as ERROR; a detached task has no caller to raise to
+        logger.error(
+            "Post-call report steps failed for session=%s; the local copy at %s is unaffected.",
+            written.report.session_id,
+            written.path,
+            exc_info=True,
+        )
+    _archive_session_to_klantmap(written.report, client_slug, written.path)
+
+
+def _schedule_report_finish(
+    written: WrittenReport,
+    report_session: SessionData,
+    *,
+    detector_config: DetectorConfig | None,
+    aflevering: str | None,
+    client_slug: str | None,
+    coaching_url: str | None = None,
+) -> asyncio.Task[None]:
+    task = asyncio.create_task(
+        _finish_report(
+            written,
+            report_session,
+            detector_config=detector_config,
+            aflevering=aflevering,
+            client_slug=client_slug,
+            coaching_url=coaching_url,
+        ),
+        name=f"report-finish-{written.report.session_id}",
+    )
+    return track_pending_report(task)
+
+
 async def main(
     *,
     stop_event: asyncio.Event | None = None,
@@ -384,7 +490,14 @@ async def main(
     session_id: str | None = None,
     client_slug: str | None = None,
     aflevering: str | None = None,
+    detector_config: DetectorConfig | None = None,
 ) -> None:
+    """Track one call and, when it ends, write, announce and finish its report.
+
+    ``detector_config`` is the conversation's config (provider, model and privacy ceiling)
+    the post-call ``report`` LLM task resolves from; ``DetectorConfig.from_env()`` when
+    omitted (the module run on its own).
+    """
     load_env()
     configure_logging()
     # Fail fast on an unusable delivery destination -- at startup, with the
@@ -443,10 +556,21 @@ async def main(
             recorder.directory if recorder is not None else None,
         )
         report_session = _build_generator_session(session)
-        report = generator.generate_report(report_session, aflevering=aflevering)
-        report_path = _latest_report_path(session.session_id)
+        # The local copy first, without any LLM step: it is on disk before a report model is
+        # called, so neither a slow model nor a SIGTERM during the enrichment can cost it.
+        # Enrichment, rewrite, delivery and the klantmap archive follow in their own task.
+        written = generator.write_report(report_session)
+        report = written.report
+        coaching_url = channel_ws_url(ws_config, "coaching")
+        _schedule_report_finish(
+            written,
+            report_session,
+            detector_config=detector_config,
+            aflevering=aflevering,
+            client_slug=client_slug,
+            coaching_url=coaching_url,
+        )
         _maybe_save_dossier_transcript(report, client_slug)
-        _archive_session_to_klantmap(report, client_slug, report_path)
 
         if (
             conversion_store is not None
@@ -458,8 +582,7 @@ async def main(
             except Exception:
                 logger.warning("Conversion gap-shown count failed", exc_info=True)
 
-        coaching_url = channel_ws_url(ws_config, "coaching")
-        payload = _report_payload(report, report_path)
+        payload = _report_payload(report, written.path)
         if prospect_name is not None:
             payload["prospect_name"] = prospect_name
         if prospect_company is not None:
@@ -473,5 +596,10 @@ async def main(
     logger.info("Reports shutdown complete.")
 
 
+async def _run_standalone() -> None:
+    await main()
+    await wait_for_pending_reports()
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(_run_standalone())

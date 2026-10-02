@@ -427,8 +427,8 @@ async def _consume_transcripts(
         counts["classified"] += 1
         logger.debug(
             "Detector invoking WindowClassifier: provider=%s model=%s buffer_size=%s latest_chunk=%r",
-            config.llm_provider,
-            config.llm_model,
+            getattr(window_classifier, "provider", config.llm_provider),
+            getattr(window_classifier, "model", config.llm_model),
             len(window_buf),
             (window_buf.latest_chunk().text[:200] if window_buf.latest_chunk() else ""),
         )

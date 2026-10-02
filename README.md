@@ -6,7 +6,7 @@
 
 An open-source, real-time sales copilot that runs during video calls. It transcribes the conversation, detects pain points, objections, and buying signals as they happen, and coaches talk-time balance on a second screen.
 
-Privacy is the default, not an option you opt into. Audio capture, transcription, and pain-point detection all run on your machine. Nothing leaves it unless you explicitly configure a cloud LLM destination, and that choice is made per conversation, not locked in at install time.
+Privacy is the default, not an option you opt into. Audio capture, transcription, and pain-point detection all run on your machine. No LLM is configured by default. Transcript text only leaves the machine if you explicitly configure an LLM destination, and that choice is made per conversation, not locked in at install time.
 
 ---
 
@@ -25,10 +25,10 @@ A scripted discovery call playing through the coaching dashboard: live transcrip
 ## Three things worth knowing before you clone this
 
 **1. Transcription and detection run on-device.**
-Audio never touches a network call. Transcription runs locally through the `TranscriptionBackend` protocol, backed by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (the default, built by `scripts/install.sh`) or `mlx-whisper` as an experimental Apple Silicon fallback. Pain-point and objection detection runs through `semantic-router`, an embedding classifier that also stays local. The only thing that can leave the device is a short, PII-redacted transcript fragment, and only if you've configured a cloud LLM provider.
+Audio never touches a network call. Transcription runs locally through the `TranscriptionBackend` protocol, backed by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (the default, built by `scripts/install.sh`) or `mlx-whisper` as an experimental Apple Silicon fallback. Pain-point and objection detection runs through `semantic-router`, an embedding classifier that also stays local. The only thing that can leave the device is transcript text, and only if you've configured an LLM provider (none is configured by default). Which text depends on the task: detection windows, a rolling summary, live suggestions and, after the call, the whole transcript for the report. It passes a pattern-based PII filter first. The per-task list is in [docs/PRIVACY.md](docs/PRIVACY.md).
 
 **2. Cloud, when you use it, can stay inside your own tenant.**
-LLM routing is provider-agnostic through `src/sales_copilot/core/llm_client.py`, built on `instructor`. Point it at Ollama for zero external calls, or at your own Azure OpenAI subscription, your own Vertex AI project, or your own AWS Bedrock account. Fragments then stay inside a cloud boundary your organization already governs, under your existing contract and DPA, instead of adding a new processor. This is the difference between "we call an API" and "your data stays in your tenant." For regulated NL B2B specifically, that difference is what gets a tool through procurement.
+LLM routing is provider-agnostic through `src/sales_copilot/core/llm_client.py`, built on `instructor`. Leave it at `none` (the default) or point it at a local model such as Ollama for zero external calls, or at your own Azure OpenAI subscription, your own Vertex AI project, or your own AWS Bedrock account. The text then stays inside a cloud boundary your organization already governs, under your existing contract and DPA, instead of adding a new processor. This is the difference between "we call an API" and "your data stays in your tenant." For regulated NL B2B specifically, that difference is what gets a tool through procurement.
 
 **3. It works with any video-call platform, because it doesn't integrate with any of them.**
 OnCue captures whole-system audio (AudioTee on macOS, WASAPI loopback on Windows) instead of talking to the Teams, Zoom, or Meet API. That means no bot joining the call, no per-platform integration to build or maintain, and no admin consent or calendar access to request. Meet, Zoom, Teams, Webex, or a phone bridge all look the same to the capture layer: system audio.
@@ -74,7 +74,7 @@ Requires Python 3.11+. macOS is the primary platform. Windows works through WASA
 git clone https://github.com/Vinix24/OnCue.git
 cd OnCue
 ./scripts/setup.sh          # creates .venv, installs deps, builds AudioTee locally
-cp .env.example .env        # then add at least one LLM API key, or point LLM_PROVIDER at ollama
+cp .env.example .env        # an LLM is optional: LLM_PROVIDER=none by default, set a provider and key to enable LLM features
 python -m sales_copilot     # starts audio capture, transcription, detection, and the WebSocket hub
 ```
 
@@ -86,15 +86,18 @@ Two other install paths exist for non-developer setups (a one-shot installer scr
 
 ## Privacy and cloud, as a spectrum
 
-The choice of where an LLM fragment goes is made per conversation, not per install and not per customer. The same person can run one call fully local and route the next through a cloud LLM, depending on what that specific call allows.
+The choice of where LLM text goes is made per conversation, not per install and not per customer. The same person can run one call fully local and route the next through a cloud LLM, depending on what that specific call allows.
 
 | Tier | What it means | When to use it |
 |---|---|---|
-| **Local** | `LLM_PROVIDER=ollama`. Nothing leaves the machine, including LLM inference. | Default. Sensitive or regulated calls. |
-| **BYO-tenant cloud** | Your own Azure OpenAI subscription, Vertex AI project, or AWS Bedrock account. Fragments stay inside a cloud boundary your organization already governs. | Regulated B2B where a new processor is a procurement blocker. |
-| **Public cloud** | A public API (OpenAI, OpenRouter, Groq, Gemini). | Internal meetings, sales training, or any call where the sensitivity allows it. |
+| **No LLM (default)** | `LLM_PROVIDER=none`. The live cues (embedding-based detection and talk-time coaching) run fully local. No transcript text is sent anywhere. | Default. Sensitive or regulated calls. |
+| **Local LLM of your choice** | For example `LLM_PROVIDER=ollama` with a model you run yourself. The text stays on the machine. | Calls where you want LLM-backed features without any outbound text. |
+| **Own cloud tenant** | Your own Azure OpenAI subscription, Vertex AI project, or AWS Bedrock account. The text stays inside a cloud boundary your organization already governs. | Regulated B2B where a new processor is a procurement blocker. |
+| **Public provider with your own key** | A public API (OpenAI, OpenRouter, Groq, Gemini). | Internal meetings, sales training, or any call where the sensitivity allows it. |
 
-Local stays the default in every case; the cloud tiers exist to broaden what the tool can be used for, not to replace it. Enforcement detail: [docs/ARCHITECTURE_BOUNDARIES.md](docs/ARCHITECTURE_BOUNDARIES.md) (the invariants CI checks on every PR). Full AVG/GDPR and AI Act treatment: [docs/PRIVACY.md](docs/PRIVACY.md).
+With an LLM configured, what is sent depends on the task: a sliding window of prospect speech for detection, a rolling summary input (every 60 seconds, up to 40 lines with speaker labels), live suggestions with your uploaded context documents, and the whole transcript for the post-call report. All of it passes one PII seam first. That redaction is pattern based (no name recognition beyond a fixed list of Dutch first names), so it is a safety net and not a guarantee. The per-task list and the limits of the redaction are in [docs/PRIVACY.md](docs/PRIVACY.md).
+
+No LLM key or model ships with OnCue. The default tier is the only one that needs no setup. Enforcement detail: [docs/ARCHITECTURE_BOUNDARIES.md](docs/ARCHITECTURE_BOUNDARIES.md) (the invariants CI checks on every PR). Full AVG/GDPR and AI Act treatment: [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ---
 

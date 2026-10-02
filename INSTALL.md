@@ -78,11 +78,11 @@ if missing). If the build is skipped or fails, system-audio capture falls back
 to BlackHole (see the BlackHole section below). Telephony/per-process capture
 (`PROSPECT_SOURCE=audiotee_call`) uses the same binary but is a Sales Pro feature.
 
-After the script finishes, add your API key:
+After the script finishes, optionally add an LLM provider and its API key (OnCue runs the live cues without one; see [Choosing an LLM provider](#choosing-an-llm-provider)):
 
 ```bash
 nano .env
-# Set: GEMINI_API_KEY=your_key_here
+# Optional: LLM_PROVIDER=gemini and GEMINI_API_KEY=your_key_here
 ```
 
 Then start:
@@ -112,7 +112,7 @@ The default AudioTee tap needs no audio setup. If you use the manual `blackhole`
 3. Right-click `Setup OnCue.app` > **Open** > **Open** (Gatekeeper bypass, one-time only)
 4. A Terminal window opens showing install progress — leave it open and wait 3-5 minutes for it to finish (you don't type anything into it)
 5. (Optional) The default AudioTee tap needs no audio setup. Only if you use the manual BlackHole fallback, follow the **Optional fallback: BlackHole audio routing** section below
-6. Add your API key to `.env` (free Gemini key: aistudio.google.com/app/apikey)
+6. (Optional) Add an LLM provider and its API key to `.env`. Without one, the live cues run fully local. Example: a free Gemini key from aistudio.google.com/app/apikey
 7. Double-click `Start OnCue.app` to launch
 
 **Checking your setup before a real call.** From a checkout of the repo you can
@@ -277,18 +277,19 @@ What Windows does *not* have, independent of the above: (1) automatic call detec
 
 ## Choosing an LLM provider
 
-OnCue uses an LLM only for pain-point confirmation (short transcript fragments, no audio). Set `LLM_PROVIDER` in `.env`:
+An LLM is optional. `LLM_PROVIDER=none` is the default: the live cues (embedding detection and talk-time) run fully local and no transcript text is sent anywhere. With a provider set, OnCue also uses it for window classification, a rolling summary, live suggestions and the post-call report. Never audio. What is sent per task is listed in [docs/PRIVACY.md](docs/PRIVACY.md). Set `LLM_PROVIDER` in `.env`:
 
 | Provider | Free tier | Speed | Privacy |
 |---|---|---|---|
-| `gemini` (default) | Yes, Gemini 2.5 Flash | Fast | Google Cloud |
+| `none` (default) | n/a | n/a | Nothing is sent |
+| `gemini` | Yes, Gemini 2.5 Flash | Fast | Google Cloud |
 | `groq` | Yes, 100K tokens/day | Very fast | Groq Cloud |
 | `openai` | No | Fast | OpenAI Cloud |
 | `ollama` | Yes (local) | Depends on hardware | Fully local |
 
-**Quick pick:** for the lowest latency, use Gemini 2.5 Flash (the default) or Groq. If you want more accuracy on ambiguous fragments and can spare a little latency, `anthropic/claude-haiku-4.5` via OpenRouter is a solid opt-in. Either way the LLM only ever sees a short, PII-redacted transcript fragment.
+**Quick pick:** for the lowest latency, use Gemini 2.5 Flash or Groq. `anthropic/claude-haiku-4.5` via OpenRouter is another opt-in. Public providers receive the text after the pattern-based PII filter, which is a safety net and not a guarantee (see [docs/PRIVACY.md](docs/PRIVACY.md)).
 
-**Gemini (recommended for beta-testers):**
+**Gemini (example public provider):**
 ```env
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=your_key_here
@@ -367,8 +368,8 @@ You are running the wrong Python. Use `.venv/bin/python` or `.venv/bin/sales-cop
 **Pain points not detected during call**
 
 Check your `.env`:
-- `LLM_PROVIDER` set correctly
-- API key present and valid
+- Without an LLM (`LLM_PROVIDER=none`) only the local embedding path runs; set `LLM_PROVIDER` to enable LLM classification
+- If a provider is set: API key present and valid
 - `PAIN_POINTS_ENABLED=1` (default)
 
 Then check the dashboard for error messages — they show the exact failure cause.

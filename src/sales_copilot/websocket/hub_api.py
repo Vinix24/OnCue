@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import signal as _signal_module
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, field_validator
 
 from sales_copilot.auth.email_capture import (
@@ -365,6 +366,54 @@ async def hint_feedback_api(body: HintFeedbackRequest) -> dict[str, Any]:
 async def swap_speakers_api() -> dict[str, str]:
     await hub_core.broadcast("config", {"type": "swap_speakers"})
     return {"status": "ok"}
+
+
+#: A session id as it appears in a report file name: the orchestrator makes ``str(uuid.uuid4())``.
+#: Letters, digits, ``-`` and ``_`` only, so no ``/``, no ``..`` and no glob character ever
+#: reaches the file lookup.
+_SESSION_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def _local_report_path(session_id: str) -> Path | None:
+    """The newest local report file of ``session_id`` in the report folder, or ``None``.
+
+    Only a regular file directly in the report folder counts: a symlink, a directory, or a
+    path that resolves anywhere else is never served.
+    """
+    from sales_copilot.modules.reports import generator
+
+    reports_dir = generator.REPORTS_DIR.resolve()
+    if not reports_dir.is_dir():
+        return None
+    # The timestamp prefix sorts the files of one session oldest first.
+    name_re = re.compile(rf"\d{{4}}-\d\d-\d\dT\d\d-\d\d-\d\d_{re.escape(session_id)}_report\.json")
+    for path in sorted(reports_dir.glob(f"*_{session_id}_report.json"), reverse=True):
+        if not name_re.fullmatch(path.name) or path.is_symlink() or not path.is_file():
+            continue
+        if path.resolve().parent != reports_dir:
+            continue
+        return path
+    return None
+
+
+@router.get("/api/reports/{session_id}", dependencies=[Depends(require_token)])
+async def get_report_api(session_id: str) -> Response:
+    """The local report of ``session_id`` exactly as it is on disk.
+
+    The bytes of the local copy, unchanged: redacted when ``REPORT_REDACT_PII`` was on when it
+    was written. The dashboard reads the enriched report here after ``report_enriched``, which
+    itself carries no report text. ``no-store`` keeps the report out of the browser cache.
+    """
+    if not _SESSION_ID_RE.fullmatch(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session id")
+    path = await asyncio.to_thread(_local_report_path, session_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    try:
+        content = await asyncio.to_thread(path.read_bytes)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Report not found") from None
+    return Response(content=content, media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/v1/license/request", response_model=LeadResponse)

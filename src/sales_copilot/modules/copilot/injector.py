@@ -11,7 +11,7 @@ from sales_copilot.auth.feature_policy import (
     resolve_response_suggestion,
 )
 from sales_copilot.auth.license_format import FEATURE_DYNAMIC_SLIDES
-from sales_copilot.core.config import SlidesConfig, WebSocketConfig
+from sales_copilot.core.config import DetectorConfig, SlidesConfig, WebSocketConfig
 from sales_copilot.modules.copilot.slide_generator import GeneratedSlide, SlideGenerator
 from sales_copilot.modules.detector.pipeline import DetectionPipeline, PainPointEvent
 from sales_copilot.modules.slides.case_db import Case, CaseDB
@@ -226,7 +226,13 @@ class SlideInjector:
 
     def _ensure_slide_generator(self) -> SlideGenerator:
         if self._slide_generator is None:
-            self._slide_generator = SlideGenerator(llm_client=self._pipeline_llm_client)
+            # The pipeline's config is this conversation's (start-call overrides + privacy
+            # ceiling); DetectorConfig.from_env() would drop both.
+            pipeline_config = getattr(self._pipeline, "config", None)
+            self._slide_generator = SlideGenerator(
+                pipeline_config if isinstance(pipeline_config, DetectorConfig) else None,
+                llm_client=self._pipeline_llm_client,
+            )
         return self._slide_generator
 
     @staticmethod

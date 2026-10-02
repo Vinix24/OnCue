@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sales_copilot.core import lang_router
 from sales_copilot.core.config import DetectorConfig, WebSocketConfig
 from sales_copilot.core.context_docs import load_context_documents
-from sales_copilot.core.llm_client import LLMClient
+from sales_copilot.core.llm_routing import resolve_llm_client
 from sales_copilot.core.paths import resolve_app_path
 from sales_copilot.websocket.hub_auth import channel_ws_url
 
@@ -26,10 +26,6 @@ SUGGESTIONS_MAX_CONTEXT_LINES = 8
 SUGGESTIONS_MAX_CONTEXT_CHARS = 1_800
 # Dashboard placeholder, routed through the i18n catalog for the configured LANGUAGE.
 SUGGESTIONS_EMPTY_STATE = lang_router.route_coaching_prompts().empty_state
-# Output-token cap for one suggestion/rebuttal generation call. Bounds generation wall-clock
-# for the 5s-to-screen SLA; 2-3 short Dutch follow-up questions comfortably fit well under
-# this, even accounting for JSON/tool-call structure overhead.
-SUGGESTIONS_MAX_OUTPUT_TOKENS = 512
 
 # Phase → strategy mapping
 _PHASE_TO_STRATEGY: dict[str, str] = {
@@ -62,17 +58,16 @@ class SuggestionLLMClient:
         language: str | None = None,
     ) -> None:
         self.config = config or DetectorConfig.from_env()
-        self.provider = self.config.llm_provider.lower()
+        self.resolved, self._llm = resolve_llm_client(
+            "suggestions", self.config, prompt_cache=self.config.llm_prompt_cache
+        )
+        self.provider = self.resolved.provider
+        self.model = self.resolved.model
         # Coaching prompts are selected per language by lang_router. ``language=None``
         # resolves to the configured LANGUAGE (falling back to nl per missing key).
         self._prompts = lang_router.route_coaching_prompts(language)
         self._context_block = self._load_context_docs(context_docs or [], provider=self.provider)
         self.system_prompt = self._build_system_prompt()
-        self._llm = LLMClient(
-            self.provider,
-            timeout_ms=self.config.llm_timeout_ms,
-            prompt_cache=self.config.llm_prompt_cache,
-        )
 
     async def suggest(
         self,
@@ -84,20 +79,20 @@ class SuggestionLLMClient:
         if not cleaned_lines:
             return []
 
-        timeout_s = self.config.llm_timeout_ms / 1000
+        timeout_s = self.resolved.timeout_ms / 1000
         user_text = self._user_prompt(cleaned_lines)
 
         if not self.config.llm_streaming:
             try:
                 result = await asyncio.wait_for(
                     self._llm.acreate(
-                        model=self.config.llm_model,
+                        model=self.model,
                         system_prompt=self.system_prompt,
                         user_text=user_text,
                         response_model=SuggestionResponse,
                         temperature=self.config.llm_temperature,
                         allow_local=True,
-                        max_tokens=SUGGESTIONS_MAX_OUTPUT_TOKENS,
+                        max_tokens=self.resolved.output_limit(),
                     ),
                     timeout=timeout_s,
                 )
@@ -106,14 +101,14 @@ class SuggestionLLMClient:
                     "SuggestionLLMClient timed out after %.2fs: provider=%s model=%s",
                     timeout_s,
                     self.provider,
-                    self.config.llm_model,
+                    self.model,
                 )
                 return []
             except Exception as exc:
                 logger.error(
                     "SuggestionLLMClient call failed: provider=%s model=%s exc_type=%s msg=%s",
                     self.provider,
-                    self.config.llm_model,
+                    self.model,
                     type(exc).__name__,
                     str(exc)[:300],
                 )
@@ -125,13 +120,13 @@ class SuggestionLLMClient:
         async def _drain() -> SuggestionResponse | None:
             last: SuggestionResponse | None = None
             async for partial in self._llm.astream(
-                model=self.config.llm_model,
+                model=self.model,
                 system_prompt=self.system_prompt,
                 user_text=user_text,
                 response_model=SuggestionResponse,
                 temperature=self.config.llm_temperature,
                 allow_local=True,
-                max_tokens=SUGGESTIONS_MAX_OUTPUT_TOKENS,
+                max_tokens=self.resolved.output_limit(),
             ):
                 last = partial
                 if on_partial is not None:
@@ -145,14 +140,14 @@ class SuggestionLLMClient:
                 "SuggestionLLMClient stream timed out after %.2fs: provider=%s model=%s",
                 timeout_s,
                 self.provider,
-                self.config.llm_model,
+                self.model,
             )
             return []
         except Exception as exc:
             logger.error(
                 "SuggestionLLMClient stream failed: provider=%s model=%s exc_type=%s msg=%s",
                 self.provider,
-                self.config.llm_model,
+                self.model,
                 type(exc).__name__,
                 str(exc)[:300],
             )

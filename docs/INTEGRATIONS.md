@@ -153,16 +153,18 @@ To hear audio in your headphones AND capture it in BlackHole simultaneously:
 All LLM calls go through the `instructor` library for structured output. The
 provider is selected by `LLM_PROVIDER` in `.env`.
 
-**Default provider:** the shipped `.env.example` sets `LLM_PROVIDER=gemini`, so a
-fresh checkout runs on Gemini out of the box. If `LLM_PROVIDER` is unset entirely,
-the `config.py` dataclass falls back to `openrouter`. Both are documented below.
+**Default provider:** the shipped `.env.example` sets `LLM_PROVIDER=none` and an empty
+`LLM_MODEL`, so a fresh checkout configures no LLM. The live cues (embedding detection
+and talk-time) run fully local. If `LLM_PROVIDER` is unset entirely, the `config.py`
+dataclass falls back to `openrouter`, which refuses to start without a key. All providers
+are documented below.
 
 **Dependency pins:** `instructor>=1.7,<2.0` and `google-genai>=1.0,<2.0` are
 pinned to prevent silent breakage on major-bump updates.
 
 | Provider | Value | Notes |
 |---|---|---|
-| Google Gemini | `gemini` | `gemini-2.5-flash`. Uses `instructor.from_genai(GENAI_STRUCTURED_OUTPUTS)`. Shipped `.env.example` default. |
+| Google Gemini | `gemini` | `gemini-2.5-flash`. Uses `instructor.from_genai(GENAI_STRUCTURED_OUTPUTS)`. Example public provider. |
 | OpenRouter | `openrouter` | `anthropic/claude-haiku-4.5` default. Routes through OpenRouter's public API, not the direct Anthropic API — no Anthropic SDK involved. `config.py` fallback default. |
 | Google Vertex AI | `vertex` | Same Gemini models via GCP. Requires GCP billing enabled. BYO-tenant. |
 | Azure OpenAI | `azure` | OpenAI models within your own Azure subscription. BYO-tenant. |
@@ -170,7 +172,7 @@ pinned to prevent silent breakage on major-bump updates.
 | OpenAI | `openai` | Use `gpt-4o-mini` for cost-effective classification. |
 | Ollama | `ollama` | Fully local. No text leaves the machine. |
 
-### Gemini configuration (shipped default)
+### Gemini configuration (example)
 
 ```bash
 LLM_PROVIDER=gemini
@@ -432,8 +434,8 @@ Full schema is in `.env.example`. Key variables:
 
 ```bash
 # LLM
-LLM_PROVIDER=gemini|openrouter|vertex|azure|groq|openai|ollama   # .env.example ships gemini; config.py fallback is openrouter
-LLM_MODEL=gemini-2.5-flash                                       # shipped default (matches LLM_PROVIDER=gemini)
+LLM_PROVIDER=none|gemini|openrouter|vertex|azure|groq|openai|ollama   # .env.example ships none; config.py fallback is openrouter
+LLM_MODEL=                                                       # empty by default; set a model that belongs to the provider
 LLM_TIMEOUT_MS=3000
 
 # Audio — capture method

@@ -2,6 +2,97 @@
 
 ## Unreleased
 
+## [1.0.0-rc.2] — 2026-10-02
+
+Second pre-release. No LLM is configured by default anymore: a fresh install
+runs the live cues fully local, and every cloud provider is an explicit
+choice. On top of that, each LLM task can now have its own provider, model and
+timeout under a privacy ceiling per conversation, the post-call report is
+enriched with a summary, action items and contextual term corrections, and
+the privacy docs list per task which text leaves the machine.
+
+### Added
+
+- One LLM route per task. `detector_confirm`, `window_classifier`, `phase`,
+  `suggestions`, `summary`, `script_tracking`, `slides` and `report` each read
+  `<TASK>_LLM_PROVIDER`, `_MODEL` and `_TIMEOUT_MS`, then a per-task default,
+  then the global `LLM_*` values. The privacy level of a client folder is a
+  ceiling: a task whose route is above it makes no call at all, both when the
+  route is resolved and on every request. The start-call check covers every
+  active task (#263).
+- Post-call report enrichment: one structured call over the whole transcript
+  adds a short summary, an overview, keywords, action items and a flag for
+  whether a conversation took place. It fails open to an unenriched report,
+  and the local report is written first, atomically and with mode 0600 (#267).
+- Calls that were not conversations (silence, a voicemail, only recognizer
+  hallucinations) are marked as junk with a reason in the dashboard, and their
+  delivery to a webhook or CRM is skipped. The local copy and the client
+  archive stay (#269).
+- Contextual term correction in the report: a prefilter finds candidate
+  segments for a term list, the model may pick a term from that list and
+  nothing else, and the report shows the original next to the correction. The
+  transcript itself is unchanged. The list is the fixed list, the `termen` of
+  the client's `klant.yaml` and an optional `termenlijst.yaml` in the client
+  folder (up to 5000 entries). Free-form correction is not built because it
+  failed the measurement for every model tried (#274).
+- The same client terms now also reach the live transcriber for the duration
+  of a call. They take precedence over the fixed list, an exact term is never
+  fuzzed into another one, and `SRC -> DST` entries act as exact variants.
+  Original text and replacements stay in the local debug log only (#261).
+- `report_terms` as its own task (`REPORT_TERMS_LLM_*`), so the term
+  correction can run on a different model than the summary. Without its own
+  values it inherits from `report` and stays one call (#276).
+- `GET /api/reports/{session_id}` behind the dashboard token. The dashboard
+  shows a progress line after the report is ready, then the summary, keywords,
+  action items and term corrections. The Markdown export carries the enriched
+  fields (#276).
+- Output limits per task through `<TASK>_LLM_MAX_OUTPUT_TOKENS`, so a live task
+  cannot run past its budget (#276).
+- Pro/Enterprise, not part of the open-source build: the same routing
+  applies to the deep-insight lane.
+
+### Changed
+
+- No LLM is configured by default. `.env.example` ships `LLM_PROVIDER=none` with an
+  empty `LLM_MODEL`, and the live cues (detection, coaching, phase) run local
+  without one. Summaries, suggestions, slides and report enrichment need a
+  provider you choose (#277).
+- The privacy docs now list per task what text goes to a configured LLM, which
+  speaker lines are included, and where the PII filter stops. README, INSTALL,
+  the architecture and module docs no longer name a default cloud provider. The
+  central audit hash is described as pseudonymous, and the opt-in telemetry
+  signals are listed (#277).
+- The report timeout is 300 seconds. The report runs after the call and a
+  one-hour call took 54 to 77 seconds on the models measured, so the old 60
+  seconds cut slower models off (#276).
+- `.env.example` recommends models for the report parts with the measured
+  numbers behind them. The report parts have no model default of their own:
+  without a value they follow the conversation's provider and model (#276).
+- Microphone silence warnings now name microphone causes: a muted microphone,
+  the wrong input device and microphone permission. They used to repeat the
+  call-audio explanation meant for the prospect side (#264).
+- `sanitize_for_outbound` takes the resolved provider, so the PII mode follows
+  the route of each task and the own-tenant trust setting (#263).
+
+### Fixed
+
+- The whisper server no longer outlives the app. It starts behind a guard that
+  stops it when the parent dies, also on SIGKILL, on macOS, Linux and Windows.
+  Servers left over from an earlier crash (same binary, dead parent) are
+  cleaned up before the next start (#266).
+- Forced tool choice: when a model rejects it, the structured-output client
+  falls back instead of failing the call (#273).
+
+### Security
+
+- urllib3 2.7.0 to 2.8.0 (CVE-2026-97687, CVE-2026-97689) (#268).
+- litellm 1.88.1 to 1.88.6 (CVE-2026-84377), with the floor raised in the
+  `llm` extra (#273).
+- sentence-transformers 5.5.1 to 5.6.0 (CVE-2026-68770), with the floor raised
+  (#273).
+- tornado 6.5.8 to 6.5.10 (GHSA-chx6-46f5-w4vp, GHSA-c2m8-h5v5-343r,
+  GHSA-3hv7-mjh2-fv65) (#273).
+
 ## [1.0.0-rc.1] — 2026-09-28
 
 First public pre-release since 0.9.0. A full rebrand from "Sales Copilot"

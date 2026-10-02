@@ -22,8 +22,47 @@ Components and locations:
 1. Reports module starts a session and opens WebSocket subscriptions.
 2. Incoming events populate transcript, pain points, talk-time snapshots, and phase transitions.
 3. On shutdown, the session is persisted and converted into a `CallReport`.
-4. The report JSON is written to `data/reports`.
+4. The report JSON is written to `data/reports` (atomically, `0600`), before any LLM step.
 5. A `report_ready` message is broadcast to `/ws/coaching` for the dashboard.
+6. In its own task, next to step 5: the post-call enrichment (below) runs, the local report
+   is rewritten atomically with its fields, and only then is it handed to the delivery sinks
+   and archived in the client folder.
+
+## Post-call enrichment
+
+A structured LLM step over the whole transcript fills five report fields:
+`gesprek_gevoerd` (did two people actually talk, or was it a voicemail, a phone menu or a
+line nobody answered), `short_summary`, `overview`, `keywords` and `action_items`, plus the
+term corrections (`docs/CONFIG.md`, "Post-call term list").
+Implementation: `src/sales_copilot/modules/reports/enrichment.py`.
+
+- **Routing:** the `report` task of `core/llm_routing.py` for the five fields.
+  `REPORT_LLM_PROVIDER` / `REPORT_LLM_MODEL` / `REPORT_LLM_TIMEOUT_MS` (default 300000), falling
+  back to the conversation's provider and model. The term corrections have their own task,
+  `report_terms` (`REPORT_TERMS_LLM_*`), which takes every value it does not set from
+  `report`. Both on the same provider and model (the default) is one call carrying both parts;
+  a different model for one of them makes it two calls side by side, and the term call only
+  runs when the prefilter found candidates. `REPORT_LLM_PROVIDER=none` switches the five fields
+  off, `REPORT_TERMS_LLM_PROVIDER=none` the term correction. The client's `klant.yaml` privacy
+  ceiling applies to both; the start-call poort refuses a call whose report or term provider is
+  above it, as long as the reports module runs for that call.
+- **Output limit:** the call passes `max_tokens` from `REPORT_MAX_OUTPUT_TOKENS` (default 16384;
+  a one-hour call answers in about 10,000 tokens), a separate term call from
+  `REPORT_TERMS_MAX_OUTPUT_TOKENS` (falling back to `REPORT_MAX_OUTPUT_TOKENS`). One call for
+  both parts takes the larger of the two limits and of the two timeouts. Without it OpenRouter reserves the model's
+  maximum and refuses the call with a 402 once the credit is below that. An answer cut off at
+  the limit fails open with a WARNING naming the limit and the key.
+- **PII:** the transcript goes through `apply_outbound_pii` for the resolved report provider
+  (`PII_REDACTION`, `TRUST_OWN_TENANT`). With `REPORT_REDACT_PII=true` the five fields are
+  redacted on disk like the rest of the report, also when a local model wrote them.
+- **Fail-open:** an error, a timeout, a refusal by the ceiling or a missing LLM stack gives
+  `gesprek_gevoerd: true` and empty text fields, with a `WARNING` naming the reason. The
+  model never gets to hide a call on a failure, and nothing is filled in on its behalf. With
+  two calls each part fails open on its own: a failing term call never costs the summary, and
+  a failing summary call never costs the term corrections.
+- **Timing:** the call runs off the event loop and after `report_ready`, so it holds up
+  neither the dashboard nor the next call. On shutdown the orchestrator waits for a running
+  enrichment (bounded by its timeout); the local copy was already on disk before it began.
 
 ## Configuration (.env)
 
@@ -130,7 +169,8 @@ before; on a Free tier the endpoint sink is skipped when a report is delivered (
 still runs.
 
 Implementation: `src/sales_copilot/modules/reports/delivery.py`, invoked from
-`generator.generate_report()` right after the local file is written.
+`generator.deliver_report()` once the post-call enrichment has rewritten the local file, so
+the sinks receive the enriched report.
 
 ### Configuration (.env)
 
@@ -204,7 +244,7 @@ argument.
 PYTHONPATH=src python -m sales_copilot.modules.reports
 ```
 
-The module runs until shutdown (Ctrl+C). On shutdown it generates the JSON report and emits `report_ready`.
+The module runs until shutdown (Ctrl+C). On shutdown it writes the JSON report, emits `report_ready`, and waits for the post-call enrichment to rewrite and deliver it.
 
 ## Dashboard Report View
 

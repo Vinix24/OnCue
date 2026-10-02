@@ -133,7 +133,7 @@ class TestSanitizeForOutbound:
         monkeypatch.delenv("ALLOW_RAW_LLM_PII", raising=False)
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT, allow_local=True)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=True)
 
         assert result == _PII_TEXT, "Raw text must pass through for local Ollama with allow_local=True"
 
@@ -143,7 +143,7 @@ class TestSanitizeForOutbound:
         monkeypatch.delenv("ALLOW_RAW_LLM_PII", raising=False)
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT, allow_local=True)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=True)
 
         assert result == _PII_TEXT
 
@@ -156,7 +156,7 @@ class TestSanitizeForOutbound:
         monkeypatch.delenv("ALLOW_RAW_LLM_PII", raising=False)
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT)  # no allow_local
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None)  # no allow_local
 
         assert _is_redacted(result), f"Expected redaction but got: {result!r}"
         assert _NAME not in result
@@ -172,7 +172,7 @@ class TestSanitizeForOutbound:
         monkeypatch.delenv("ALLOW_RAW_LLM_PII", raising=False)
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT, allow_local=True)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=True)
 
         assert _is_redacted(result), f"Remote Ollama must redact PII: {result!r}"
         assert _BSN not in result
@@ -190,7 +190,7 @@ class TestSanitizeForOutbound:
         monkeypatch.delenv("ALLOW_RAW_LLM_PII", raising=False)
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT, allow_local=True)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=True)
 
         assert _is_redacted(result), f"Provider {provider!r} must redact PII: {result!r}"
         assert _BSN not in result
@@ -208,10 +208,10 @@ class TestSanitizeForOutbound:
         monkeypatch.setenv("ALLOW_RAW_LLM_PII", raw_value)
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT, allow_local=False)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=False)
         assert result == _PII_TEXT
 
-        result_with_local = mod.sanitize_for_outbound(_PII_TEXT, allow_local=True)
+        result_with_local = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=True)
         assert result_with_local == _PII_TEXT
 
     def test_allow_raw_env_with_local_ollama(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -220,7 +220,7 @@ class TestSanitizeForOutbound:
         monkeypatch.setenv("ALLOW_RAW_LLM_PII", "true")
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT, allow_local=False)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=False)
         assert result == _PII_TEXT
 
     # --- Anti-leak regression: label_and_summarize path ---
@@ -239,7 +239,7 @@ class TestSanitizeForOutbound:
         mod = _reload_policy()
 
         # Simulate label_and_summarize.py's call pattern: no allow_local keyword
-        result = mod.sanitize_for_outbound(_PII_TEXT)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None)
 
         assert _BSN not in result, f"BSN must be redacted; got: {result!r}"
         assert _IBAN not in result, f"IBAN must be redacted; got: {result!r}"
@@ -329,7 +329,7 @@ class TestSanitizeForOutboundTrustedTenant:
         monkeypatch.delenv("ALLOW_RAW_LLM_PII", raising=False)
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT, allow_local=True)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=True)
 
         assert result == _PII_TEXT, f"Azure BYO-tenant must pass raw PII; got: {result!r}"
         assert _NAME in result
@@ -345,7 +345,7 @@ class TestSanitizeForOutboundTrustedTenant:
         monkeypatch.delenv("ALLOW_RAW_LLM_PII", raising=False)
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT, allow_local=True)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=True)
 
         assert result == _PII_TEXT, f"Vertex BYO-tenant must pass raw PII; got: {result!r}"
         assert _NAME in result
@@ -359,7 +359,7 @@ class TestSanitizeForOutboundTrustedTenant:
         monkeypatch.delenv("ALLOW_RAW_LLM_PII", raising=False)
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT, allow_local=True)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=True)
 
         assert _is_redacted(result), f"Azure without flag must redact; got: {result!r}"
         assert _BSN not in result
@@ -373,7 +373,7 @@ class TestSanitizeForOutboundTrustedTenant:
         monkeypatch.delenv("ALLOW_RAW_LLM_PII", raising=False)
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT, allow_local=True)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=True)
 
         assert _is_redacted(result), f"Gemini (public) must always redact; got: {result!r}"
         assert _BSN not in result
@@ -390,7 +390,7 @@ class TestSanitizeForOutboundTrustedTenant:
         monkeypatch.delenv("ALLOW_RAW_LLM_PII", raising=False)
         mod = _reload_policy()
 
-        result = mod.sanitize_for_outbound(_PII_TEXT, allow_local=True)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None, allow_local=True)
 
         assert _is_redacted(result), f"Provider {provider!r} with flag must still redact; got: {result!r}"
         assert _BSN not in result
@@ -411,7 +411,7 @@ class TestSanitizeForOutboundTrustedTenant:
         mod = _reload_policy()
 
         # Simulate label_and_summarize.py's call pattern — no allow_local
-        result = mod.sanitize_for_outbound(_PII_TEXT)
+        result = mod.sanitize_for_outbound(_PII_TEXT, provider=None)
 
         assert _is_redacted(result), (
             f"Anti-leak: azure trusted-tenant without allow_local must redact; got: {result!r}"

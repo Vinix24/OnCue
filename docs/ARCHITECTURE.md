@@ -37,19 +37,19 @@ graph LR
 
     subgraph tenant["BYO-tenant control plane - operator choice"]
         H -. "full PII-redacted transcript<br/>deep-insight lane, opt-in per call" .-> T["MCP host<br/>Claude Desktop / Claude Code"]
-        J -. short PII-redacted fragments .-> P[Ollama local]
-        J -. short PII-redacted fragments .-> Q[Azure OpenAI<br/>operator subscription]
-        J -. short PII-redacted fragments .-> R[Vertex AI<br/>operator GCP project]
-        J -. short PII-redacted fragments .-> S[AWS Bedrock<br/>operator account]
+        J -. PII-redacted text per task .-> P[Ollama local]
+        J -. PII-redacted text per task .-> Q[Azure OpenAI<br/>operator subscription]
+        J -. PII-redacted text per task .-> R[Vertex AI<br/>operator GCP project]
+        J -. PII-redacted text per task .-> S[AWS Bedrock<br/>operator account]
     end
 
     style local fill:#e8f5e9,stroke:#2e7d32
     style tenant fill:#e3f2fd,stroke:#1565c0
 ```
 
-Audio, session recordings, embeddings, and the case database stay on the device. The default outbound class is short PII-redacted transcript fragments, and only to the LLM destination the operator configured.
+Audio, session recordings, embeddings, and the case database stay on the device. With no LLM configured (the default) no transcript text leaves. With one, the outbound class is PII-redacted transcript text per task (detection windows, a rolling summary, live suggestions and the whole transcript for the post-call report), and only to the LLM destination the operator configured. See `docs/PRIVACY.md`.
 
-There are two further outbound classes, and both are deliberate rather than exceptions. The deep-insight lane (track 3, Pro) sends the PII-redacted full session transcript, plus prep-docs, to a destination the operator opts into per conversation. That destination can be a BYO-tenant cloud, a public frontier API, or an MCP host connected through the MCP bridge described below. With the lane off, which is the default, nothing changes: only short fragments leave.
+There are two further outbound classes, and both are deliberate rather than exceptions. The deep-insight lane (track 3, Pro) sends the PII-redacted full session transcript, plus prep-docs, to a destination the operator opts into per conversation. That destination can be a BYO-tenant cloud, a public frontier API, or an MCP host connected through the MCP bridge described below. With the lane off, which is the default, nothing changes.
 
 The third class is report delivery (added #218): OnCue is sold partly as a *trigger* — local capture and transcription, and when the call ends the finished report can additionally be handed to the customer's own automation, via an operator-configured directory (including a mounted network share) and/or an HTTP endpoint, both off by default. This class deliberately does **not** go through `core/outbound_policy.py` — its destination is never an LLM, it is infrastructure the customer owns, and the entire point is handing their own automation their own words verbatim. See "Reports layer" below and [ARCHITECTURE_BOUNDARIES.md](ARCHITECTURE_BOUNDARIES.md) ("Trigger delivery outbound class") for the full argument. The enforced version of the deep-insight-lane rule also lives there.
 
@@ -168,11 +168,11 @@ rather than queued alongside prospect speech during the call.
 ### BYO-tenant differentiator
 
 Both modes support a bring-your-own-tenant LLM configuration: instead of routing
-classification fragments to a third-party API (Gemini, Groq, OpenAI), the system
+LLM text to a third-party API (Gemini, Groq, OpenAI), the system
 can point at an Azure OpenAI endpoint within the customer's own Azure subscription,
 a Vertex AI project in their own GCP account, or AWS Bedrock in their own AWS
 account. Audio capture and transcription remain local; the LLM inference happens
-inside the customer's own cloud contract. This keeps processed transcript fragments
+inside the customer's own cloud contract. This keeps the processed transcript text
 within the customer's existing data-processing boundary and DPA, which is the
 relevant compliance framing for regulated NL B2B (financial services, healthcare,
 HR). Configured via `LLM_PROVIDER` and the matching endpoint/key environment
@@ -364,8 +364,8 @@ start: next to `Enabled modules` it logs `Disabled modules` with the source of
 each disabled flag, and warns explicitly when the detector is off. An absence
 in a list is not a signal a human notices.
 
-LLM provider is configurable via `LLM_PROVIDER` in `.env` (Gemini — shipped
-default, OpenRouter, Groq, OpenAI, Ollama, Vertex AI, Azure OpenAI). All LLM
+LLM provider is configurable via `LLM_PROVIDER` in `.env` (none is the shipped
+default; Gemini, OpenRouter, Groq, OpenAI, Ollama, Vertex AI, Azure OpenAI). All LLM
 calls go through `instructor` for structured output.
 
 ### Coaching layer
@@ -562,7 +562,7 @@ tier: when the `compliance.central_audit` feature is entitled, it computes a
 SHA-256 hash of each record client-side and ships only that hash to the
 `/audit/ingest` endpoint on the license server. The raw record — including any
 PII — never leaves the local machine. The central endpoint receives only the
-hash and the license key (for authorization); it builds a tamper-evident chain
+pseudonymous hash and the license key (for authorization); it builds a tamper-evident chain
 server-side. If the network call fails, the local write is unaffected. Free
 tier: local SQLite only, no outbound call.
 
@@ -633,7 +633,7 @@ Prospect speaks
     ├─ SlidingWindowBuffer appends chunk
     │
     ├─ WindowClassifier fires if debounce allows
-    │   (~500ms–1500ms for LLM call, Gemini 2.5 Flash default)
+    │   (~500ms–1500ms for LLM call, when a provider is configured)
     │
     ├─ Detection published to /ws/pain-points
     │

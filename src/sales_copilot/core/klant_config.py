@@ -27,10 +27,18 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from sales_copilot.core import context_docs
 
 KLANT_YAML_FILENAME = "klant.yaml"
+#: Optional, post-call only: the long term list for the report's term correction
+#: (termenlijst-in-uitwerking D2). Never sent to the live transcriber, so the live cap of
+#: ``_MAX_TERMEN`` does not apply; ``_MAX_TERMENLIJST`` does.
+TERMENLIJST_FILENAME = "termenlijst.yaml"
 
 _MAX_CONTACTPERSONEN = 20
 _MAX_TERMEN = 200
 _MAX_TERM_LENGTH = 64
+_MAX_TERMENLIJST = 5000
+# 5000 terms of 64 characters fit in a third of this; the cap keeps a stray huge file from
+# stalling the post-call path in the YAML parser.
+_MAX_TERMENLIJST_BYTES = 1024 * 1024
 
 # Only "lokaal" ships in this version -- HubSpot and webhook delivery are
 # explicitly out of scope for klantmap-als-eenheid (plan Approach section).
@@ -148,3 +156,54 @@ def load_klant_config(slug: str, *, root: Path | None = None) -> KlantConfig | N
         return KlantConfig.model_validate(raw)
     except ValidationError as exc:
         raise KlantConfigError(_format_validation_error(slug, exc)) from exc
+
+
+def load_termenlijst(slug: str, *, root: Path | None = None) -> tuple[str, ...]:
+    """Load and validate ``<root>/<slug>/termenlijst.yaml``: the client's long term list.
+
+    Same entry syntax as ``klant.yaml`` ``termen`` (``"Term"`` or ``"bron -> doel"``), as a
+    list under ``termen``. Used only after the call, for the report's term correction. Returns
+    ``()`` when the file does not exist. Raises ``KlantConfigError`` when the slug is unsafe,
+    the file resolves outside the root (a symlink), is larger than 1 MiB, or fails validation:
+    at most 5000 entries, each a non-empty string of at most 64 characters without a line
+    break or ``;``. The messages name the entry by its number, never by its text: a term can
+    be a person's name.
+    """
+    directory = resolve_klant_dir(slug, root=root)
+    path = directory / TERMENLIJST_FILENAME
+    if not path.is_file():
+        return ()
+    base = (root or context_docs.UPLOAD_ROOT).resolve()
+    try:
+        path.resolve().relative_to(base)
+    except ValueError as exc:
+        raise KlantConfigError(f"{TERMENLIJST_FILENAME} voor '{slug}' verwijst buiten KLANTEN_ROOT") from exc
+    size = path.stat().st_size
+    if size > _MAX_TERMENLIJST_BYTES:
+        raise KlantConfigError(
+            f"{TERMENLIJST_FILENAME} voor '{slug}' is {size} bytes, maximum is {_MAX_TERMENLIJST_BYTES}"
+        )
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise KlantConfigError(f"{TERMENLIJST_FILENAME} voor '{slug}' is niet leesbaar als UTF-8-tekst") from exc
+    except yaml.YAMLError as exc:
+        raise KlantConfigError(f"{TERMENLIJST_FILENAME} voor '{slug}' is geen geldige YAML") from exc
+    prefix = f"{TERMENLIJST_FILENAME} voor '{slug}' is ongeldig --"
+    if not isinstance(raw, dict) or set(raw) - {"termen"}:
+        raise KlantConfigError(f"{prefix} verwacht een mapping met alleen het veld 'termen'")
+    termen = raw.get("termen") or []
+    if not isinstance(termen, list):
+        raise KlantConfigError(f"{prefix} veld 'termen' moet een lijst zijn")
+    if len(termen) > _MAX_TERMENLIJST:
+        raise KlantConfigError(f"{prefix} {len(termen)} termen, maximum is {_MAX_TERMENLIJST}")
+    for number, term in enumerate(termen, start=1):
+        if not isinstance(term, str) or not term.strip():
+            raise KlantConfigError(f"{prefix} term {number} moet een niet-lege tekst zijn")
+        if len(term) > _MAX_TERM_LENGTH:
+            raise KlantConfigError(
+                f"{prefix} term {number} is {len(term)} tekens lang, maximum is {_MAX_TERM_LENGTH}"
+            )
+        if "\n" in term or "\r" in term or ";" in term:
+            raise KlantConfigError(f"{prefix} term {number} bevat een regelovergang of ';'")
+    return tuple(term.strip() for term in termen)

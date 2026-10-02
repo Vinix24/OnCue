@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from websockets.exceptions import ConnectionClosed
 
 from sales_copilot.core.config import DetectorConfig, WebSocketConfig
-from sales_copilot.core.llm_client import LLMClient
+from sales_copilot.core.llm_routing import resolve_llm_client
 from sales_copilot.websocket.hub_auth import channel_ws_url
 
 logger = logging.getLogger(__name__)
@@ -43,8 +43,9 @@ class SummaryLLMClient:
 
     def __init__(self, config: DetectorConfig) -> None:
         self.config = config
-        self.provider = config.llm_provider.lower()
-        self._llm = LLMClient(self.provider, timeout_ms=config.llm_timeout_ms)
+        # Post-segment, not live: its own timeout default (30 s) instead of LLM_TIMEOUT_MS.
+        self.resolved, self._llm = resolve_llm_client("summary", config)
+        self.provider = self.resolved.provider
 
     async def summarize(
         self,
@@ -55,16 +56,17 @@ class SummaryLLMClient:
         if not cleaned_lines:
             return None
 
-        timeout_s = self.config.llm_timeout_ms / 1000
+        timeout_s = self.resolved.timeout_ms / 1000
         try:
             summary = await asyncio.wait_for(
                 self._llm.acreate(
-                    model=self.config.llm_model,
+                    model=self.resolved.model,
                     system_prompt=self._SYSTEM_PROMPT,
                     user_text=self._user_prompt(cleaned_lines, tracked_key_moments),
                     response_model=ConversationSummary,
                     temperature=self.config.llm_temperature,
                     allow_local=True,
+                    max_tokens=self.resolved.output_limit(),
                 ),
                 timeout=timeout_s,
             )

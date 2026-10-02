@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from sales_copilot.core.config import DetectorConfig, load_yaml
 from sales_copilot.core.context_docs import load_context_documents
-from sales_copilot.core.llm_client import LLMClient
+from sales_copilot.core.llm_routing import resolve_llm_client
 from sales_copilot.core.thinking_policy import ThinkingPolicy
 
 logger = logging.getLogger(__name__)
@@ -36,16 +36,16 @@ class LLMConfirmClient:
         thinking: ThinkingPolicy | None = None,
     ) -> None:
         self.config = config or DetectorConfig.from_env()
-        self.provider = self.config.llm_provider.lower()
+        self.resolved, self._llm = resolve_llm_client(
+            "detector_confirm", self.config, prompt_cache=self.config.llm_prompt_cache
+        )
+        self.provider = self.resolved.provider
+        self.model = self.resolved.model
         self.categories = self._load_categories(self.config.pain_points_config)
+        # Sanitized for the provider this task actually calls, not the global one.
         self._context_block = self._load_context_docs(context_docs or [], provider=self.provider)
         self.system_prompt = self._build_system_prompt()
         self._thinking = thinking
-        self._llm = LLMClient(
-            self.provider,
-            timeout_ms=self.config.llm_timeout_ms,
-            prompt_cache=self.config.llm_prompt_cache,
-        )
 
     @property
     def last_usage(self) -> dict[str, int] | None:
@@ -55,7 +55,7 @@ class LLMConfirmClient:
     def confirm(self, fragment: str) -> PainPointDetection | None:
         if not fragment.strip():
             return None
-        timeout_s = self.config.llm_timeout_ms / 1000
+        timeout_s = self.resolved.timeout_ms / 1000
         executor = ThreadPoolExecutor(max_workers=1)
         future = executor.submit(self._call_model, fragment)
         try:
@@ -66,7 +66,7 @@ class LLMConfirmClient:
             logger.error(
                 "LLMConfirmClient.confirm failed: provider=%s model=%s exc_type=%s msg=%s fragment_preview=%r",
                 self.provider,
-                self.config.llm_model,
+                self.model,
                 type(exc).__name__,
                 str(exc)[:300],
                 fragment[:200],
@@ -83,13 +83,14 @@ class LLMConfirmClient:
             return None
         try:
             return await self._llm.acreate(
-                model=self.config.llm_model,
+                model=self.model,
                 system_prompt=self.system_prompt,
                 user_text=self._user_prompt(fragment),
                 response_model=PainPointDetection,
                 temperature=self.config.llm_temperature,
                 allow_local=True,
                 thinking=self._thinking,
+                max_tokens=self.resolved.output_limit(self._thinking),
             )
         except TimeoutError:
             return None
@@ -97,7 +98,7 @@ class LLMConfirmClient:
             logger.error(
                 "LLMConfirmClient.confirm_async failed: provider=%s model=%s exc_type=%s msg=%s fragment_preview=%r",
                 self.provider,
-                self.config.llm_model,
+                self.model,
                 type(exc).__name__,
                 str(exc)[:300],
                 fragment[:200],
@@ -106,13 +107,14 @@ class LLMConfirmClient:
 
     def _call_model(self, fragment: str) -> PainPointDetection:
         return self._llm.create(
-            model=self.config.llm_model,
+            model=self.model,
             system_prompt=self.system_prompt,
             user_text=self._user_prompt(fragment),
             response_model=PainPointDetection,
             temperature=self.config.llm_temperature,
             allow_local=True,
             thinking=self._thinking,
+            max_tokens=self.resolved.output_limit(self._thinking),
         )
 
     def _user_prompt(self, fragment: str) -> str:

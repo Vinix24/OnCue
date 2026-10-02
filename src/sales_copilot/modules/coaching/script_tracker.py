@@ -20,7 +20,7 @@ from sales_copilot.auth.feature_policy import (
     get_feature_policy,
 )
 from sales_copilot.core.config import DetectorConfig, WebSocketConfig, env_bool, env_int, load_yaml
-from sales_copilot.core.llm_client import LLMClient
+from sales_copilot.core.llm_routing import resolve_llm_client
 from sales_copilot.modules.detector.router import (
     RouteMatch,
     _build_router,
@@ -291,8 +291,8 @@ class ScriptCoverageLLMClient:
 
     def __init__(self, config: DetectorConfig) -> None:
         self.config = config
-        self.provider = config.llm_provider.lower()
-        self._llm = LLMClient(self.provider, timeout_ms=config.llm_timeout_ms)
+        self.resolved, self._llm = resolve_llm_client("script_tracking", config)
+        self.provider = self.resolved.provider
 
     async def confirm(
         self,
@@ -308,12 +308,13 @@ class ScriptCoverageLLMClient:
             return None
         try:
             return await self._llm.acreate(
-                model=self.config.llm_model,
+                model=self.resolved.model,
                 system_prompt=self._SYSTEM_PROMPT,
                 user_text=self._user_prompt(points, cleaned_lines, tentative),
                 response_model=_CoverageConfirmResponse,
                 temperature=self.config.llm_temperature,
                 allow_local=True,
+                max_tokens=self.resolved.output_limit(),
             )
         except TimeoutError:
             logger.warning("Script coverage LLM confirmation timed out")

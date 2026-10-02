@@ -24,12 +24,19 @@ Matching order, each chosen to keep the held-out false-positive rate low
    real name "Roy" in a live call). Terms of >= 5 characters allow an edit
    distance of 1; terms of >= 8 characters allow 2.
 
-Replacements are never published or written to disk. They are logged locally
-at DEBUG only (source, target, rule) — see the D2 dispatch's LOG-ONLY
-decision. The returned text is the only thing that reaches the
-``TranscriptEvent`` payload, so downstream consumers (detector, SummaryEngine,
-cloud-LLM input, the on-disk session report) only ever see the normalized
-wording, never the original.
+Per-conversation terms (D3): the server puts the client's ``termen`` from
+``klant.yaml`` in ``config.call_terms``. ``with_call_terms`` layers them over
+the fixed list with precedence: a call term is never rewritten by a fixed
+variant or fuzzed into another term, and it wins fuzzy ties. The list lives
+only in transcriber process memory and is cleared on ``call_ended``.
+
+LOG-ONLY decision (tiebreaker, plan-gate round 3): the original text and every
+replacement (source, target, rule) go to the local transcriber log at DEBUG
+and nowhere else. No second wire field, no report field, no side-channel. The
+returned text is the only thing that reaches the ``TranscriptEvent`` payload,
+so downstream consumers (detector, SummaryEngine, cloud-LLM input, the on-disk
+session report) only ever see the normalized wording, never the original.
+Call terms are participant names (PII) and are never logged at INFO.
 """
 
 from __future__ import annotations
@@ -66,6 +73,52 @@ class NormalizationLists:
     enabled: bool
     terms: tuple[str, ...]
     variants: dict[str, str]
+
+
+def sanitize_call_terms(raw: object) -> tuple[str, ...]:
+    """Reduce a server-supplied ``call_terms`` value to a tuple of non-empty strings.
+
+    The server already validated the list (klant.yaml ``termen``); this only
+    guards the transcriber against a malformed payload, it does not re-validate.
+    """
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    seen: dict[str, None] = {}
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            seen[item.strip()] = None
+    return tuple(seen)
+
+
+def with_call_terms(base: NormalizationLists, call_terms: tuple[str, ...]) -> NormalizationLists:
+    """Layer per-conversation terms over the fixed lists; call terms take precedence.
+
+    Two entry forms, both plain strings so ``klant.yaml`` ``termen`` carries
+    them unchanged: ``"Bergkamp"`` is a canonical term (fuzzy/merge eligible
+    under the normal length rules), ``"VWA -> VBA"`` is an exact variant
+    (usable for short forms that fuzzy matching never touches). Call terms
+    come first in ``terms`` (they win fuzzy ties), a fixed variant whose
+    source is a call term is dropped, and a call variant overrides a fixed
+    variant with the same source.
+    """
+    if not call_terms:
+        return base
+    canonical: list[str] = []
+    call_variants: dict[str, str] = {}
+    for entry in call_terms:
+        source, arrow, target = entry.partition("->")
+        source, target = source.strip(), target.strip()
+        if arrow and source and target:
+            call_variants[source] = target
+            canonical.append(target)
+        elif not arrow:
+            canonical.append(entry)
+    protected = {t.casefold() for t in canonical}
+    variants = {src: dst for src, dst in base.variants.items() if src.casefold() not in protected}
+    variants.update(call_variants)
+    terms = tuple(dict.fromkeys(canonical))
+    fixed = tuple(t for t in base.terms if t not in terms)
+    return NormalizationLists(enabled=base.enabled, terms=(*terms, *fixed), variants=variants)
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -159,7 +212,7 @@ def _fuzzy_threshold_for_term(term: str) -> int | None:
 
 
 def _closest_term(word: str, terms: tuple[str, ...]) -> str | None:
-    if len(word) < _FUZZY_MIN_TERM_LEN:
+    if len(word) < _FUZZY_MIN_TERM_LEN or word in terms:
         return None
     best_term: str | None = None
     best_dist: int | None = None

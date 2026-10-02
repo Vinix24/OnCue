@@ -1395,3 +1395,105 @@ def test_a_failing_status_broadcast_does_not_break_the_monitor(caplog) -> None:
         asyncio.run(_run())
 
     assert [r for r in caplog.records if "Failed to broadcast tap_status" in r.getMessage()]
+
+
+# --- microphone side: causes that fit a microphone, not a process-tap -------
+
+
+def _mic_silent_health(target: str = "mic:BlackHole 2ch") -> object:
+    clock = _Clock()
+    tracker = TapHealthTracker(clock=clock, is_microphone=True)
+    tracker.mark_attached(target)
+    for _ in range(50):
+        tracker.observe(_digital_silence())
+    clock.advance(130.0)
+    return _health(tracker)
+
+
+def _warn(label: str, health: object) -> str:
+    message = evaluate_tap_health(label, health, no_frames_warn_seconds=10.0, silent_warn_seconds=120.0)  # type: ignore[arg-type]
+    assert message is not None
+    return message
+
+
+def test_mic_silent_message_names_microphone_causes_and_device() -> None:
+    message = _warn("self", _mic_silent_health())
+
+    assert "microfoon" in message
+    assert "gemute" in message
+    assert "verkeerd invoerapparaat" in message
+    assert "Privacy en beveiliging > Microfoon" in message
+    assert "mic:BlackHole 2ch" in message
+    assert "telefoon, tweede laptop" not in message
+    assert "output van deze Mac" not in message
+
+
+def test_prospect_silent_message_is_unchanged() -> None:
+    clock = _Clock()
+    tracker = TapHealthTracker(clock=clock)
+    tracker.mark_attached("audiotee:all")
+    for _ in range(50):
+        tracker.observe(_digital_silence())
+    clock.advance(130.0)
+
+    message = _warn("prospect", _health(tracker))
+    assert "Twee oorzaken zijn realistisch" in message
+    assert "telefoon, tweede laptop" in message
+    assert "De tap zelf is in orde." in message
+    assert "microfoon" not in message
+
+
+def test_side_follows_the_stream_not_the_label() -> None:
+    """A microphone stream labelled anything still gets microphone causes."""
+
+    message = _warn("prospect", _mic_silent_health())
+    assert "verkeerd invoerapparaat" in message
+
+
+def test_mic_no_frames_message_does_not_mention_process_taps() -> None:
+    clock = _Clock()
+    tracker = TapHealthTracker(clock=clock, is_microphone=True)
+    tracker.mark_attached("mic:default")
+    clock.advance(11.0)
+
+    message = _warn("self", _health(tracker))
+    assert "process-taps" not in message
+    assert "microfoontoestemming" in message
+    assert "mic:default" in message
+
+
+def test_prospect_no_frames_message_still_names_process_taps() -> None:
+    clock = _Clock()
+    tracker = TapHealthTracker(clock=clock)
+    tracker.mark_attached("audiotee:all")
+    clock.advance(11.0)
+
+    assert "Core Audio process-taps" in _warn("prospect", _health(tracker))
+
+
+def test_mic_signal_lost_message_says_microphone() -> None:
+    clock = _Clock()
+    tracker = TapHealthTracker(clock=clock, signal_lost_seconds=30.0, is_microphone=True)
+    tracker.mark_attached("mic:Headset")
+    tracker.observe(_loud())
+    clock.advance(1.0)
+    for _ in range(40):
+        clock.advance(1.0)
+        tracker.observe(_digital_silence())
+
+    message = evaluate_tap_health(
+        "self",
+        _health(tracker),
+        no_frames_warn_seconds=10.0,
+        silent_warn_seconds=120.0,
+        peer_label="prospect",
+    )
+    assert message is not None
+    assert "self-microfoon (mic:Headset)" in message
+    assert "defect in deze microfoon" in message
+
+
+def test_micstream_reports_itself_as_microphone() -> None:
+    from sales_copilot.audio.capture import MicStream
+
+    assert MicStream(AudioConfig()).tap_health().is_microphone is True

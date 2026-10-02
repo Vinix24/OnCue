@@ -18,15 +18,32 @@ const reportSelectors = {
   keyMoments: document.getElementById("report-key-moments"),
   insights: document.getElementById("report-insights"),
   finalSummary: document.getElementById("report-final-summary"),
+  junkBanner: document.getElementById("report-junk-banner"),
+  junkReason: document.getElementById("report-junk-reason"),
+  termCorrectionsBlock: document.getElementById("report-term-corrections-block"),
+  termCorrections: document.getElementById("report-term-corrections"),
+  termCorrectionsNote: document.getElementById("report-term-corrections-note"),
   downloadJson: document.getElementById("report-download-json"),
   downloadMarkdown: document.getElementById("report-download-markdown"),
   newCall: document.getElementById("report-new-call"),
+  status: document.getElementById("report-status"),
+  enrichmentBlock: document.getElementById("report-enrichment-block"),
+  shortSummary: document.getElementById("report-short-summary"),
+  overview: document.getElementById("report-overview"),
+  keywords: document.getElementById("report-keywords"),
+  actionItems: document.getElementById("report-action-items"),
 };
+
+// The enrichment runs after the call and can take a minute or more. When report_enriched has not
+// arrived by then, the status line says the report is saved locally instead of promising more.
+const ENRICHMENT_WAIT_MS = 6 * 60 * 1000;
 
 let latestReport = null;
 let reportSocket = null;
 let configSocket = null;
 let endCallLocked = false;
+// Bumped on every new report and reset, so a timer or fetch of an earlier report does nothing.
+let enrichmentRun = 0;
 
 const emptySummaryText = () => window.t("summary.empty_state");
 
@@ -213,6 +230,135 @@ const applyScorecard = (report) => {
   setListItems(reportSelectors.scorecard, items, window.t("report.no_scorecard"));
 };
 
+// Term correction (termenlijst-in-uitwerking D2): the transcript keeps the original, each
+// correction says where a list term was meant. The list only comes with a full report; the
+// report_enriched event carries the counts and never the text (no PII on that channel).
+const termCorrectionsFromReport = (report) =>
+  Array.isArray(report?.term_corrections) ? report.term_corrections : [];
+
+const termCorrectionCount = (report) =>
+  typeof report?.term_correction_count === "number"
+    ? report.term_correction_count
+    : termCorrectionsFromReport(report).length;
+
+const termCorrectionsPiiLimited = (report) =>
+  typeof report?.term_corrections_pii_limited === "number" ? report.term_corrections_pii_limited : 0;
+
+const termCorrectionMeta = (report, item) => {
+  const segment = Array.isArray(report?.full_transcript) ? report.full_transcript[item?.segment_index] : null;
+  if (typeof segment?.start_ms === "number") {
+    return formatTimestamp(segment.start_ms);
+  }
+  return window.t("report.term_corrections_segment", { index: item?.segment_index ?? "?" });
+};
+
+// The notes under the list: the count when only the count arrived, and the PII limit.
+const termCorrectionNotes = (report) => {
+  const notes = [];
+  const count = termCorrectionCount(report);
+  if (!termCorrectionsFromReport(report).length && count > 0) {
+    notes.push(window.t("report.term_corrections_saved_count", { count }));
+  }
+  const piiLimited = termCorrectionsPiiLimited(report);
+  if (piiLimited > 0) {
+    notes.push(window.t("report.term_corrections_pii_limited", { count: piiLimited }));
+  }
+  return notes;
+};
+
+const termCorrectionPart = (className, text) => {
+  const part = document.createElement("span");
+  part.className = className;
+  part.textContent = text;
+  return part;
+};
+
+const termCorrectionRow = (report, item) => {
+  const row = document.createElement("div");
+  row.className = "report-row term-correction-row";
+  const pair = document.createElement("strong");
+  pair.className = "term-correction-pair";
+  pair.appendChild(termCorrectionPart("term-correction-label", window.t("report.term_corrections_original_label")));
+  pair.appendChild(termCorrectionPart("term-correction-original", item?.source || ""));
+  pair.appendChild(termCorrectionPart("term-correction-arrow", "→"));
+  pair.appendChild(termCorrectionPart("term-correction-label", window.t("report.term_corrections_corrected_label")));
+  pair.appendChild(termCorrectionPart("term-correction-target", item?.target || ""));
+  const meta = document.createElement("span");
+  meta.textContent = termCorrectionMeta(report, item);
+  row.appendChild(pair);
+  row.appendChild(meta);
+  if (item?.reason) {
+    const detail = document.createElement("p");
+    detail.className = "report-row-detail";
+    detail.textContent = item.reason;
+    row.appendChild(detail);
+  }
+  return row;
+};
+
+const applyTermCorrections = (report) => {
+  const { termCorrectionsBlock: block, termCorrections: list, termCorrectionsNote: note } = reportSelectors;
+  if (!block) {
+    return;
+  }
+  const items = termCorrectionsFromReport(report);
+  const notes = termCorrectionNotes(report);
+  if (list) {
+    list.textContent = "";
+    items.forEach((item) => list.appendChild(termCorrectionRow(report, item)));
+  }
+  if (note) {
+    note.textContent = notes.join(" ");
+  }
+  block.style.display = items.length || notes.length ? "" : "none";
+};
+
+const textList = (value) =>
+  Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.trim()) : [];
+
+const enrichmentText = (report) => ({
+  shortSummary: typeof report?.short_summary === "string" ? report.short_summary.trim() : "",
+  overview: typeof report?.overview === "string" ? report.overview.trim() : "",
+  keywords: textList(report?.keywords),
+  actionItems: textList(report?.action_items),
+});
+
+const applyEnrichment = (report) => {
+  const block = reportSelectors.enrichmentBlock;
+  if (!block) {
+    return;
+  }
+  const text = enrichmentText(report);
+  if (reportSelectors.shortSummary) {
+    reportSelectors.shortSummary.textContent = text.shortSummary;
+  }
+  if (reportSelectors.overview) {
+    reportSelectors.overview.textContent = text.overview;
+  }
+  if (reportSelectors.keywords) {
+    reportSelectors.keywords.textContent = text.keywords.join(", ");
+  }
+  setListItems(
+    reportSelectors.actionItems,
+    text.actionItems.map((item) => ({ title: item, meta: "" })),
+    "",
+  );
+  const hasContent = Boolean(text.shortSummary || text.overview || text.keywords.length || text.actionItems.length);
+  block.style.display = hasContent ? "" : "none";
+};
+
+let statusKey = null;
+
+const setStatus = (key) => {
+  statusKey = key;
+  const status = reportSelectors.status;
+  if (!status) {
+    return;
+  }
+  status.textContent = key ? window.t(key) : "";
+  status.style.display = key ? "" : "none";
+};
+
 const summaryFromReport = (report) => {
   if (typeof report?.conversation_summary === "string" && report.conversation_summary.trim()) {
     return report.conversation_summary.trim();
@@ -240,6 +386,18 @@ const ensureReport = (report) => {
   };
 };
 
+// Reports written before the junk filter carry no junk keys: they read as not junk.
+const applyJunkBanner = (report) => {
+  if (!reportSelectors.junkBanner) {
+    return;
+  }
+  const isJunk = Boolean(report && report.junk);
+  reportSelectors.junkBanner.style.display = isJunk ? "" : "none";
+  if (reportSelectors.junkReason) {
+    reportSelectors.junkReason.textContent = isJunk ? report.junk_reason || "" : "";
+  }
+};
+
 const applyReport = (report) => {
   latestReport = ensureReport(report);
   if (reportSelectors.duration) {
@@ -262,6 +420,79 @@ const applyReport = (report) => {
   setListItems(reportSelectors.keyMoments, keyMomentsFromReport(latestReport), window.t("report.no_key_moments"));
   setListItems(reportSelectors.insights, insightsFromReport(latestReport), window.t("report.no_insights"));
   applyScorecard(latestReport);
+  applyJunkBanner(latestReport);
+  applyTermCorrections(latestReport);
+  applyEnrichment(latestReport);
+};
+
+// report_ready goes out before the post-call enrichment; report_enriched follows with the
+// junk decision and the term-correction counts.
+const startWaitingForEnrichment = () => {
+  enrichmentRun += 1;
+  const run = enrichmentRun;
+  setStatus("report.status_preparing");
+  setTimeout(() => {
+    if (run === enrichmentRun && statusKey === "report.status_preparing") {
+      setStatus("report.status_local_only");
+    }
+  }, ENRICHMENT_WAIT_MS);
+};
+
+// The enrichment text never rides on the event: it is read from the local report through the
+// token-protected endpoint, once report_enriched says it is there.
+const fetchEnrichedReport = async (sessionId, run) => {
+  await window.copilotAuthReady;
+  const response = await fetch(`/api/reports/${encodeURIComponent(sessionId)}`, {
+    headers: { ...window.copilotAuthHeaders() },
+  });
+  if (!response.ok) {
+    throw new Error(`Report fetch failed: ${response.status}`);
+  }
+  const stored = await response.json();
+  if (run !== enrichmentRun || !latestReport || latestReport.session_id !== sessionId) {
+    return;
+  }
+  latestReport = {
+    ...latestReport,
+    gesprek_gevoerd: stored.gesprek_gevoerd,
+    short_summary: stored.short_summary,
+    overview: stored.overview,
+    keywords: stored.keywords,
+    action_items: stored.action_items,
+    term_corrections: stored.term_corrections,
+    term_corrections_pii_limited: stored.term_corrections_pii_limited,
+  };
+  applyEnrichment(latestReport);
+  applyTermCorrections(latestReport);
+  setStatus(null);
+};
+
+const applyReportEnriched = (payload) => {
+  if (!latestReport || (latestReport.session_id && payload.session_id !== latestReport.session_id)) {
+    return;
+  }
+  latestReport = {
+    ...latestReport,
+    gesprek_gevoerd: payload.gesprek_gevoerd,
+    junk: Boolean(payload.junk),
+    junk_reason: payload.junk_reason || null,
+    term_correction_count: typeof payload.term_correction_count === "number" ? payload.term_correction_count : 0,
+    term_corrections_pii_limited:
+      typeof payload.term_corrections_pii_limited === "number" ? payload.term_corrections_pii_limited : 0,
+  };
+  applyJunkBanner(latestReport);
+  applyTermCorrections(latestReport);
+  if (!latestReport.session_id) {
+    setStatus(null);
+    return;
+  }
+  const run = enrichmentRun;
+  fetchEnrichedReport(latestReport.session_id, run).catch((error) => {
+    console.error(error);
+    if (run === enrichmentRun) {
+      setStatus("report.status_fetch_failed");
+    }
+  });
 };
 
 const downloadBlob = (content, mimeType, extension) => {
@@ -353,6 +584,39 @@ const reportToMarkdown = (report) => {
       }
     });
   }
+  const enrichment = enrichmentText(report);
+  if (enrichment.shortSummary) {
+    lines.push("", `## ${window.t("report.short_summary_title")}`, "", escapeMarkdown(enrichment.shortSummary));
+  }
+  if (enrichment.overview) {
+    lines.push("", `## ${window.t("report.overview_title")}`, "", escapeMarkdown(enrichment.overview));
+  }
+  if (enrichment.keywords.length) {
+    lines.push("", `## ${window.t("report.keywords_title")}`, "", escapeMarkdown(enrichment.keywords.join(", ")));
+  }
+  if (enrichment.actionItems.length) {
+    lines.push("", `## ${window.t("report.action_items_title")}`, "");
+    enrichment.actionItems.forEach((item) => lines.push(`- ${escapeMarkdown(item)}`));
+  }
+  const termCorrections = termCorrectionsFromReport(report);
+  const termNotes = termCorrectionNotes(report);
+  if (termCorrections.length || termNotes.length) {
+    lines.push("", `## ${window.t("report.term_corrections_title")}`, "");
+    termCorrections.forEach((item) => {
+      lines.push(
+        `- ${escapeMarkdown(termCorrectionMeta(report, item))} - ` +
+          `${escapeMarkdown(window.t("report.term_corrections_original_label"))}: ${escapeMarkdown(item?.source)} → ` +
+          `${escapeMarkdown(window.t("report.term_corrections_corrected_label"))}: ${escapeMarkdown(item?.target)}`,
+      );
+      if (item?.reason) {
+        lines.push(`  - ${escapeMarkdown(item.reason)}`);
+      }
+    });
+    termNotes.forEach((text) => lines.push(`- ${escapeMarkdown(text)}`));
+  }
+  if (report.junk) {
+    lines.push("", `> ${window.t("report.junk_title")}: ${escapeMarkdown(report.junk_reason || "")}`);
+  }
   lines.push("", `## ${window.t("report.final_summary_title")}`, "", report.conversation_summary || emptySummaryText());
   return lines.join("\n");
 };
@@ -396,6 +660,9 @@ const connectReportSocket = () => {
         (payload.type === "report_ready" || payload.event === "report_ready" || payload.action === "report_ready")
       ) {
         applyReport(payload.report || payload.data || payload);
+        startWaitingForEnrichment();
+      } else if (payload && payload.type === "report_enriched") {
+        applyReportEnriched(payload);
       }
     } catch (error) {
       console.error("Invalid report message", error);
@@ -492,6 +759,8 @@ window.renderReportView = (report) => {
 
 window.resetReportView = () => {
   latestReport = null;
+  enrichmentRun += 1;
+  setStatus(null);
   if (reportSelectors.duration) {
     reportSelectors.duration.textContent = "00:00";
   }
@@ -512,6 +781,9 @@ window.resetReportView = () => {
   setListItems(reportSelectors.keyMoments, [], window.t("report.no_key_moments"));
   setListItems(reportSelectors.insights, [], window.t("report.no_insights"));
   setListItems(reportSelectors.scorecard, [], window.t("report.no_scorecard"));
+  applyJunkBanner(null);
+  applyTermCorrections(null);
+  applyEnrichment(null);
   if (reportSelectors.scorecardBlock) {
     reportSelectors.scorecardBlock.style.display = "none";
   }

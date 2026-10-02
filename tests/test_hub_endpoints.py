@@ -810,3 +810,98 @@ def test_autostart_decline_resets_pending_state(authed_client: TestClient) -> No
     assert monitor._detected_process is None
 
     set_active_monitor(None)
+
+
+_REPORT_SESSION = "5b0c2f0e-7d1a-4c55-9a1e-0f3a8d2c4b11"
+
+
+def _write_report_file(directory: Path, session_id: str, body: str, stamp: str = "2026-10-01T10-00-00") -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{stamp}_{session_id}_report.json"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_report_endpoint_returns_the_local_file_as_is(
+    tmp_path: Path, authed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sales_copilot.modules.reports import generator
+
+    reports = tmp_path / "reports"
+    monkeypatch.setattr(generator, "REPORTS_DIR", reports)
+    _write_report_file(reports, _REPORT_SESSION, '{"short_summary": "old"}', "2026-10-01T09-00-00")
+    _write_report_file(reports, _REPORT_SESSION, '{"short_summary": "enriched"}')
+
+    response = authed_client.get(f"/api/reports/{_REPORT_SESSION}")
+
+    assert response.status_code == 200
+    assert response.json() == {"short_summary": "enriched"}
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_report_endpoint_requires_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from sales_copilot.modules.reports import generator
+
+    reports = tmp_path / "reports"
+    monkeypatch.setattr(generator, "REPORTS_DIR", reports)
+    monkeypatch.setenv("SHUTDOWN_TOKEN", _TOKEN)
+    _write_report_file(reports, _REPORT_SESSION, "{}")
+
+    assert TestClient(hub.app).get(f"/api/reports/{_REPORT_SESSION}").status_code == 401
+    wrong = TestClient(hub.app, headers={"X-Sales-Copilot-Token": "wrong"})
+    assert wrong.get(f"/api/reports/{_REPORT_SESSION}").status_code == 401
+
+
+def test_report_endpoint_unknown_session_is_404(
+    tmp_path: Path, authed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sales_copilot.modules.reports import generator
+
+    monkeypatch.setattr(generator, "REPORTS_DIR", tmp_path / "missing")
+
+    assert authed_client.get(f"/api/reports/{_REPORT_SESSION}").status_code == 404
+
+
+@pytest.mark.parametrize("session_id", ["..", "%2e%2e%2f%2e%2e%2fsecret", "a.b", "*", "x%2Fy", "a" * 65, "a b"])
+def test_report_endpoint_rejects_unsafe_session_ids(
+    tmp_path: Path, authed_client: TestClient, monkeypatch: pytest.MonkeyPatch, session_id: str
+) -> None:
+    from sales_copilot.modules.reports import generator
+
+    reports = tmp_path / "reports"
+    monkeypatch.setattr(generator, "REPORTS_DIR", reports)
+    _write_report_file(reports, _REPORT_SESSION, "{}")
+    (tmp_path / "secret_report.json").write_text('{"secret": true}', encoding="utf-8")
+
+    response = authed_client.get(f"/api/reports/{session_id}")
+
+    assert response.status_code in (400, 404)
+    assert "secret" not in response.text
+
+
+def test_report_endpoint_does_not_serve_another_sessions_suffix_match(
+    tmp_path: Path, authed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sales_copilot.modules.reports import generator
+
+    reports = tmp_path / "reports"
+    monkeypatch.setattr(generator, "REPORTS_DIR", reports)
+    _write_report_file(reports, "a_b", '{"owner": "a_b"}')
+
+    assert authed_client.get("/api/reports/b").status_code == 404
+    assert authed_client.get("/api/reports/a_b").json() == {"owner": "a_b"}
+
+
+def test_report_endpoint_never_follows_a_symlink(
+    tmp_path: Path, authed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sales_copilot.modules.reports import generator
+
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"secret": true}', encoding="utf-8")
+    (reports / f"2026-10-01T10-00-00_{_REPORT_SESSION}_report.json").symlink_to(outside)
+    monkeypatch.setattr(generator, "REPORTS_DIR", reports)
+
+    assert authed_client.get(f"/api/reports/{_REPORT_SESSION}").status_code == 404

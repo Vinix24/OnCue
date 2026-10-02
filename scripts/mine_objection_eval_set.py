@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -38,6 +39,17 @@ from sales_copilot.modules.detector.eval_mining import (  # noqa: E402
 from sales_copilot.modules.detector.objection_detector import ObjectionRouter  # noqa: E402
 
 _DEFAULT_OUTPUT = REPO_ROOT / "data" / "objection_eval" / "mined.jsonl"
+_EXCLUDED_SPEAKERS_ENV = "EVAL_EXCLUDED_SPEAKERS"
+
+
+def resolve_excluded_speakers(flag_value: str | None) -> list[str]:
+    """Return the sales reps to exclude: the CLI flag, else ``EVAL_EXCLUDED_SPEAKERS``.
+
+    Both are comma-separated names. When neither is set the list is empty and
+    every speaker counts as a prospect.
+    """
+    raw = flag_value if flag_value is not None else os.environ.get(_EXCLUDED_SPEAKERS_ENV, "")
+    return [name.strip() for name in raw.split(",") if name.strip()]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -75,7 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "Comma-separated sales rep names to exclude from prospect mining "
-            "(default: Vincent van Deth, Lucas Hendriks, Theun Dingemans)."
+            "(default: the EVAL_EXCLUDED_SPEAKERS env var, comma-separated; "
+            "empty when unset)."
         ),
     )
     parser.add_argument(
@@ -98,11 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.transcript.exists():
             print(f"FATAL: transcript niet gevonden: {args.transcript}", file=sys.stderr)
             return 1
-        exclude_speakers = (
-            [name.strip() for name in args.exclude_speakers.split(",") if name.strip()]
-            if args.exclude_speakers
-            else None
-        )
+        exclude_speakers = resolve_excluded_speakers(args.exclude_speakers)
         records = load_records(
             args.transcript,
             exclude_speakers=exclude_speakers,
@@ -116,9 +125,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Classificeren van {len(records)} uitingen uit {source_desc} ...")
     config = DetectorConfig.from_env()
-    router = ObjectionRouter(
-        config, language="nl", include_opportunities=args.include_opportunities
-    )
+    router = ObjectionRouter(config, language="nl", include_opportunities=args.include_opportunities)
     enriched = classify_records(records, router, threshold=args.threshold)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

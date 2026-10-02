@@ -20,6 +20,7 @@ from sales_copilot.modules.detector.window_classifier import (
     WindowClassifier,
     WindowDetection,
 )
+from sales_copilot.modules.reports.enrichment import wait_for_pending_reports
 from sales_copilot.modules.slides.case_db import Case, SQLiteCaseDB
 from sales_copilot.websocket import hub
 from tests.ws_helpers import ws_url
@@ -120,6 +121,9 @@ async def test_config_flow_e2e(
     monkeypatch.setenv("CONFIDENCE_THRESHOLD_LOW", "0.005")
     monkeypatch.setenv("ONLY_CLASSIFY_PROSPECT", "true")
     monkeypatch.setenv("OPENAI_API_KEY", "test")
+    # The real reports module runs here: switch its post-call LLM step off so the dummy
+    # OpenAI key never reaches the network (the step itself: tests/test_report_enrichment.py).
+    monkeypatch.setenv("REPORT_LLM_PROVIDER", "none")
     monkeypatch.setenv("DETECTOR_MIN_CHUNKS", "1")
     monkeypatch.setenv("DETECTOR_DEBOUNCE_S", "0")
     monkeypatch.setenv("SHUTDOWN_TOKEN", "test-config-e2e-token")
@@ -244,3 +248,5 @@ async def test_config_flow_e2e(
 
     stop_event.set()
     await orchestrator
+    # The report's post-call steps (enrichment -> rewrite -> delivery) run in their own task.
+    await wait_for_pending_reports()

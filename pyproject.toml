@@ -1,6 +1,6 @@
 [project]
 name = "live-sales-copilot"
-version = "1.0.0rc1"
+version = "1.0.0rc2"
 description = "OnCue — open source real-time sales copilot: talk-time tracker, live transcriber, pain point detector, presentation automation"
 readme = "README.md"
 license = { text = "AGPL-3.0-only" }
@@ -80,15 +80,17 @@ parakeet = [
 # === MODULE 3: Pain Point Detector ===
 detector = [
     "semantic-router>=0.1",
-    "sentence-transformers>=3.0",
+    # 5.5.1 carries CVE-2026-68770, fixed in 5.6.0. Explicit floor so pip-audit gate 5 stays green.
+    "sentence-transformers>=5.6.0",
     "instructor>=1.7,<2.0",
     # instructor pulls litellm transitively; on Windows litellm fails from sdist
     # (Rust/Cargo build). An explicit platform pin tells pip to prefer the wheel.
     "litellm>=1.83.10 ; sys_platform == 'win32'",
     # tornado is transitive via semantic-router and aurelio-sdk. 6.5.7 carries
     # three CVEs (GHSA-wwv5-g3v4-889x, GHSA-8423-8fgw-73vq, CVE-2026-82397),
-    # fixed in 6.5.8. Explicit floor so pip-audit gate 5 stays green.
-    "tornado>=6.5.8",
+    # fixed in 6.5.8; 6.5.8 carries GHSA-chx6-46f5-w4vp, GHSA-c2m8-h5v5-343r and
+    # GHSA-3hv7-mjh2-fv65, fixed in 6.5.9. Explicit floor so pip-audit gate 5 stays green.
+    "tornado>=6.5.9",
 ]
 
 # === MODULE 2b: Speaker Diarization (optional, opt-in) ===
@@ -133,7 +135,8 @@ slides-supabase = [
 # by any module in this codebase today, so it is opt-in via this extra; the
 # macOS/Linux install bundles below (`smart`, `full`) pull it back in.
 llm = [
-    "litellm>=1.83.10",
+    # 1.88.1 carries CVE-2026-84377, fixed in 1.88.6.
+    "litellm>=1.88.6",
 ]
 gemini = [
     "google-genai>=1.0,<2.0",

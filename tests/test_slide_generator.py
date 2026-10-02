@@ -6,9 +6,9 @@ import pytest
 from sales_copilot.auth.feature_policy import FeaturePolicy
 from sales_copilot.core.config import DetectorConfig, SlidesConfig, WebSocketConfig
 from sales_copilot.core.llm_client import LLMClient
+from sales_copilot.core.llm_routing import TASK_DEFAULT_MAX_OUTPUT_TOKENS
 from sales_copilot.modules.copilot.injector import SlideInjector
 from sales_copilot.modules.copilot.slide_generator import (
-    SLIDE_MAX_OUTPUT_TOKENS,
     GeneratedSlide,
     SlideGenerator,
 )
@@ -390,7 +390,7 @@ async def test_generate_passes_max_output_tokens_cap_in_both_modes() -> None:
     streaming_llm._llm._create_partial = _fake_create_partial
     streaming_generator = SlideGenerator(llm_client=streaming_llm)
     await streaming_generator.generate("offerteproces")
-    assert streaming_llm.partial_calls[0]["max_tokens"] == SLIDE_MAX_OUTPUT_TOKENS
+    assert streaming_llm.partial_calls[0]["max_tokens"] == TASK_DEFAULT_MAX_OUTPUT_TOKENS["slides"] == 512
 
     non_streaming_llm = _StubLLMClient(generated)
     non_streaming_llm.config = DetectorConfig(
@@ -398,7 +398,7 @@ async def test_generate_passes_max_output_tokens_cap_in_both_modes() -> None:
     )
     non_streaming_generator = SlideGenerator(config=non_streaming_llm.config, llm_client=non_streaming_llm)
     await non_streaming_generator.generate("offerteproces")
-    assert non_streaming_llm.calls[0]["max_tokens"] == SLIDE_MAX_OUTPUT_TOKENS
+    assert non_streaming_llm.calls[0]["max_tokens"] == TASK_DEFAULT_MAX_OUTPUT_TOKENS["slides"]
 
 
 def test_partial_slide_payload_handles_unset_fields() -> None:

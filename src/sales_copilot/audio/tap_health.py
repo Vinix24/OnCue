@@ -203,6 +203,10 @@ class TapHealth:
     #: True when the stream itself already told the operator about this state,
     #: so the heartbeat does not repeat it a second time.
     warning_emitted: bool
+    #: True when the stream itself is a microphone capture (``MicStream``). The
+    #: warning texts key on this, not on the ``self``/``prospect`` label: a label
+    #: is only a name the caller picked, the stream is what knows what it is.
+    is_microphone: bool = False
 
     def summary(self) -> str:
         """One-line human-readable verdict for the heartbeat."""
@@ -243,7 +247,9 @@ class TapHealthTracker:
         signal_floor_rms: float | None = None,
         signal_lost_seconds: float | None = None,
         clock: Callable[[], float] = time.monotonic,
+        is_microphone: bool = False,
     ) -> None:
+        self._is_microphone = is_microphone
         self._floor = signal_floor_rms if signal_floor_rms is not None else resolve_signal_floor_rms()
         self._signal_lost_seconds = (
             signal_lost_seconds if signal_lost_seconds is not None else resolve_signal_lost_seconds()
@@ -392,6 +398,7 @@ class TapHealthTracker:
             chunks=chunks,
             signal_chunks=signal_chunks,
             attached_seconds=attached_seconds,
+            is_microphone=self._is_microphone,
             seconds_since_signal=seconds_since_signal,
             seconds_without_frames=attached_seconds if chunks == 0 and attached_at is not None else None,
             zero_run_chunks=self._zero_run_chunks,
@@ -403,6 +410,14 @@ class TapHealthTracker:
 
 
 def _no_frames_message(label: str, health: TapHealth) -> str:
+    if health.is_microphone:
+        return (
+            f"De {label}-microfoon is wel open ({health.target}) maar levert al "
+            f"{health.attached_seconds:.0f} seconden geen enkel audioframe. Dat is geen stilte: "
+            "een open microfoon blijft buffers doorgeven, ook als er niets gezegd wordt. Stop het "
+            "gesprek en start het opnieuw; blijft dit, controleer dan de microfoontoestemming "
+            "(Systeeminstellingen > Privacy en beveiliging > Microfoon)."
+        )
     return (
         f"De {label}-tap is wel open ({health.target}) maar levert al "
         f"{health.attached_seconds:.0f} seconden geen enkel audioframe. Dat is geen stilte: "
@@ -413,6 +428,16 @@ def _no_frames_message(label: str, health: TapHealth) -> str:
 
 
 def _silent_message(label: str, health: TapHealth) -> str:
+    if health.is_microphone:
+        return (
+            f"De {label}-microfoon is open ({health.target}) en levert audio, maar er zit sinds het "
+            f"begin van het gesprek geen enkel signaal in ({health.chunks} frames, allemaal digitale "
+            f"stilte, piek {health.peak_dbfs:.0f} dBFS). Drie oorzaken zijn realistisch: de "
+            "microfoon staat gemute (hardware of in de app), er is een verkeerd invoerapparaat "
+            f"gekozen ({health.target}; bijvoorbeeld BlackHole of een ander virtueel apparaat in "
+            "plaats van je headset), of de app heeft geen microfoontoestemming (Systeeminstellingen "
+            "> Privacy en beveiliging > Microfoon)."
+        )
     return (
         f"De {label}-tap is open ({health.target}) en levert audio, maar er zit sinds het begin "
         f"van het gesprek geen enkel signaal in ({health.chunks} frames, allemaal digitale stilte, "
@@ -424,16 +449,17 @@ def _silent_message(label: str, health: TapHealth) -> str:
 
 def _signal_lost_message(label: str, health: TapHealth, peer_label: str | None) -> str:
     seconds = health.zero_run_seconds or 0.0
+    kind = "microfoon" if health.is_microphone else "tap"
     peer = ""
     if peer_label:
         peer = (
             f" Het {peer_label}-kanaal draagt in diezelfde periode wel signaal. "
-            "Dit is dus geen stilte in het gesprek maar een defect in deze tap."
+            f"Dit is dus geen stilte in het gesprek maar een defect in deze {kind}."
         )
     return (
-        f"De {label}-tap ({health.target}) droeg eerder in dit gesprek audio en levert nu al "
+        f"De {label}-{kind} ({health.target}) droeg eerder in dit gesprek audio en levert nu al "
         f"{seconds:.0f} seconden uitsluitend exacte nullen ({health.zero_run_chunks} frames). "
-        "Een levende tap van een stille bron geeft altijd een ruisvloer. Exact nul betekent dat de "
+        f"Een levende {kind} van een stille bron geeft altijd een ruisvloer. Exact nul betekent dat de "
         f"bron niets meer aanlevert.{peer} Alles wat deze kant vanaf nu zegt gaat verloren. "
         "Stop het gesprek en start het opnieuw."
     )

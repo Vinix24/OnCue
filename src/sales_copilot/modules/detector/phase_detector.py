@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from websockets.exceptions import ConnectionClosed
 
 from sales_copilot.core.config import DetectorConfig, WebSocketConfig, load_yaml
-from sales_copilot.core.llm_client import LLMClient
+from sales_copilot.core.llm_routing import resolve_llm_client
 from sales_copilot.core.paths import resolve_app_path
 from sales_copilot.websocket.hub_auth import channel_ws_url
 
@@ -61,8 +61,8 @@ def _extract_transcript_line(payload: object) -> str | None:
 class PhaseLLMClient:
     def __init__(self, config: DetectorConfig) -> None:
         self._config = config
-        self._provider = config.llm_provider.lower()
-        self._llm = LLMClient(self._provider, timeout_ms=config.llm_timeout_ms)
+        self.resolved, self._llm = resolve_llm_client("phase", config)
+        self._provider = self.resolved.provider
 
     async def aclassify_phase(self, transcript_lines: list[str]) -> PhaseName | None:
         """Classify the conversation phase off the event loop, with a bounded wall-clock.
@@ -74,12 +74,13 @@ class PhaseLLMClient:
             return None
         try:
             result = await self._llm.acreate(
-                model=self._config.llm_model,
+                model=self.resolved.model,
                 system_prompt=_SYSTEM_PROMPT,
                 user_text=self._build_user_prompt(transcript_lines),
                 response_model=PhaseClassification,
                 temperature=self._config.llm_temperature,
                 allow_local=True,
+                max_tokens=self.resolved.output_limit(),
             )
         except Exception:
             return None

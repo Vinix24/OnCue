@@ -1,0 +1,95 @@
+# Synthetic probes for scripts/measure_term_corrections.py --probes.
+# No customer data. Reported apart from the gate criteria, which keep to real cases.
+# Per occurrence: exactly one of `correct_to: <term>` or `leave: true`.
+probes:
+  - id: product-vs-role-product
+    text: "We gebruiken nu Team Leader voor de offertes."
+    terms: [Teamleader]
+    occurrences:
+      - {source: "Team Leader", correct_to: Teamleader}
+  - id: product-vs-role-role
+    text: "Ik wil plannen met jullie team leader erbij."
+    terms: [Teamleader]
+    occurrences:
+      - {source: "team leader", leave: true}
+  - id: term-vs-name-term
+    text: "De ROI moet binnen een jaar zichtbaar zijn."
+    terms: [ROI]
+    occurrences:
+      - {source: "ROI", leave: true}
+  - id: term-vs-name-name
+    text: "Roy belt je morgen terug."
+    terms: [ROI]
+    occurrences:
+      - {source: "Roy", leave: true}
+  - id: misheard-term-vs-name
+    text: "Die ROI heeft niets met de planning te maken, Roy heeft het alleen over de ROI van vorig jaar."
+    terms: [Roy, ROI]
+    occurrences:
+      - {source: "ROI", occurrence: 1, correct_to: Roy}
+      - {source: "ROI", occurrence: 2, leave: true}
+  - id: edi-vs-idi
+    text: "Die IDI van de groothandel loopt elke nacht."
+    terms: [EDI]
+    occurrences:
+      - {source: "IDI", correct_to: EDI}
+  - id: edi-vs-ide
+    text: "Ik open het in mijn IDE."
+    terms: [EDI]
+    occurrences:
+      - {source: "IDE", leave: true}
+  - id: hubspot-misheard
+    text: "De koppeling met HupSpot werkt sinds maandag."
+    terms: [HubSpot]
+    occurrences:
+      - {source: "HupSpot", correct_to: HubSpot}
+  - id: hubspot-already-right
+    text: "De koppeling met HubSpot werkt sinds maandag."
+    terms: [HubSpot]
+    occurrences:
+      - {source: "HubSpot", leave: true}
+  - id: salesforce-misheard
+    text: "Alle leads staan in Sales Force en worden daar opgevolgd."
+    terms: [Salesforce]
+    occurrences:
+      - {source: "Sales Force", correct_to: Salesforce}
+  - id: sales-force-plain-words
+    text: "Onze sales force bestaat uit twaalf mensen in het veld."
+    terms: [Salesforce]
+    occurrences:
+      - {source: "sales force", leave: true}
+  - id: exact-online-misheard
+    text: "De facturen lopen via Exact Onlain naar de boekhouder."
+    terms: [Exact Online]
+    occurrences:
+      - {source: "Exact Onlain", correct_to: Exact Online}
+  - id: exact-plain-word
+    text: "Dat is exact wat ik online zocht."
+    terms: [Exact Online]
+    occurrences:
+      - {source: "exact", leave: true}
+  - id: sofi-vs-sophie
+    text: "Sophie van de klant belt vanmiddag over de planning."
+    terms: [Sofi]
+    occurrences:
+      - {source: "Sophie", leave: true}
+  - id: sofi-misheard
+    text: "Het pakket heet Sophie en draait op de server."
+    terms: [Sofi, Bram]
+    occurrences:
+      - {source: "Sophie", correct_to: Sofi}
+  - id: vba-vs-vwa
+    text: "De macro in Excel is geschreven in VWA door een stagiair."
+    terms: [VBA]
+    occurrences:
+      - {source: "VWA", correct_to: VBA}
+  - id: vba-vs-bank-abbreviation
+    text: "De VWA heeft de controle uitgevoerd bij de keuken."
+    terms: [VBA]
+    occurrences:
+      - {source: "VWA", leave: true}
+  - id: bram-vs-brem
+    text: "Bram heeft de offerte gisteren verstuurd."
+    terms: [Bram]
+    occurrences:
+      - {source: "Bram", leave: true}

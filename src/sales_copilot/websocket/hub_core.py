@@ -20,11 +20,11 @@ from sales_copilot.auth.feature_policy import (
     FeaturePolicy,
     get_feature_policy,
 )
-from sales_copilot.core.config import DetectorConfig, InsightConfig
+from sales_copilot.core.config import DetectorConfig, InsightConfig, with_overrides
 from sales_copilot.core.context_docs import parse_client_slug_from_payload
 from sales_copilot.core.klant_config import KlantConfigError, load_klant_config
 from sales_copilot.core.measurement_signals import record_install_attribution
-from sales_copilot.core.privacy_gate import enforce_privacy
+from sales_copilot.core.privacy_gate import validate_privacy
 from sales_copilot.websocket.hub_auth import is_valid_token, websocket_token
 
 #: The spoken-transcript event type. Named here so the buffer predicate below
@@ -201,29 +201,71 @@ def _resolve_llm_provider(config: dict[str, Any]) -> str:
     return provider if isinstance(provider, str) else ""
 
 
-def _resolve_insight_provider(llm_provider: str) -> str | None:
-    """The deep-insight-lane provider for this conversation, or ``None`` if that lane
-    will not run at all.
+def _insight_lane_active() -> bool:
+    """Will the deep-insight lane actually run for this conversation?
 
     The insight lane (``modules/insight/engine.py``) reads its OWN dossier/profile
-    context and can call a DIFFERENT provider than the detector: ``INSIGHT_PROVIDER``,
-    falling back to the conversation's own detector provider when unset (mirrors
-    ``InsightEngine.__init__``'s ``self.provider = (insight_config.llm_provider or
-    detector_config.llm_provider or "").strip().lower()``).
-
-    The lane only actually starts when BOTH hold (mirrors
-    ``modules/detector/__main__.py``'s two-layer gate): ``INSIGHT_ENABLED`` is set, AND
-    the license entitles ``FEATURE_DEEP_INSIGHTS``. When either is false the lane never
-    reads the dossier, so there is nothing to test against the privacy ceiling and this
-    returns ``None`` -- checking it anyway would be a false rejection (klant.yaml gap #2's
-    twin, for the insight lane).
+    context and can call a DIFFERENT provider than the detector (``INSIGHT_PROVIDER``).
+    It only starts when BOTH hold (mirrors ``modules/detector/__main__.py``'s two-layer
+    gate): ``INSIGHT_ENABLED`` is set, AND the license entitles ``FEATURE_DEEP_INSIGHTS``.
+    When either is false the lane never reads the dossier, so there is nothing to test
+    against the privacy ceiling -- checking it anyway would be a false rejection.
     """
-    insight_config = InsightConfig.from_env()
-    if not insight_config.enabled:
-        return None
-    if not _deep_insights_enabled():
-        return None
-    return (insight_config.llm_provider or llm_provider or "").strip().lower()
+    return InsightConfig.from_env().enabled and _deep_insights_enabled()
+
+
+def _reports_active(config: dict[str, Any]) -> bool:
+    """Will the reports module (and with it the post-call ``report`` LLM task) run?
+
+    Mirrors ``__main__._parse_call_config``: ``modules.post_call_report`` wins, the flat
+    ``enable_reports`` is the fallback, and the module is on when neither is given.
+    """
+    modules = config.get("modules")
+    if not isinstance(modules, dict):
+        modules = {}
+    return bool(modules.get("post_call_report", config.get("enable_reports", True)))
+
+
+def _conversation_detector_config(
+    config: dict[str, Any], *, privacy: str | None, client_slug: str | None
+) -> DetectorConfig:
+    """The ``DetectorConfig`` this start-call will run with, for the privacy-poort.
+
+    Mirrors ``__main__._parse_call_config`` + ``build_module_configs``: the env config,
+    the call's ``llm.provider``/``llm.model`` overrides (see ``_resolve_llm_provider``),
+    and this conversation's ceiling.
+    """
+    llm_payload = config.get("llm")
+    nested_model = llm_payload.get("model") if isinstance(llm_payload, dict) else None
+    model = nested_model if nested_model is not None else config.get("llm_model")
+    detector = with_overrides(
+        DetectorConfig.from_env(),
+        llm_provider=_resolve_llm_provider(config),
+        llm_model=model if isinstance(model, str) else None,
+    )
+    return with_overrides(detector, privacy=privacy, client_slug=client_slug)
+
+
+def _enforce_task_ceiling(config: dict[str, Any], *, privacy: str | None, client_slug: str | None) -> None:
+    """Refuse the start-call when ANY task this conversation will run is above ``privacy``.
+
+    Runs without a ceiling too (``privacy`` None): ``resolve_llm`` then still refuses a task
+    provider that has no model of its own, before any audio runs.
+
+    llm-routering-per-taak: every task has its own provider (``<TAAK>_LLM_PROVIDER``,
+    ``INSIGHT_PROVIDER``), so checking only the detector and insight lanes would let a
+    per-task provider cross the ceiling. The check goes through ``resolve_llm`` itself --
+    the same resolver the modules build their clients from -- so the poort and the
+    runtime can never disagree about which provider a task calls.
+    """
+    from sales_copilot.core.llm_routing import active_tasks, resolve_llm
+
+    detector = _conversation_detector_config(config, privacy=privacy, client_slug=client_slug)
+    insight = InsightConfig.from_env()
+    for task in active_tasks(
+        detector, insight_active=_insight_lane_active(), report_active=_reports_active(config)
+    ):
+        resolve_llm(task, detector, insight_config=insight)
 
 
 def _set_prospect_field(config: dict[str, Any], field_name: str, value: str, *, client_slug: str) -> None:
@@ -262,9 +304,10 @@ def _apply_klant_config(config: dict[str, Any]) -> None:
     client at all) leaves ``config`` untouched -- the pre-D2, API-caller-supplied
     ``prospect_company``/``prospect_industry`` behaviour.
 
-    Raises ``ValueError`` (via ``KlantConfigError``/``PrivacyGateError``, both subclasses)
-    for an invalid ``klant.yaml`` or a provider that does not meet the client's ``privacy``
-    ceiling -- ``hub_api.start_call_api`` maps that to an HTTP 400 before any capture starts.
+    Raises ``ValueError`` (via ``KlantConfigError``) for an invalid ``klant.yaml`` --
+    ``hub_api.start_call_api`` maps that to an HTTP 400 before any capture starts. The
+    client's ``privacy`` ceiling is set here and enforced per task by
+    ``extract_start_call_config`` (``_enforce_task_ceiling``).
     """
     client_slug = parse_client_slug_from_payload(config)
     if client_slug is None:
@@ -283,18 +326,12 @@ def _apply_klant_config(config: dict[str, Any]) -> None:
     _set_prospect_field(config, "company", klant.bedrijf, client_slug=client_slug)
     if klant.branche is not None:
         _set_prospect_field(config, "industry", klant.branche, client_slug=client_slug)
-    # transcript-normalisatie-na-asr (D3 of a later plan) is the first intended reader of
-    # call_terms; nothing consumes it yet, but it belongs in the config as soon as a client
-    # supplies termen, so it is visible and not a silent promise.
+    # The transcriber reads call_terms from the start_call event for post-ASR
+    # normalization (modules/transcriber/normalize.py); it never leaves that process.
     config["call_terms"] = list(klant.termen)
     if klant.aflevering is not None:
         config["aflevering"] = klant.aflevering
 
-    llm_provider = _resolve_llm_provider(config)
-    enforce_privacy(klant.privacy, llm_provider, client_slug=client_slug, lane="detector")
-    insight_provider = _resolve_insight_provider(llm_provider)
-    if insight_provider is not None:
-        enforce_privacy(klant.privacy, insight_provider, client_slug=client_slug, lane="insight")
     if klant.privacy is not None:
         config["privacy"] = klant.privacy
 
@@ -328,7 +365,16 @@ def extract_start_call_config(payload: dict[str, Any]) -> dict[str, Any]:
     if install_code.strip() == "":
         logger.warning("start-call intake received an empty install_code")
 
+    # A caller-supplied privacy profile is validated before klant.yaml can overwrite it:
+    # an unknown value is a 400, never a silently lifted ceiling.
+    if "privacy" in config:
+        config["privacy"] = validate_privacy(config["privacy"])
+        if config["privacy"] is None:
+            del config["privacy"]
     _apply_klant_config(config)
+    _enforce_task_ceiling(
+        config, privacy=config.get("privacy"), client_slug=parse_client_slug_from_payload(config)
+    )
 
     return config
 

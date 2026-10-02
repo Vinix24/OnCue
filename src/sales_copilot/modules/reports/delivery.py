@@ -15,7 +15,8 @@ feature is handing the operator's own automation their own words verbatim so
 it can act on them (extract a name, a company, a deal detail). PII redaction
 for this payload is controlled by the existing ``REPORT_REDACT_PII`` flag
 (the same one that governs the local ``data/reports/`` copy): whatever shape
-``generator.generate_report`` already wrote to disk is exactly what is
+the reports module wrote to disk (``generator.write_report``, rewritten with the
+post-call enrichment by ``generator.rewrite_with_enrichment``) is exactly what is
 delivered here, never a second, differently-redacted payload.
 
 Delivery is best-effort and never risks the local copy:
@@ -176,7 +177,7 @@ def deliver_to_directory(
 
     Best-effort: any failure (permission revoked mid-call, share unmounted)
     is logged loudly and never raised -- the local report already written by
-    ``generator.generate_report`` is the record of truth and is unaffected.
+    ``generator.write_report`` is the record of truth and is unaffected.
     """
     destination = Path(directory) / filename
     try:

@@ -66,9 +66,11 @@ variants:
   HupSpot: HubSpot
   Ruffspot: HubSpot
   # VBA (< 5 chars: exact only, never fuzzy)
-  VWA: VBA
   VWBA: VBA
   # ROI (< 5 chars: exact only; never a mapping target FROM a person's name)
   ROV: ROI
   # MKB (< 5 chars: exact only)
   MKD: MKB
+  # EDI (< 5 chars: exact only). IDE is deliberately NOT mapped: it is also the
+  # ordinary word for a development environment.
+  IDI: EDI
