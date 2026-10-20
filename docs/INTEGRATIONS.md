@@ -244,7 +244,7 @@ ollama pull qwen2.5:7b
 `qwen2.5:7b` is recommended for Dutch classification. `llama3.2:3b` works on
 machines with less RAM but with lower accuracy.
 
-With `LLM_PROVIDER=ollama`, no data leaves your Mac at any point in the pipeline.
+With `LLM_PROVIDER=ollama` and the default local transcription (`WHISPER_BACKEND=whisper.cpp`, `WHISPER_CPP_SERVER_HOST=127.0.0.1`), no data leaves your Mac at any point in the pipeline.
 Transcription (Whisper) and LLM classification both run locally.
 
 ---

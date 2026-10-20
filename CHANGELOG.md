@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## [1.0.0-rc.3] — 2026-10-20
+
+Small pre-release. New installations stopped working when semantic-router 1.0
+came out, because nothing capped the dependency: every install without the
+lock failed, including `scripts/install.sh`. This release caps it, bumps four
+dependencies with known CVEs, and corrects the privacy docs so they match the
+two opt-in routes where audio leaves the machine.
+
+### Security
+
+- aiohttp 3.14.5, fsspec 2026.9.0, mcp 2.3.0 and multidict 7.1.0 (#281).
+
+### Fixed
+
+- `semantic-router` is capped at `>=0.1,<1.0`. Version 1.0 broke every
+  installation that did not use the lock, `scripts/install.sh` included
+  (#281).
+- Two tests no longer depend on the machine they run on (#281).
+
+### Docs
+
+- The privacy docs describe the two opt-in routes where audio leaves the
+  machine: `WHISPER_BACKEND=groq`, and a remote `WHISPER_CPP_SERVER_HOST`
+  over unencrypted HTTP. The per-client ceiling covers LLM tasks only, so it
+  does not apply to these routes (#282).
+- `scripts/measure_entities_per_model.py`, a measurement harness that scores
+  ASR variants on entity recognition after the normalization layer (#283).
+
 ## [1.0.0-rc.2] — 2026-10-02
 
 Second pre-release. No LLM is configured by default anymore: a fresh install

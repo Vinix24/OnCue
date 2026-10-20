@@ -12,7 +12,7 @@ OnCue is a local AI tool that listens along during conversations and supports th
 
 In recruitment mode this concretely means:
 
-**Real-time transcription** via Whisper (runs locally on the machine). Audio does not leave the machine.
+**Real-time transcription** via Whisper (runs locally on the machine). By default audio does not leave the machine; the opt-in Groq and remote whisper.cpp routes send it off (see `docs/PRIVACY.md`).
 
 **Pain point, buying signal, and objection detection** based on redacted transcript fragments. The recruitment preset detects seven categories: role fit, salary gap, progression uncertainty, location/hybrid preference, doubts about the employer, contract duration, and secondary employment benefits.
 

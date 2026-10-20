@@ -6,7 +6,7 @@
 
 An open-source, real-time sales copilot that runs during video calls. It transcribes the conversation, detects pain points, objections, and buying signals as they happen, and coaches talk-time balance on a second screen.
 
-Privacy is the default, not an option you opt into. Audio capture, transcription, and pain-point detection all run on your machine. No LLM is configured by default. Transcript text only leaves the machine if you explicitly configure an LLM destination, and that choice is made per conversation, not locked in at install time.
+Privacy is the default, not an option you opt into. Audio capture, transcription, and pain-point detection run on your machine by default. No LLM is configured by default. Transcript text only leaves the machine if you explicitly configure an LLM destination, and that choice is made per conversation, not locked in at install time.
 
 ---
 
@@ -24,8 +24,8 @@ A scripted discovery call playing through the coaching dashboard: live transcrip
 
 ## Three things worth knowing before you clone this
 
-**1. Transcription and detection run on-device.**
-Audio never touches a network call. Transcription runs locally through the `TranscriptionBackend` protocol, backed by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (the default, built by `scripts/install.sh`) or `mlx-whisper` as an experimental Apple Silicon fallback. Pain-point and objection detection runs through `semantic-router`, an embedding classifier that also stays local. The only thing that can leave the device is transcript text, and only if you've configured an LLM provider (none is configured by default). Which text depends on the task: detection windows, a rolling summary, live suggestions and, after the call, the whole transcript for the report. It passes a pattern-based PII filter first. The per-task list is in [docs/PRIVACY.md](docs/PRIVACY.md).
+**1. Transcription and detection run on-device by default.**
+By default audio never touches a network call. Transcription runs locally through the `TranscriptionBackend` protocol, backed by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (the default, built by `scripts/install.sh`) or `mlx-whisper` as an experimental Apple Silicon fallback. Pain-point and objection detection runs through `semantic-router`, an embedding classifier that also stays local. Two opt-in routes send audio off the machine: `WHISPER_BACKEND=groq` uploads every audio chunk to Groq, and a non-loopback `WHISPER_CPP_SERVER_HOST` sends it over unencrypted HTTP to that host. Neither is on by default and no PII filter runs on audio. Otherwise the only thing that can leave the device is transcript text, and only if you've configured an LLM provider (none is configured by default). Which text depends on the task: detection windows, a rolling summary, live suggestions and, after the call, the whole transcript for the report. It passes a pattern-based PII filter first. The per-task list is in [docs/PRIVACY.md](docs/PRIVACY.md).
 
 **2. Cloud, when you use it, can stay inside your own tenant.**
 LLM routing is provider-agnostic through `src/sales_copilot/core/llm_client.py`, built on `instructor`. Leave it at `none` (the default) or point it at a local model such as Ollama for zero external calls, or at your own Azure OpenAI subscription, your own Vertex AI project, or your own AWS Bedrock account. The text then stays inside a cloud boundary your organization already governs, under your existing contract and DPA, instead of adding a new processor. This is the difference between "we call an API" and "your data stays in your tenant." For regulated NL B2B specifically, that difference is what gets a tool through procurement.
@@ -37,7 +37,7 @@ OnCue captures whole-system audio (AudioTee on macOS, WASAPI loopback on Windows
 
 ## Beyond sales
 
-OnCue is built and positioned for sales calls first. The underlying pipeline, on-device transcription plus pain-point/objection/buying-signal detection plus talk-time coaching plus a post-call report, doesn't know it's a sales call. The same capability applies to other conversation types:
+OnCue is built and positioned for sales calls first. The underlying pipeline, local transcription plus pain-point/objection/buying-signal detection plus talk-time coaching plus a post-call report, doesn't know it's a sales call. The same capability applies to other conversation types:
 
 - **Coaching and performance reviews**: talk-time balance and pattern detection apply just as well to a manager-employee conversation as a sales call.
 - **Job interviews / recruitment conversations**: detecting recurring themes and questions asked (or missed) works the same regardless of who's being evaluated.

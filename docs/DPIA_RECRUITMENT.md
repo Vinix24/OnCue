@@ -82,7 +82,7 @@ During fast intake conversations, recruiters miss relevant signals: salary expec
 
 The processing is proportionate because:
 
-- Audio does not leave the machine (local-first architecture)
+- Audio does not leave the machine in the default configuration (local-first architecture). `WHISPER_BACKEND=groq` and a non-loopback `WHISPER_CPP_SERVER_HOST` are opt-in routes that send audio off the machine without a PII filter; leave them off for candidate calls
 - The PII filter is active with the recruitment preset (`apply_pii_filter=True`): BSN, phone number, IBAN, email address, postal code, and date of birth are replaced with placeholders before any LLM processing
 - With an LLM provider configured, the LLM receives redacted transcript text per task, including a rolling summary input and, after the call, the whole transcript for the report enrichment (see `docs/PRIVACY.md`). With `LLM_PROVIDER=none` or a local Ollama model, no text leaves the machine
 - Audio recording can be disabled via `RECORD_AUDIO=false` in `.env`
@@ -214,11 +214,11 @@ JSON export of session data is planned for sprint+1. Until then: the recruiter m
 
 **Spoken script (recruiter reads aloud at the start of the conversation):**
 
-> "In preparation for this conversation, I use an AI tool that listens along to take notes. The audio stays on my computer and is automatically deleted after 30 days. The tool does not store any recording with an external party. Do you agree to this?"
+> "In preparation for this conversation, I use an AI tool that listens along to take notes. The audio stays on my computer (default setup) and is automatically deleted after 30 days. The tool does not store any recording with an external party. Do you agree to this?"
 
 **Written confirmation (optional, by email before the conversation):**
 
-> "I want to let you know that during this conversation I use OnCue, an AI tool that helps with taking conversation notes. The tool runs locally on my computer. Audio and transcription are not sent to external parties, except for short anonymized fragments to my AI provider for keyword detection. All data is deleted after 30 days. You always have the right to access or have your data deleted. Do you have questions or objections? Let me know before or during the conversation."
+> "I want to let you know that during this conversation I use OnCue, an AI tool that helps with taking conversation notes. The tool runs locally on my computer. In the default setup audio and transcription are not sent to external parties, except for short anonymized fragments to my AI provider for keyword detection. All data is deleted after 30 days. You always have the right to access or have your data deleted. Do you have questions or objections? Let me know before or during the conversation."
 
 **Tip:** mention the name of the tool explicitly ("OnCue") in the communication. This ensures traceability in the event of a complaint to the Autoriteit Persoonsgegevens (the Dutch DPA).
 

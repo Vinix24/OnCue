@@ -204,8 +204,10 @@ See [PRIVACY.md](PRIVACY.md) for the full explanation.
 In short:
 
 - **Transcription runs locally** on your computer (macOS or Windows). Your audio
-  does not leave your machine unless you configure a cloud provider for
-  transcription (not the default).
+  does not leave your machine unless you opt in to Groq transcription
+  (`WHISPER_BACKEND=groq`) or a remote whisper.cpp server
+  (`WHISPER_CPP_SERVER_HOST`, unencrypted HTTP). Neither is the default and
+  no PII filter runs on audio.
 - **Pain point and objection detection** uses an LLM provider of your choice.
   No LLM is configured by default (`LLM_PROVIDER=none`); the live cues run
   locally without one. With a provider configured, text is sent per task

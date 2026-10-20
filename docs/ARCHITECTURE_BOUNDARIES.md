@@ -6,7 +6,7 @@ This document describes the hard architecture invariants of the OnCue project. T
 
 | # | Invariant | Why | Check |
 |---|---|---|---|
-| 1 | **Local-first data plane** | Audio, transcript, embeddings, session DB, and case DB stay on the device. No LLM is configured by default (`LLM_PROVIDER=none`), so by default no transcript text leaves. With an LLM configured, the outbound class is PII-redacted transcript text per task (detection windows, a rolling summary of up to 40 lines per minute, live suggestions, and the whole transcript for the post-call report), sent only to the LLM destination the operator configured. A deliberate second class — the deep-insight lane (Pro) — may send the PII-redacted full session transcript to an operator-configured frontier/enterprise destination (see "Deep-insight lane outbound class" below). | Provider SDKs may only be imported in `core/llm_client.py`. Network-client imports in `src/` are on an allow-list; new network code must be deliberately reviewed. |
+| 1 | **Local-first data plane** | Audio, transcript, embeddings, session DB, and case DB stay on the device by default. No LLM is configured by default (`LLM_PROVIDER=none`), so by default no transcript text leaves. With an LLM configured, the outbound class is PII-redacted transcript text per task (detection windows, a rolling summary of up to 40 lines per minute, live suggestions, and the whole transcript for the post-call report), sent only to the LLM destination the operator configured. A deliberate second class, the opt-in transcription exit, may send raw audio chunks off the machine when the operator selects `WHISPER_BACKEND=groq` or points `WHISPER_CPP_SERVER_HOST` at another host (see "Transcription outbound class" below). A third class, the deep-insight lane (Pro), may send the PII-redacted full session transcript to an operator-configured frontier/enterprise destination (see "Deep-insight lane outbound class" below). | Provider SDKs may only be imported in `core/llm_client.py`. Network-client imports in `src/` are on an allow-list; new network code must be deliberately reviewed. |
 | 2 | **BYO-tenant / provider-agnostic** | No hardcoded provider. The app uses `instructor` via `core/llm_client.py`. | Direct imports of `openai`, `google.genai`, `anthropic`, `groq`, `vertexai`, etc. outside `core/llm_client.py` fail. `import anthropic` is forbidden repo-wide. |
 | 3 | **Dashboard = vanilla HTML/CSS/JS** | No build step or framework dependency; the hub serves the dashboard statically. | `dashboard/` may not contain `package.json`, `node_modules`, `.jsx`/`.tsx`, or framework references. |
 | 4 | **WebSocket localhost-only** | The hub is only reachable on the same machine. | `hub.py`/`hub_core.py` bind/CORS only to `localhost`/`127.0.0.1`; `0.0.0.0`, `::`, and wildcard CORS are rejected. |
@@ -24,6 +24,22 @@ Invariants 1 and 2 together define a spectrum, not an on/off switch:
 
 The choice is made **per conversation**, not per customer and not once at installation: the same user can pick tier 1 for a sensitive customer conversation and tier 4 for an internal sales training. Privacy stays the default; cloud is a deliberate, explicit choice, never the silent default. See also `docs/PRIVACY.md` (configurable privacy tiers) and the root `CLAUDE.md` (product positioning).
 
+## Transcription outbound class (opt-in, default off)
+
+Audio is the one data type the LLM seam never sees, so it needs its own documented class. By default transcription is local (`WHISPER_BACKEND=whisper.cpp`, server on `127.0.0.1`). Two operator choices send audio off the machine:
+
+1. **`WHISPER_BACKEND=groq`** (`modules/transcriber/backends/groq_backend.py`, selected in `backends/__init__.py`). Every audio chunk is uploaded as WAV to Groq with the fixed model `whisper-large-v3-turbo`. It requires `GROQ_API_KEY`. The base URL defaults to `https://api.groq.com/openai/v1` and can be overridden with `GROQ_BASE_URL`.
+2. **`WHISPER_CPP_SERVER_HOST`** set to a host other than `127.0.0.1` (split deploy). Every audio chunk goes to `http://<host>:<port>` over unencrypted HTTP.
+
+Conditions and limits of this class:
+
+- **Opt-in, default off.** Neither route is active unless the operator sets it. With the defaults, no audio leaves the device.
+- **No PII filter on audio.** `core/outbound_policy.py` redacts text only. Audio sent over either route is not redacted.
+- **No privacy ceiling.** The per-client ceiling in `core/privacy_gate.py` covers LLM tasks only. `modules/transcriber/` performs no ceiling check, so these routes are not refused for a client with a strict ceiling.
+- **Not covered by the `core/llm_client.py` seam.** The Groq backend and the whisper.cpp client are on the network-client allow-list of `scripts/check_architecture_boundaries.py`, not behind the LLM seam.
+
+Raw audio on the default path, session recordings, and embeddings stay on the device.
+
 ## Deep-insight lane outbound class (Pro, revised 2026-08-04)
 
 Invariant 1 originally stated a single outbound class: *only short, PII-redacted LLM fragments may leave the device.* The detection and coaching tracks (tracks 1 and 2) send PII-redacted per-task text as listed in `docs/PRIVACY.md`, which includes a rolling summary of up to 40 lines per minute and the whole transcript for the post-call report. The deep-insight lane (track 3, Pro; the code does not ship in the open source distribution) is a separate, deliberate, documented second outbound class on top of that and is not smuggled in as a footnote exception.
@@ -36,7 +52,7 @@ Invariant 1 originally stated a single outbound class: *only short, PII-redacted
 2. **Default off.** No installation, no preset, no license tier silently enables the deep lane. If the operator has not explicitly opted in for this conversation, invariant 1 behaves exactly as before: only the per-task text listed in `docs/PRIVACY.md` may leave.
 3. **Through the existing outbound_policy seam.** Every byte the lane sends goes through `core/outbound_policy.py` (`apply_outbound_pii` / `sanitize_for_outbound`). PII redaction applies on the exit, with the same `cloud_only` default the rest of the system uses. The deep lane adds a new *destination class*, never a new *policy path*.
 
-This revision does not weaken any other invariant. Raw audio, session recordings, and embeddings still never leave the device. The provider-agnostic and `no-anthropic-sdk` rules (invariant 2) are untouched: the deep lane speaks through `core/llm_client.py` or through the MCP protocol (JSON-RPC), never through a vendor SDK imported elsewhere. With the lane off, the system is byte-for-byte identical to the pre-revision behavior.
+This revision does not weaken any other invariant. Session recordings and embeddings still never leave the device, and raw audio leaves it only through the opt-in transcription class above. The provider-agnostic and `no-anthropic-sdk` rules (invariant 2) are untouched: the deep lane speaks through `core/llm_client.py` or through the MCP protocol (JSON-RPC), never through a vendor SDK imported elsewhere. With the lane off, the system is byte-for-byte identical to the pre-revision behavior.
 
 **The MCP host as a destination, in both directions (Pro).** When the operator connects an MCP host, the bridge (`src/sales_copilot/mcp_bridge/`) is the exit. Its three read tools — `get_session_brief`, `get_transcript`, `get_detections` — are the outbound direction and carry the class described above, redacted through `core/outbound_policy.py` on the way out. An MCP host counts as a public-cloud destination even when it runs on the same machine, so the redaction is not conditional on the host being local.
 

@@ -8,7 +8,7 @@
 
 OnCue is an AI tool that listens along live during sales conversations. It recognizes pain points in the conversation and coaches on talk-time balance - all while the conversation is happening.
 
-The tool runs entirely on your own Mac. Audio never leaves your computer. Transcription happens locally on Apple Silicon.
+The tool runs entirely on your own Mac. With the default settings audio does not leave your computer. Transcription happens locally on Apple Silicon.
 
 I'm looking for beta testers who use the tool in at least 3 real sales conversations and submit feedback within 2 weeks. What I ask in return is concrete: real calls, no demo scenarios, and an honest verdict on what does and doesn't work.
 
@@ -186,7 +186,7 @@ That's exactly the information I need. Describe what you expected and what happe
 
 ## Privacy and data
 
-Audio is processed locally on your Apple Silicon chip via whisper.cpp (the default backend; mlx-whisper is an experimental option). Your conversation audio does not go to an external server.
+Audio is processed locally on your Apple Silicon chip via whisper.cpp (the default backend; mlx-whisper is an experimental option). Your conversation audio does not go to an external server unless you switch on `WHISPER_BACKEND=groq` or point `WHISPER_CPP_SERVER_HOST` at another machine. Both are off by default and neither filters personal data from audio.
 
 Transcripts are stored locally on your Mac in `data/sessions/`. I don't see those files unless you send them to me yourself.
 

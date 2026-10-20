@@ -111,8 +111,8 @@ Full risk analysis, obligations (DPIA, conformity assessment, human
 oversight, transparency, consent, retention periods), and the consent script:
 [DPIA_RECRUITMENT.md](DPIA_RECRUITMENT.md).
 
-**Recommendation:** in this scenario set `LLM_PROVIDER=ollama` so that candidate data
-does not leave the machine. The AI Act imposes requirements on data minimization.
+**Recommendation:** in this scenario set `LLM_PROVIDER=ollama` and keep the default local
+transcription so that candidate data does not leave the machine. The AI Act imposes requirements on data minimization.
 
 **Modules:**
 

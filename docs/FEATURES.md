@@ -1,6 +1,6 @@
 # OnCue features
 
-OnCue is a real-time coaching assistant for sales and recruitment calls. It runs on macOS (Windows is supported via WASAPI loopback) and keeps the audio layer local. During a call it transcribes speech, detects pain points and objections, tracks talk-time ratios, and shows coaching suggestions on a private dashboard. Pro adds a set of licensed capabilities (see the tier matrix below).
+OnCue is a real-time coaching assistant for sales and recruitment calls. It runs on macOS (Windows is supported via WASAPI loopback) and keeps the audio layer local by default. During a call it transcribes speech, detects pain points and objections, tracks talk-time ratios, and shows coaching suggestions on a private dashboard. Pro adds a set of licensed capabilities (see the tier matrix below).
 
 The primary users are Dutch B2B sales professionals, recruiters, and coaches who want live call support without sending conversations to a third-party SaaS.
 
@@ -12,7 +12,7 @@ Feature entitlement is enforced in code by `FeaturePolicy` (`src/sales_copilot/a
 
 | Capability | Free (AGPL-3.0, self-host) | Pro (commercial license) |
 |---|---|---|
-| Live transcription (whisper.cpp, on-device) | Yes | Yes |
+| Live transcription (whisper.cpp, on-device by default; opt-in Groq or remote whisper.cpp server send audio off the machine, see `docs/PRIVACY.md`) | Yes | Yes |
 | Talk-time balance visualization + monologue alerts | Yes | Yes |
 | Pain-point, objection, and buying-signal detection | Yes | Yes |
 | Coaching dashboard shell (transcript, detections, talk-time) | Yes | Yes |

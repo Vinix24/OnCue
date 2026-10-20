@@ -22,7 +22,7 @@ stays local and what optionally goes to an external service.
 LOCAL (your Mac)
   Audio capture (mic + system)
   Silero VAD (pause detection)
-  Whisper transcription (whisper.cpp or mlx-whisper)
+  Whisper transcription (whisper.cpp by default, or mlx-whisper)
   Embedding-based detection and talk-time coaching (live cues)
   Session recordings (data/sessions/<id>/)
   Post-call report
@@ -31,12 +31,20 @@ LOCAL (your Mac)
          |
          | only if an LLM provider is configured
          | (default: none). Text, per task, through one PII seam
+         |
+         | audio, only if you opt in to a remote transcription route
+         | (default: none). No PII filter on audio
          v
 
 LLM DESTINATION (optional, your choice)
   A local LLM of your choice (for example via Ollama)
   Your own cloud tenant (Azure OpenAI, Vertex AI, AWS Bedrock)
   A public provider with your own key (Gemini, Groq, OpenAI, OpenRouter)
+
+TRANSCRIPTION DESTINATION (optional, opt-in, default: none)
+  Groq (WHISPER_BACKEND=groq): audio chunks as WAV upload over HTTPS
+  A remote whisper.cpp server (WHISPER_CPP_SERVER_HOST): audio chunks over
+  unencrypted HTTP
 
 OTHER OPTIONAL DESTINATIONS
   Supabase (case synchronization, optional)
@@ -45,9 +53,11 @@ OTHER OPTIONAL DESTINATIONS
 
 ### Configurable privacy tiers
 
-Raw audio is always transcribed locally with whisper.cpp or mlx-whisper and never
-leaves the device. Whether any transcript text leaves the device depends on
-`LLM_PROVIDER`, which ships as `none`:
+By default raw audio is transcribed locally with whisper.cpp (or mlx-whisper)
+and does not leave the device. Two opt-in routes change that for audio, see
+"What leaves the machine when a remote transcription route is configured"
+below. Whether any transcript text leaves the device depends on `LLM_PROVIDER`,
+which ships as `none`:
 
 1. **No LLM (default).** `LLM_PROVIDER=none`. The live cues (embedding-based
    pain point and objection detection, talk-time coaching) run fully local
@@ -76,7 +86,9 @@ Which text goes out depends on the task. Every task goes through the same seam:
 to the text before the call (see "How PII redaction works and where it stops"
 below). The destination of each task can be set separately
 (`<TASK>_LLM_PROVIDER`), and a per-conversation privacy ceiling refuses a
-provider above it.
+provider above it. That ceiling (`core/privacy_gate.py`) covers LLM tasks only.
+It does not apply to transcription, so it does not stop the audio routes
+described in the next section.
 
 | Task | What is sent | When |
 |---|---|---|
@@ -91,6 +103,24 @@ The summary and the report get more than a short fragment: up to 40 lines per
 minute, and at the end of the call the entire transcript. When the provider is
 public, that is the redacted full conversation, not 1-3 sentences.
 
+### What leaves the machine when a remote transcription route is configured
+
+By default transcription is local (`WHISPER_BACKEND=whisper.cpp`). There are two
+opt-in routes where audio leaves the Mac. Neither is on by default.
+
+| Route | Setting | What is sent | Where to |
+|---|---|---|---|
+| Groq transcription | `WHISPER_BACKEND=groq` and `GROQ_API_KEY` | Every audio chunk, as a WAV upload, with model `whisper-large-v3-turbo` | `https://api.groq.com/openai/v1`, or the URL in `GROQ_BASE_URL` if you set it |
+| Remote whisper.cpp server | `WHISPER_CPP_SERVER_HOST` set to a host other than `127.0.0.1` | Every audio chunk | `http://<host>:<port>`, unencrypted HTTP, on a machine you name (for example a split deploy with a separate inference box) |
+
+No PII filter runs on audio. The redaction in `core/outbound_policy.py` works on
+text, so it does not touch these routes. The privacy ceiling per client does not
+cover transcription either: today nothing refuses these routes for a sensitive
+client, so choosing the transcription backend is a decision you make per
+conversation. For a sensitive or regulated call keep `WHISPER_BACKEND=whisper.cpp`
+and `WHISPER_CPP_SERVER_HOST=127.0.0.1`. If you use the remote server route, keep
+it on a network you trust, because the audio is not encrypted in transit.
+
 **Your own speech.** With the default `TRANSCRIBE_SELF_LIVE=false` the microphone
 stream is not transcribed during the call. Detection and suggestions only read
 prospect speech in any case. Your own words therefore do not reach the live
@@ -104,9 +134,10 @@ tasks, including the rolling summary. Two things change that:
   defaults (no recording, no live self transcription) the report only contains
   prospect speech.
 
-**What never leaves the machine:**
+**What does not leave the machine in the default configuration:**
 
-- Raw audio (mic stream and system stream)
+- Raw audio (mic stream and system stream), unless you opt in to one of the two
+  remote transcription routes above
 - Session recordings (WAV files)
 - Embeddings and the case database (unless you configure Supabase)
 
@@ -131,6 +162,9 @@ tasks, including the rolling summary. Two things change that:
 **Zero outbound text:** keep `LLM_PROVIDER=none` (the default), or set
 `LLM_PROVIDER=ollama` with a model on a loopback address. In both cases no
 transcript text leaves the machine through the LLM seam.
+
+**Zero outbound audio:** keep `WHISPER_BACKEND=whisper.cpp` or `mlx-whisper`, and
+leave `WHISPER_CPP_SERVER_HOST` at `127.0.0.1`.
 
 ---
 
@@ -191,8 +225,8 @@ how well you trust the patterns.
 
 | Data type | Where processed | Retained until |
 |---|---|---|
-| Audio (mic + system) | Locally on your Mac | Session duration (buffer), WAV in `data/sessions/` if `RECORD_AUDIO=true` |
-| Transcript text (live) | Local (Whisper). With an LLM provider configured, to that provider per task: detection window, rolling summary, live suggestions (see the per-task table above). PII policy applies | Session duration for buffers; post-call report in `data/sessions/` |
+| Audio (mic + system) | Locally on your Mac. With `WHISPER_BACKEND=groq` or a remote `WHISPER_CPP_SERVER_HOST` (opt-in), each chunk is sent to that destination for transcription, without a PII filter | Session duration (buffer), WAV in `data/sessions/` if `RECORD_AUDIO=true` |
+| Transcript text (live) | Local (Whisper, unless a remote transcription route is configured). With an LLM provider configured, to that provider per task: detection window, rolling summary, live suggestions (see the per-task table above). PII policy applies | Session duration for buffers; post-call report in `data/sessions/` |
 | Full transcript | Local in post-call report. With an LLM provider configured, the whole transcript goes to the report provider for enrichment and term corrections (PII policy applies); optionally to the deep-insight lane destination (Pro, opt-in, PII-redacted); optionally to an operator-configured report-delivery directory/endpoint (opt-in, unredacted by default, see `REPORT_REDACT_PII`) | Until you delete it (in `data/sessions/`) |
 | Your own speech (mic) | Local. Not transcribed live by default. Transcribed after the call from `self.wav` when `RECORD_AUDIO=true`, then part of the report text | Until you delete it |
 | Talk-time statistics | Local in post-call report | Until you delete it |
@@ -331,13 +365,16 @@ obligations: [USE_CASES.md](USE_CASES.md) section 3, full risk analysis:
 OnCue's hybrid architecture is deliberately designed to minimize the GDPR
 footprint. The reasoning:
 
-1. **Raw audio never leaves the machine.** The risks of a data breach at an
-   external provider are thereby eliminated for the most sensitive data type.
+1. **Raw audio stays on the machine by default.** The risks of a data breach at
+   an external provider are thereby eliminated for the most sensitive data type,
+   as long as you keep the default local transcription. If you opt in to
+   `WHISPER_BACKEND=groq` or a remote `WHISPER_CPP_SERVER_HOST`, audio chunks go
+   to that destination without a PII filter and this advantage does not apply.
 
-2. **Transcription is local.** Whisper runs on the Mac. The textual form of the
-   conversation is not sent to an external party unless you configure an LLM
-   provider. If you do, the provider receives the text of the tasks listed above,
-   including the whole transcript for the post-call report.
+2. **Transcription is local by default.** Whisper runs on the Mac. The textual
+   form of the conversation is not sent to an external party unless you configure
+   an LLM provider. If you do, the provider receives the text of the tasks listed
+   above, including the whole transcript for the post-call report.
 
 3. **The cloud receives pseudonymized, not anonymized, text.** Before the text
    leaves, regular-expression redaction removes the patterns it knows. Whether
@@ -352,11 +389,11 @@ footprint. The reasoning:
 
 | Aspect | OnCue (local) | Typical cloud suite |
 |---|---|---|
-| Audio stored at provider | No | Yes (typically 12-36 months) |
+| Audio stored at provider | No by default. Only if you opt in to Groq transcription | Yes (typically 12-36 months) |
 | Transcript stored at provider | No stored copy by OnCue; with a configured provider, the provider processes the text under its own terms | Yes |
 | DPA with provider required | Only for LLM (optional) | Mandatory for all data |
-| Risk of provider data breach | No audio at any provider; transcript text only reaches the provider you configure | Full recordings at the provider |
-| Fully offline use possible | Yes (no LLM, or Ollama) | No |
+| Risk of provider data breach | No audio at any provider in the default setup; transcript text only reaches the provider you configure | Full recordings at the provider |
+| Fully offline use possible | Yes (local transcription, and no LLM or Ollama) | No |
 
 ---
 

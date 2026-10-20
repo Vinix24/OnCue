@@ -17,7 +17,7 @@ another over the network without going through the hub.
 
 ```mermaid
 graph LR
-    subgraph local["Local data plane - stays on the device"]
+    subgraph local["Local data plane - stays on the device by default"]
         A["Mic + system audio<br/>macOS: AudioTee tap_all<br/>Windows (exp.): WASAPI loopback"] --> B[Silero VAD]
         B --> C[Talk-time tracker]
         A --> D[AudioBufferer]

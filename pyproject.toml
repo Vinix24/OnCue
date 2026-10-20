@@ -1,6 +1,6 @@
 [project]
 name = "live-sales-copilot"
-version = "1.0.0rc2"
+version = "1.0.0rc3"
 description = "OnCue — open source real-time sales copilot: talk-time tracker, live transcriber, pain point detector, presentation automation"
 readme = "README.md"
 license = { text = "AGPL-3.0-only" }
@@ -35,7 +35,7 @@ dependencies = [
     "websockets>=14.0",
     "python-multipart>=0.0.27",
     "starlette>=1.0.1",
-    "aiohttp>=3.14.3",
+    "aiohttp>=3.14.4",
 
     # License verification (Ed25519 signature checks in sales_copilot.auth)
     "cryptography>=50.0.0",
@@ -46,7 +46,7 @@ dependencies = [
     "pydantic>=2.10",
 
     # MCP bridge (JSON-RPC over stdio, host-agnostic)
-    "mcp>=1.0",
+    "mcp>=2.2.0",
 
     # Utilities
     "rich>=13.0",
@@ -79,7 +79,8 @@ parakeet = [
 
 # === MODULE 3: Pain Point Detector ===
 detector = [
-    "semantic-router>=0.1",
+    # 1.0 removed SemanticRouter from the top-level package; uv.lock pins 0.1.x.
+    "semantic-router>=0.1,<1.0",
     # 5.5.1 carries CVE-2026-68770, fixed in 5.6.0. Explicit floor so pip-audit gate 5 stays green.
     "sentence-transformers>=5.6.0",
     "instructor>=1.7,<2.0",

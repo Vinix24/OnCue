@@ -180,8 +180,9 @@ dashboard's `report_enriched` event carries only the counts.
 Every LLM task has its own provider, model, timeout and output limit. A task
 without its own value falls back to the global `LLM_PROVIDER`, `LLM_MODEL` and
 `LLM_TIMEOUT_MS`; `report_terms` falls back to `report` first. A client's
-`klant.yaml` privacy ceiling applies to every task, and a task whose provider
-is above it is refused. A provider other than the global one needs its own
+`klant.yaml` privacy ceiling applies to every LLM task, and a task whose provider
+is above it is refused. The ceiling does not cover transcription: `WHISPER_BACKEND=groq`
+or a remote `WHISPER_CPP_SERVER_HOST` send audio off the machine regardless of it. A provider other than the global one needs its own
 `<TASK>_LLM_MODEL`. Defaults live in `src/sales_copilot/core/llm_routing.py`.
 
 | Task | Does | Keys |
