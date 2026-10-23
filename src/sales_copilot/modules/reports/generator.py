@@ -143,6 +143,12 @@ class CallReport:
     # Reports written before this existed lack both keys and read as "no corrections".
     term_corrections: list[TermCorrectionEntry] = field(default_factory=list)
     term_corrections_pii_limited: int = 0
+    # How the two audio channels are named for a reader of the transcript: ``self`` and
+    # ``prospect`` mapped to a label (the call's ``ui_labels``, else neutral by ``LANGUAGE``).
+    # The transcript keeps the raw channel names; the readable copy and the dashboard's
+    # Markdown download both name the speakers from here, so they cannot disagree. Reports
+    # written before this existed lack the key, and a speaker without a label keeps its name.
+    speaker_labels: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -397,7 +403,7 @@ def _redact_report(report: CallReport) -> CallReport:
     )
 
 
-def build_report(session: SessionData) -> CallReport:
+def build_report(session: SessionData, speaker_labels: dict[str, str] | None = None) -> CallReport:
     """The call report for ``session``, with the post-call enrichment fields at their defaults."""
     call_duration_ms = max(0, session.call_end_ms - session.call_start_ms)
     total_self_ms, total_prospect_ms = _compute_talk_totals(session.speech_events)
@@ -424,7 +430,55 @@ def build_report(session: SessionData) -> CallReport:
         insights=_insights(getattr(session, "insights", [])),
         call_started_at=getattr(session, "started_at", None),
         call_ended_at=getattr(session, "ended_at", None),
+        speaker_labels=dict(speaker_labels or {}),
     )
+
+
+def transcript_markdown(report: CallReport) -> str:
+    """Render a session's transcript as a readable markdown note, speakers named by ``speaker_labels``."""
+    lines = [f"# Sessie {report.session_id}"]
+    if report.prospect_company:
+        lines.append(f"Klant: {report.prospect_company}")
+    if report.prospect_name:
+        lines.append(f"Contact: {report.prospect_name}")
+    lines.append("")
+    for entry in report.full_transcript:
+        text = entry.text.strip()
+        if text:
+            lines.append(f"{report.speaker_labels.get(entry.speaker, entry.speaker)}: {text}")
+    return "\n".join(lines)
+
+
+def transcript_path_for(report_path: Path) -> Path:
+    """The readable transcript that sits next to ``report_path``: same prefix, ``_transcript.md``."""
+    suffix = "_report.json"
+    name = report_path.name
+    stem = name[: -len(suffix)] if name.endswith(suffix) else report_path.stem
+    return report_path.with_name(f"{stem}_transcript.md")
+
+
+def write_transcript_copy(written: WrittenReport) -> Path:
+    """Write the readable transcript next to the local report: atomic, owner-only (0600).
+
+    Follows the report's own redaction rule (``REPORT_REDACT_PII``), so the readable copy never
+    holds more than the JSON beside it. It is written once, from the first copy: the enrichment
+    rewrite changes neither the transcript nor the speaker labels.
+    """
+    report = _redact_report(written.report) if env_bool("REPORT_REDACT_PII", False) else written.report
+    path = transcript_path_for(written.path)
+    _ensure_reports_dir()
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(transcript_markdown(report))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.remove(tmp_name)
+        raise
+    return path
 
 
 def _write_local_copy(path: Path, report: CallReport) -> str:
@@ -453,13 +507,13 @@ def _write_local_copy(path: Path, report: CallReport) -> str:
     return payload
 
 
-def write_report(session: SessionData) -> WrittenReport:
+def write_report(session: SessionData, *, speaker_labels: dict[str, str] | None = None) -> WrittenReport:
     """Build the call report and write its local copy, before any LLM step or delivery.
 
     The local copy exists from here on: a slow report model, a failed enrichment or a
     SIGTERM during it can no longer cost the operator the report.
     """
-    report = build_report(session)
+    report = build_report(session, speaker_labels)
     _ensure_reports_dir()
     filename = f"{datetime.now():%Y-%m-%dT%H-%M-%S}_{session.session_id}_report.json"
     path = REPORTS_DIR / filename

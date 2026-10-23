@@ -345,6 +345,44 @@ def test_confirm_purges_all_session_resources(tmp_path):
         ).fetchone()[0] == 0
 
 
+def test_confirm_purges_the_readable_transcript_next_to_the_report(tmp_path):
+    session_id = "readable-001"
+    db_path = tmp_path / "sessions.db"
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    SessionStore(db_path).create_session(session_id, profile="sales")
+    report = reports_dir / f"2026-06-11_{session_id}_report.json"
+    transcript = reports_dir / f"2026-06-11_{session_id}_transcript.md"
+    other = reports_dir / "2026-06-11_other-session_transcript.md"
+    for path in (report, transcript, other):
+        path.write_text("x", encoding="utf-8")
+
+    dry = purge_session(
+        session_id,
+        dry_run=True,
+        db_path=db_path,
+        audit_dir=tmp_path / "audit",
+        data_dir=tmp_path / "sessions",
+        reports_dir=reports_dir,
+    )
+    assert dry["reports"] == 2
+    assert transcript.exists()
+
+    counts = purge_session(
+        session_id,
+        dry_run=False,
+        db_path=db_path,
+        audit_dir=tmp_path / "audit",
+        data_dir=tmp_path / "sessions",
+        reports_dir=reports_dir,
+    )
+
+    assert counts["reports"] == 2
+    assert not report.exists()
+    assert not transcript.exists()
+    assert other.exists()
+
+
 # ---------------------------------------------------------------------------
 # Bulk purge --before-date
 # ---------------------------------------------------------------------------

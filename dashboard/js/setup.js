@@ -39,6 +39,10 @@ let llmModelOptions = [];
 let pendingLlmSelection = null;
 let clients = [];
 let pendingClientSelection = null;
+// Speaker names of the applied call preset (config/presets.yaml `ui_labels`), sent with the
+// start-call so the readable transcript names the speakers the way the preset does. null: the
+// preset names none and the domain preset's labels apply; {} (notetaker): neutral labels.
+let activeCallLabels = null;
 
 // pain_points is the AI-detection master switch. Both `applyPreset` and
 // `restoreConfig` write module checkboxes and both must go through
@@ -368,6 +372,9 @@ const applyPreset = (preset, { deliberate = true } = {}) => {
   // Modules first, then the screen mode: the single-screen constraint has to
   // land last so it wins over a preset that also lists presentation:true.
   writeModuleCheckboxes(preset.modules, { deliberate: mayWriteModules });
+  if (mayWriteModules) {
+    activeCallLabels = preset.ui_labels && typeof preset.ui_labels === "object" ? preset.ui_labels : null;
+  }
   if (preset.screen_mode) {
     setScreenMode(preset.screen_mode, { deliberate: mayWriteModules });
   }
@@ -414,6 +421,9 @@ const collectConfig = () => {
     // call_terms and privacy itself from that client's klant.yaml.
     client_slug: setupSelectors.clientSelect?.value || null,
   };
+  if (activeCallLabels) {
+    config.ui_labels = activeCallLabels;
+  }
   if (typeof window.getConsentPayload === "function") {
     const consent = window.getConsentPayload();
     if (consent) {
@@ -444,6 +454,7 @@ const restoreConfig = () => {
     // still have sent as presentation:true in the start_call payload.
     if (config.modules) {
       writeModuleCheckboxes(config.modules, { deliberate: true });
+      activeCallLabels = config.ui_labels && typeof config.ui_labels === "object" ? config.ui_labels : null;
     }
     if (config.screen_mode) {
       setScreenMode(config.screen_mode);

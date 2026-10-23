@@ -142,6 +142,25 @@ def resolve_app_resource(relative: str | Path) -> Path:
     return _installed_package_resources_dir() / rel
 
 
+def resolve_config_file(path: str | Path) -> Path:
+    """Resolve a config file path the way the rest of the app resolves its files.
+
+    An absolute path (or ``~``) is used as given. A relative path is looked up in the
+    writable app-support base first (a user's own copy), then in the bundled resources,
+    so ``config/transcription_vocabulary.yaml`` is found from any working directory in a
+    checkout, a pipx/pip install and the packaged app. When neither holds the file, the
+    path is returned as given (relative to the cwd), so an explicit override that points
+    at a cwd-relative file keeps working and a missing file is reported under its own name.
+    """
+    given = Path(path).expanduser()
+    if given.is_absolute():
+        return given
+    for candidate in (resolve_app_path(given), resolve_app_resource(given)):
+        if candidate.exists():
+            return candidate
+    return given
+
+
 def ensure_app_support_tree() -> None:
     """Create the standard writable subdirectories under the app-support base."""
     base = resolve_app_support()

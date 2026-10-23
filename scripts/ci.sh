@@ -65,6 +65,8 @@ echo "--- [4/6] Lockfile consistency ---"
 if command -v uv &>/dev/null; then
     uv lock --locked
     echo "uv.lock is consistent with pyproject.toml"
+    # constraints.txt (what CI and the installers install against) must follow uv.lock.
+    "$PYTHON_BIN" scripts/constraints.py --check
 else
     echo "[WARN] uv not found — skipping lockfile consistency check"
 fi

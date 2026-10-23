@@ -70,8 +70,8 @@ client's company, industry, contact people, and glossary terms, so you don't
 retype them every time you talk to the same client. `klant.yaml` can also set:
 
 - A **privacy ceiling** (`local`, `tenant`, or `public`): if the LLM provider
-  configured for this install is more permissive than the client allows, the
-  call is refused before anything is captured, rather than silently sending
+  or the transcription backend configured for this install is more permissive
+  than the client allows, the call is refused before anything is captured, rather than silently sending
   that client's conversation somewhere it shouldn't go.
 - A **retention window** for that client's own sessions, separate from the
   global retention setting.
@@ -205,9 +205,10 @@ In short:
 
 - **Transcription runs locally** on your computer (macOS or Windows). Your audio
   does not leave your machine unless you opt in to Groq transcription
-  (`WHISPER_BACKEND=groq`) or a remote whisper.cpp server
-  (`WHISPER_CPP_SERVER_HOST`, unencrypted HTTP). Neither is the default and
-  no PII filter runs on audio.
+  (`WHISPER_BACKEND=groq`). Binding the whisper.cpp server to a non-loopback
+  address (`WHISPER_CPP_SERVER_HOST`) is not local either: it opens an
+  unencrypted listener on your network. Neither is the default, no PII filter
+  runs on audio, and a client's privacy ceiling refuses both.
 - **Pain point and objection detection** uses an LLM provider of your choice.
   No LLM is configured by default (`LLM_PROVIDER=none`); the live cues run
   locally without one. With a provider configured, text is sent per task

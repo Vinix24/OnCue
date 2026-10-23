@@ -297,10 +297,12 @@ def _purge_reports(reports_dir: Path, session_id: str, *, dry_run: bool) -> int:
     removed = 0
     if not reports_dir.exists():
         return removed
-    for path in reports_dir.glob(f"*_{session_id}_report.json"):
-        if not dry_run:
-            path.unlink()
-        removed += 1
+    # The report and the readable transcript the reports module writes next to it.
+    for pattern in (f"*_{session_id}_report.json", f"*_{session_id}_transcript.md"):
+        for path in reports_dir.glob(pattern):
+            if not dry_run:
+                path.unlink()
+            removed += 1
     return removed
 
 

@@ -32,11 +32,13 @@ from sales_copilot.core.config import (
     InsightConfig,
     TranscriberConfig,
     WebSocketConfig,
+    blank_to_none,
     build_module_configs,
     env_bool,
     env_float,
     env_int,
     load_env,
+    payload_transcript_backend,
 )
 from sales_copilot.core.consent import (
     consent_tier,
@@ -289,9 +291,7 @@ def _parse_call_config(payload: dict[str, Any]) -> CallConfig:
         "enable_reports": modules.get(
             "post_call_report", payload.get("enable_reports", True)
         ),
-        "transcript_backend": transcript_payload.get(
-            "backend", payload.get("transcript_backend")
-        ),
+        "transcript_backend": payload_transcript_backend(payload),
         "call_language": transcript_payload.get("language", payload.get("language", "nl")),
         "prospect_name": prospect_payload.get("name", payload.get("prospect_name")),
         "prospect_company": prospect_payload.get(
@@ -300,8 +300,8 @@ def _parse_call_config(payload: dict[str, Any]) -> CallConfig:
         "prospect_industry": prospect_payload.get(
             "industry", payload.get("prospect_industry")
         ),
-        "llm_provider": llm_payload.get("provider", payload.get("llm_provider")),
-        "llm_model": llm_payload.get("model", payload.get("llm_model")),
+        "llm_provider": blank_to_none(llm_payload.get("provider", payload.get("llm_provider"))),
+        "llm_model": blank_to_none(llm_payload.get("model", payload.get("llm_model"))),
         "preset_name": payload.get("preset_name", payload.get("preset")),
         "context_docs": context_docs,
         "client_slug": parse_client_slug_from_payload(payload),
@@ -314,6 +314,7 @@ def _parse_call_config(payload: dict[str, Any]) -> CallConfig:
         # value; build_module_configs carries it onto the DetectorConfig every task
         # resolves its provider from.
         "privacy": payload.get("privacy"),
+        "ui_labels": payload.get("ui_labels"),
     }
     transcribe_self_live_raw = transcript_payload.get("transcribe_self_live")
     if isinstance(transcribe_self_live_raw, bool):
@@ -561,18 +562,65 @@ async def _guarded_task(
             str(exc)[:300],
             exc_info=True,
         )
-        payload: dict[str, Any] = {
-            "type": "module_failure",
-            "module": module_name,
-            "error": str(exc)[:300],
-            "at_ms": int(time.time() * 1000),
-        }
-        url = channel_ws_url(ws_config, "coaching")
-        try:
-            async with websockets.connect(url) as ws:
-                await ws.send(json.dumps(payload))
-        except Exception:
-            logger.warning("Could not publish module_failure for module=%s", module_name)
+        await _publish_module_failure(module_name, str(exc)[:300], ws_config)
+
+
+# Optional modules whose imports need a pip extra that a slim install (for
+# example the Windows notetaker profile) does not carry. The value is the extra
+# that provides the missing packages.
+_OPTIONAL_MODULE_EXTRAS: dict[str, str] = {
+    "detector": "detector",
+    "reports": "slides",
+}
+
+
+async def _publish_module_failure(
+    module_name: str,
+    error: str,
+    ws_config: WebSocketConfig,
+    *,
+    pip_extra: str | None = None,
+) -> None:
+    payload: dict[str, Any] = {
+        "type": "module_failure",
+        "module": module_name,
+        "error": error,
+        "at_ms": int(time.time() * 1000),
+    }
+    if pip_extra is not None:
+        payload["pip_extra"] = pip_extra
+        payload["install_hint"] = f'pip install ".[{pip_extra}]"'
+    url = channel_ws_url(ws_config, "coaching")
+    try:
+        async with websockets.connect(url) as ws:
+            await ws.send(json.dumps(payload))
+    except Exception:
+        logger.warning("Could not publish module_failure for module=%s", module_name)
+
+
+async def _report_missing_module(
+    module_name: str,
+    exc: ImportError,
+    crashed_modules: set[str],
+    ws_config: WebSocketConfig,
+) -> None:
+    """Report an optional module that cannot be imported and let the call go on."""
+    crashed_modules.add(module_name)
+    pip_extra = _OPTIONAL_MODULE_EXTRAS.get(module_name)
+    missing = exc.name or str(exc)
+    logger.error(
+        "Module '%s' is not available: the Python package '%s' is not installed. "
+        "The call continues without it. Install it with: pip install \".[%s]\"",
+        module_name,
+        missing,
+        pip_extra,
+    )
+    await _publish_module_failure(
+        module_name,
+        f"Python package '{missing}' is not installed",
+        ws_config,
+        pip_extra=pip_extra,
+    )
 
 
 async def _run_call(
@@ -619,52 +667,59 @@ async def _run_call(
             )
         )
     if call_config.enable_detector:
-        from sales_copilot.modules.detector.__main__ import main as detector_main
-
-        tasks.append(
-            asyncio.create_task(
-                _guarded_task(
-                    detector_main(
-                        stop_event=stop_event,
-                        register_signals=False,
-                        detector_config=module_configs["detector"],
-                        insight_config=module_configs["insight"],
-                        slides_config=module_configs["slides"],
-                        context_docs=call_config.context_docs,
-                        session_id=session_id,
-                        client_slug=call_config.client_slug,
+        try:
+            from sales_copilot.modules.detector.__main__ import main as detector_main
+        except ImportError as exc:
+            await _report_missing_module("detector", exc, crashed_modules, ws_config)
+        else:
+            tasks.append(
+                asyncio.create_task(
+                    _guarded_task(
+                        detector_main(
+                            stop_event=stop_event,
+                            register_signals=False,
+                            detector_config=module_configs["detector"],
+                            insight_config=module_configs["insight"],
+                            slides_config=module_configs["slides"],
+                            context_docs=call_config.context_docs,
+                            session_id=session_id,
+                            client_slug=call_config.client_slug,
+                        ),
+                        "detector",
+                        crashed_modules,
+                        ws_config,
                     ),
-                    "detector",
-                    crashed_modules,
-                    ws_config,
-                ),
-                name="detector",
+                    name="detector",
+                )
             )
-        )
     if call_config.enable_reports:
-        from sales_copilot.modules.reports.__main__ import main as reports_main
-
-        tasks.append(
-            asyncio.create_task(
-                _guarded_task(
-                    reports_main(
-                        stop_event=stop_event,
-                        register_signals=False,
-                        prospect_name=call_config.prospect_name,
-                        prospect_company=call_config.prospect_company,
-                        context_docs=call_config.context_docs,
-                        session_id=session_id,
-                        client_slug=call_config.client_slug,
-                        aflevering=call_config.aflevering,
-                        detector_config=module_configs["detector"],
+        try:
+            from sales_copilot.modules.reports.__main__ import main as reports_main
+        except ImportError as exc:
+            await _report_missing_module("reports", exc, crashed_modules, ws_config)
+        else:
+            tasks.append(
+                asyncio.create_task(
+                    _guarded_task(
+                        reports_main(
+                            stop_event=stop_event,
+                            register_signals=False,
+                            prospect_name=call_config.prospect_name,
+                            prospect_company=call_config.prospect_company,
+                            context_docs=call_config.context_docs,
+                            session_id=session_id,
+                            client_slug=call_config.client_slug,
+                            aflevering=call_config.aflevering,
+                            detector_config=module_configs["detector"],
+                            ui_labels=call_config.ui_labels,
+                        ),
+                        "reports",
+                        crashed_modules,
+                        ws_config,
                     ),
-                    "reports",
-                    crashed_modules,
-                    ws_config,
-                ),
-                name="reports",
+                    name="reports",
+                )
             )
-        )
 
     call_stop = asyncio.Event()
 
@@ -933,17 +988,23 @@ def main() -> None:
                 except (asyncio.CancelledError, Exception):
                     pass
 
+    exit_code = 0
     try:
         asyncio.run(_orchestrate())
     except KeyboardInterrupt:
         _shutdown()
         time.sleep(0.1)
-    except RuntimeError as exc:
-        logger.error("%s", exc)
+    except Exception as exc:
+        logger.exception("OnCue stopped because of an unexpected error: %s", exc)
+        print(
+            f"OnCue stopped because of an unexpected error: {type(exc).__name__}: {exc}\n"
+            "See the log for details.",
+            file=sys.stderr,
+        )
         _shutdown()
         time.sleep(0.1)
-    finally:
-        sys.exit(0)
+        exit_code = 1
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

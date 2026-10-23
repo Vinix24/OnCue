@@ -222,7 +222,9 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> _Harness:
 
 
 def _model_says(monkeypatch: pytest.MonkeyPatch, enrichment: ReportEnrichment) -> None:
-    async def _enrich(session: Any, detector_config: Any = None, *, terms: Any = ()) -> ReportEnrichment:
+    async def _enrich(
+        session: Any, detector_config: Any = None, *, terms: Any = (), roles: Any = None
+    ) -> ReportEnrichment:
         return enrichment
 
     monkeypatch.setattr(reports_main, "enrich_report", _enrich)

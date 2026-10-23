@@ -186,7 +186,7 @@ That's exactly the information I need. Describe what you expected and what happe
 
 ## Privacy and data
 
-Audio is processed locally on your Apple Silicon chip via whisper.cpp (the default backend; mlx-whisper is an experimental option). Your conversation audio does not go to an external server unless you switch on `WHISPER_BACKEND=groq` or point `WHISPER_CPP_SERVER_HOST` at another machine. Both are off by default and neither filters personal data from audio.
+Audio is processed locally on your Apple Silicon chip via whisper.cpp (the default backend; mlx-whisper is an experimental option). Your conversation audio does not go to an external server unless you switch on `WHISPER_BACKEND=groq`. Setting `WHISPER_CPP_SERVER_HOST` to a network address opens an unencrypted listener on your network. Both are off by default, neither filters personal data from audio, and a client's privacy ceiling refuses both.
 
 Transcripts are stored locally on your Mac in `data/sessions/`. I don't see those files unless you send them to me yourself.
 

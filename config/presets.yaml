@@ -48,3 +48,20 @@ presets:
       presentation: true
       post_call_report: true
     llm_model: anthropic/claude-haiku-4.5
+  - name: notetaker
+    label: Notetaker
+    description: Notulist, alleen live transcript en verslag, ook van je eigen stem. Geen detectie, geen talk-time coaching, geen slides
+    screen_mode: single
+    transcript:
+      backend: whisper.cpp
+      transcribe_self_live: true
+    modules:
+      talk_time: false
+      transcript: true
+      pain_points: false
+      presentation: false
+      post_call_report: true
+    # A notetaker has no seller and no prospect. No named roles: the readable transcript
+    # (<prefix>_transcript.md) names the two channels neutrally by LANGUAGE ("Ik" and
+    # "Gesprekspartner" in Dutch, "Me" and "Other" in English).
+    ui_labels: {}

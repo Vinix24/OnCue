@@ -1,6 +1,6 @@
 [project]
 name = "live-sales-copilot"
-version = "1.0.0rc3"
+version = "1.0.0rc4"
 description = "OnCue — open source real-time sales copilot: talk-time tracker, live transcriber, pain point detector, presentation automation"
 readme = "README.md"
 license = { text = "AGPL-3.0-only" }
@@ -47,6 +47,11 @@ dependencies = [
 
     # MCP bridge (JSON-RPC over stdio, host-agnostic)
     "mcp>=2.2.0",
+    # opentelemetry-api is transitive via mcp (base) and pyannote.audio. 1.42.1
+    # carries CVE-2026-114603, fixed in 1.45.1. opentelemetry-sdk pins the api
+    # version exactly, so the family moves together in uv.lock. Explicit floor
+    # so pip-audit gate 5 stays green.
+    "opentelemetry-api>=1.45.1",
 
     # Utilities
     "rich>=13.0",
@@ -92,6 +97,10 @@ detector = [
     # fixed in 6.5.8; 6.5.8 carries GHSA-chx6-46f5-w4vp, GHSA-c2m8-h5v5-343r and
     # GHSA-3hv7-mjh2-fv65, fixed in 6.5.9. Explicit floor so pip-audit gate 5 stays green.
     "tornado>=6.5.9",
+    # certifi is transitive via httpx and requests. 2026.5.20 carries
+    # PYSEC-2026-4320, fixed in 2026.10.19. Explicit floor so pip-audit gate 5
+    # stays green.
+    "certifi>=2026.10.19",
 ]
 
 # === MODULE 2b: Speaker Diarization (optional, opt-in) ===
@@ -104,8 +113,10 @@ diarization = [
     "torchaudio>=2.1",
     # pillow is transitive via pyannote.audio -> matplotlib. 12.2.0 carries six
     # PYSEC advisories (PYSEC-2026-3453, -3454, -3493, -3494, -3495, -3496),
-    # fixed in 12.3.0. Explicit floor so pip-audit gate 5 stays green.
-    "pillow>=12.3.0",
+    # fixed in 12.3.0; 12.3.0 carries CVE-2026-112395, -112397, -112400,
+    # -112404, -112895, -112896, -112897 and -112899, fixed in 13.0.0.
+    # Explicit floor so pip-audit gate 5 stays green.
+    "pillow>=13.0.0",
     # pytorch-lightning is transitive via pyannote.audio -> lightning. 2.6.5
     # carries PYSEC-2026-3967, fixed in 2.6.6. Explicit floor so pip-audit
     # gate 5 stays green.

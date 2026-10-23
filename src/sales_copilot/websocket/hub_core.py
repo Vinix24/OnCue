@@ -20,11 +20,22 @@ from sales_copilot.auth.feature_policy import (
     FeaturePolicy,
     get_feature_policy,
 )
-from sales_copilot.core.config import DetectorConfig, InsightConfig, with_overrides
+from sales_copilot.core.config import (
+    DetectorConfig,
+    InsightConfig,
+    TranscriberConfig,
+    blank_to_none,
+    env_bool,
+    live_backend_name,
+    load_transcription_engine,
+    payload_transcript_backend,
+    validate_ui_labels,
+    with_overrides,
+)
 from sales_copilot.core.context_docs import parse_client_slug_from_payload
 from sales_copilot.core.klant_config import KlantConfigError, load_klant_config
 from sales_copilot.core.measurement_signals import record_install_attribution
-from sales_copilot.core.privacy_gate import validate_privacy
+from sales_copilot.core.privacy_gate import enforce_transcription_privacy, validate_privacy
 from sales_copilot.websocket.hub_auth import is_valid_token, websocket_token
 
 #: The spoken-transcript event type. Named here so the buffer predicate below
@@ -184,9 +195,9 @@ def _resolve_llm_provider(config: dict[str, Any]) -> str:
 
     Mirrors how ``sales_copilot.__main__._parse_call_config`` + ``build_module_configs``
     resolve the provider: nested ``config["llm"]["provider"]`` wins if the key is present
-    (even empty), flat ``config["llm_provider"]`` is the fallback, and if BOTH keys are
+    (an empty or blank value counts as absent), flat ``config["llm_provider"]`` is the fallback, and if BOTH keys are
     entirely absent this falls back to the same global ``DetectorConfig.from_env()``
-    default (``LLM_PROVIDER`` env, default ``"openrouter"``) the detector will actually run
+    default (``LLM_PROVIDER`` env, default ``"none"``) the detector will actually run
     with -- ``with_overrides`` only overrides a config field when the call supplied a
     non-``None`` value, so an omitted ``llm.provider`` never actually reaches the detector
     as ``""``. Testing an unconfigured request against a literal ``""`` (always "public")
@@ -194,8 +205,8 @@ def _resolve_llm_provider(config: dict[str, Any]) -> str:
     ``LLM_PROVIDER=ollama`` -- a false rejection this mirror fixes.
     """
     llm_payload = config.get("llm")
-    nested = llm_payload.get("provider") if isinstance(llm_payload, dict) else None
-    provider = nested if nested is not None else config.get("llm_provider")
+    nested = blank_to_none(llm_payload.get("provider")) if isinstance(llm_payload, dict) else None
+    provider = nested if nested is not None else blank_to_none(config.get("llm_provider"))
     if provider is None:
         return DetectorConfig.from_env().llm_provider
     return provider if isinstance(provider, str) else ""
@@ -236,8 +247,8 @@ def _conversation_detector_config(
     and this conversation's ceiling.
     """
     llm_payload = config.get("llm")
-    nested_model = llm_payload.get("model") if isinstance(llm_payload, dict) else None
-    model = nested_model if nested_model is not None else config.get("llm_model")
+    nested_model = blank_to_none(llm_payload.get("model")) if isinstance(llm_payload, dict) else None
+    model = nested_model if nested_model is not None else blank_to_none(config.get("llm_model"))
     detector = with_overrides(
         DetectorConfig.from_env(),
         llm_provider=_resolve_llm_provider(config),
@@ -266,6 +277,51 @@ def _enforce_task_ceiling(config: dict[str, Any], *, privacy: str | None, client
         detector, insight_active=_insight_lane_active(), report_active=_reports_active(config)
     ):
         resolve_llm(task, detector, insight_config=insight)
+
+
+def _transcriber_active(config: dict[str, Any]) -> bool:
+    """Will the live transcriber module start for this conversation?
+
+    Mirrors ``__main__._parse_call_config``: ``modules.transcriber`` wins, then
+    ``modules.transcript``, then the flat ``enable_transcriber``; on when none is given.
+    """
+    modules = config.get("modules")
+    if not isinstance(modules, dict):
+        modules = {}
+    return bool(
+        modules.get("transcriber", modules.get("transcript", config.get("enable_transcriber", True)))
+    )
+
+
+def _enforce_transcription_ceiling(
+    config: dict[str, Any], *, privacy: str | None, client_slug: str | None
+) -> None:
+    """Refuse the start-call when a transcription backend this conversation runs is above ``privacy``.
+
+    Two routes build a backend, and each is checked with the backend the runtime will use:
+
+    - The live transcriber (``modules/transcriber``), when it starts: the per-call
+      ``transcript.backend`` override on top of ``TranscriberConfig.from_env()``, and
+      ``TRANSCRIPTION_ENGINE=whisper.cpp`` forcing whisper.cpp (``live_backend_name``).
+    - The post-call self-channel batch (``modules/reports``), when reports run and
+      ``RECORD_AUDIO`` is on: it builds its backend from the env config alone and ignores
+      the per-call override.
+
+    The ceiling does not reach the transcriber (``TranscriberConfig`` carries no privacy
+    field), so this start-call check is the single enforcement point. Raises
+    ``PrivacyGateError`` (a ``ValueError``, so a 400 at the HTTP layer).
+    """
+    env_config = TranscriberConfig.from_env()
+    routes: list[str] = []
+    if _transcriber_active(config):
+        live = with_overrides(env_config, backend=payload_transcript_backend(config))
+        routes.append(live_backend_name(load_transcription_engine(), live))
+    if _reports_active(config) and env_bool("RECORD_AUDIO", False):
+        routes.append(env_config.backend)
+    for backend in dict.fromkeys(str(name) for name in routes):
+        enforce_transcription_privacy(
+            privacy, backend, env_config.whisper_cpp_server_host, client_slug=client_slug
+        )
 
 
 def _set_prospect_field(config: dict[str, Any], field_name: str, value: str, *, client_slug: str) -> None:
@@ -355,6 +411,12 @@ def extract_start_call_config(payload: dict[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError(f"preset must be one of: {sorted(_ALLOWED_PRESETS)}")
 
+    # Speaker labels for the readable transcript: a malformed value is a 400 here, not a
+    # silently ignored one at the end of the call.
+    config["ui_labels"] = validate_ui_labels(config.get("ui_labels"))
+    if config["ui_labels"] is None:
+        del config["ui_labels"]
+
     install_code = config.get("install_code", "")
     if install_code is None:
         install_code = ""
@@ -372,9 +434,9 @@ def extract_start_call_config(payload: dict[str, Any]) -> dict[str, Any]:
         if config["privacy"] is None:
             del config["privacy"]
     _apply_klant_config(config)
-    _enforce_task_ceiling(
-        config, privacy=config.get("privacy"), client_slug=parse_client_slug_from_payload(config)
-    )
+    client_slug = parse_client_slug_from_payload(config)
+    _enforce_task_ceiling(config, privacy=config.get("privacy"), client_slug=client_slug)
+    _enforce_transcription_ceiling(config, privacy=config.get("privacy"), client_slug=client_slug)
 
     return config
 

@@ -211,3 +211,42 @@ test("setup.js renders no untranslated i18n keys", async () => {
   const { env } = await bootSetup();
   assert.deepEqual(env.missingI18nKeys, []);
 });
+
+/** The notetaker names no roles: `ui_labels: {}` in config/presets.yaml. */
+const NOTETAKER_PRESET = { ...DISCOVERY_PRESET, name: "notetaker", ui_labels: {} };
+
+test("a preset that names no roles sends an empty ui_labels with the start-call config", async () => {
+  const { env } = await bootSetup({ presets: [NOTETAKER_PRESET] });
+
+  const saved = JSON.parse(env.storage[STORAGE_KEY]);
+
+  assert.deepEqual(saved.ui_labels, {});
+});
+
+test("a preset without ui_labels sends none, so the domain preset's labels apply", async () => {
+  const { env } = await bootSetup({ presets: [DISCOVERY_PRESET] });
+
+  const saved = JSON.parse(env.storage[STORAGE_KEY]);
+
+  assert.equal("ui_labels" in saved, false);
+});
+
+test("the stored ui_labels survive a reload and the auto-applied first preset", async () => {
+  const { env } = await bootSetup({
+    presets: [DISCOVERY_PRESET],
+    storage: {
+      [STORAGE_KEY]: JSON.stringify({
+        ...JSON.parse(storedConfig({
+          talk_time: false,
+          transcript: true,
+          pain_points: false,
+          presentation: false,
+          post_call_report: true,
+        }, "single")[STORAGE_KEY]),
+        ui_labels: {},
+      }),
+    },
+  });
+
+  assert.deepEqual(JSON.parse(env.storage[STORAGE_KEY]).ui_labels, {});
+});

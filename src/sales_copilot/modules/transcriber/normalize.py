@@ -49,6 +49,8 @@ from typing import Any
 
 import yaml
 
+from sales_copilot.core.paths import resolve_config_file
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_NORMALIZATION_PATH = Path("config/transcript_normalization.yaml")
@@ -137,7 +139,7 @@ def load_normalization_lists(path: str | Path) -> NormalizationLists:
     Missing or malformed files are logged and return a disabled config so a
     bad config file cannot break transcription startup.
     """
-    resolved = Path(path).expanduser()
+    resolved = resolve_config_file(path)
     try:
         data = _load_yaml(resolved)
     except FileNotFoundError:

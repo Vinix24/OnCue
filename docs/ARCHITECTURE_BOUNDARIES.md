@@ -19,7 +19,7 @@ Invariants 1 and 2 together define a spectrum, not an on/off switch:
 
 1. **No LLM (default)**: `LLM_PROVIDER=none`. The live cues run fully local and no transcript text leaves the device. Default for sensitive/regulated conversations (invariant 1).
 2. **Local LLM of the user's choice**: for example `LLM_PROVIDER=ollama` with a model the user runs themselves. The text stays on the machine.
-3. **Own cloud tenant**: the user's own Azure/Vertex/Bedrock tenant and keys, via `core/llm_client.py` (invariant 2). Also cloud, but within boundaries organizations already accept: data stays in their own, managed tenant.
+3. **Own cloud tenant**: the user's own Azure OpenAI or Vertex AI tenant and keys, via `core/llm_client.py` (invariant 2). Also cloud, but within boundaries organizations already accept: data stays in their own, managed tenant.
 4. **Public provider with the user's own key**: a public API (e.g. OpenAI, OpenRouter, Groq, Gemini), likewise allowed via `core/llm_client.py` (invariant 2), opt-in when the sensitivity of that specific conversation allows it.
 
 The choice is made **per conversation**, not per customer and not once at installation: the same user can pick tier 1 for a sensitive customer conversation and tier 4 for an internal sales training. Privacy stays the default; cloud is a deliberate, explicit choice, never the silent default. See also `docs/PRIVACY.md` (configurable privacy tiers) and the root `CLAUDE.md` (product positioning).
@@ -29,13 +29,13 @@ The choice is made **per conversation**, not per customer and not once at instal
 Audio is the one data type the LLM seam never sees, so it needs its own documented class. By default transcription is local (`WHISPER_BACKEND=whisper.cpp`, server on `127.0.0.1`). Two operator choices send audio off the machine:
 
 1. **`WHISPER_BACKEND=groq`** (`modules/transcriber/backends/groq_backend.py`, selected in `backends/__init__.py`). Every audio chunk is uploaded as WAV to Groq with the fixed model `whisper-large-v3-turbo`. It requires `GROQ_API_KEY`. The base URL defaults to `https://api.groq.com/openai/v1` and can be overridden with `GROQ_BASE_URL`.
-2. **`WHISPER_CPP_SERVER_HOST`** set to a host other than `127.0.0.1` (split deploy). Every audio chunk goes to `http://<host>:<port>` over unencrypted HTTP.
+2. **`WHISPER_CPP_SERVER_HOST`** set to a non-loopback address. OnCue starts whisper-server itself and binds it to that address on this machine, so every audio chunk goes over unencrypted HTTP to a local server that listens on a network interface other machines can reach. Audio is not sent to another machine (an address that is not this machine's own cannot be bound), but the open listener is why this is not `local`.
 
 Conditions and limits of this class:
 
 - **Opt-in, default off.** Neither route is active unless the operator sets it. With the defaults, no audio leaves the device.
 - **No PII filter on audio.** `core/outbound_policy.py` redacts text only. Audio sent over either route is not redacted.
-- **No privacy ceiling.** The per-client ceiling in `core/privacy_gate.py` covers LLM tasks only. `modules/transcriber/` performs no ceiling check, so these routes are not refused for a client with a strict ceiling.
+- **Covered by the privacy ceiling.** The per-client ceiling in `core/privacy_gate.py` also covers the transcription backend, enforced at start-call by `hub_core._enforce_transcription_ceiling` (lane `transcriptie`). `local`: mlx-whisper, parakeet, and whisper.cpp with the server host on `127.0.0.1`, `::1` or `localhost`. `public`: groq, whisper.cpp on any other host, and any unknown backend name. The classification is `outbound_policy.transcription_tier_of`, which reuses the loopback test of `tier_of`. `modules/transcriber/` does not check the ceiling again: it does not receive it, so start-call is the single enforcement point.
 - **Not covered by the `core/llm_client.py` seam.** The Groq backend and the whisper.cpp client are on the network-client allow-list of `scripts/check_architecture_boundaries.py`, not behind the LLM seam.
 
 Raw audio on the default path, session recordings, and embeddings stay on the device.
@@ -44,7 +44,7 @@ Raw audio on the default path, session recordings, and embeddings stay on the de
 
 Invariant 1 originally stated a single outbound class: *only short, PII-redacted LLM fragments may leave the device.* The detection and coaching tracks (tracks 1 and 2) send PII-redacted per-task text as listed in `docs/PRIVACY.md`, which includes a rolling summary of up to 40 lines per minute and the whole transcript for the post-call report. The deep-insight lane (track 3, Pro; the code does not ship in the open source distribution) is a separate, deliberate, documented second outbound class on top of that and is not smuggled in as a footnote exception.
 
-**What leaves the device under this class.** The full session transcript — not a sliding window, not a fragment — plus prep-docs and, when opted in, earlier transcripts of the same customer. All of it is PII-redacted through the existing `core/outbound_policy.py` seam before it leaves. The destination is an operator-configured frontier or enterprise-grade endpoint: a BYO-tenant cloud (Azure OpenAI / Vertex / Bedrock), a public frontier API, or an MCP host the operator connects. The lane never runs against a local-only provider; that is by design, not a gap.
+**What leaves the device under this class.** The full session transcript — not a sliding window, not a fragment — plus prep-docs and, when opted in, earlier transcripts of the same customer. All of it is PII-redacted through the existing `core/outbound_policy.py` seam before it leaves. The destination is an operator-configured frontier or enterprise-grade endpoint: a BYO-tenant cloud (Azure OpenAI / Vertex AI), a public frontier API, or an MCP host the operator connects. The lane never runs against a local-only provider; that is by design, not a gap.
 
 **Three hard conditions, all required:**
 

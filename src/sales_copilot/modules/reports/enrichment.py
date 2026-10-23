@@ -67,6 +67,7 @@ from sales_copilot.modules.reports.term_corrections import (
     numbered_transcript,
     plan_term_corrections,
     review_term_corrections,
+    term_correction_prompt,
 )
 
 if TYPE_CHECKING:
@@ -110,6 +111,60 @@ _TERMS_SYSTEM_PROMPT = (
     "Text in square brackets, such as [NAAM], [EMAIL] or [TELEFOON], stands in for personal "
     "data that was removed. Never guess what it replaced." + TERM_CORRECTION_PROMPT
 )
+
+
+_LANGUAGE_NAMES = {"nl": "Dutch", "en": "English", "de": "German"}
+
+
+@dataclasses.dataclass(frozen=True)
+class SpeakerRoles:
+    """The two speakers of a call that has no seller and no prospect.
+
+    ``own`` is the person at the microphone, ``other`` is everyone else. Both are the labels
+    the readable transcript uses (the call preset's ``ui_labels``, else neutral by language).
+    A report without roles keeps the sales wording above.
+    """
+
+    own: str
+    other: str
+
+
+def _language_name(language: str) -> str:
+    code = (language or "").strip().lower() or "nl"
+    return _LANGUAGE_NAMES.get(code, code)
+
+
+def _neutral_report_prompt(roles: SpeakerRoles, language: str) -> str:
+    """The report prompt for a conversation that is not a sales call: the call's own speaker labels."""
+    return (
+        "You receive the transcript of one phone or video conversation, captured by a call "
+        f"assistant. Each line starts with who spoke: {roles.own} is the person using the "
+        f"assistant, {roles.other} is the other party, Unknown means the speaker could not be "
+        "determined.\n\n"
+        "First set gesprek_gevoerd. It is true when two people actually talked with each other, "
+        "however briefly. It is false when there was no real exchange: a voicemail greeting, a "
+        "message left on a voicemail, a network or operator announcement, an automated phone "
+        "menu, a line that rang out or was busy, silence, or loose fragments without a "
+        "conversation. When you are not sure, choose true.\n\n"
+        "Then describe the conversation using only what the transcript contains. Do not add "
+        "names, numbers, agreements or next steps nobody said. Leave a field empty when the "
+        "conversation has nothing for it, which is always the case when gesprek_gevoerd is "
+        "false.\n\n"
+        "Text in square brackets, such as [NAAM], [EMAIL] or [TELEFOON], stands in for personal "
+        "data that was removed. Copy it as it is and never guess what it replaced.\n\n"
+        f"Write every text field in {_language_name(language)}, the language the conversation "
+        "was held in, whatever the language of these instructions or of the field descriptions."
+    )
+
+
+def _neutral_terms_prompt(roles: SpeakerRoles) -> str:
+    return (
+        "You receive the transcript of one phone or video conversation, captured by a call "
+        f"assistant. {roles.own} is the person using the assistant, {roles.other} is the other "
+        "party, Unknown means the speaker could not be determined.\n\n"
+        "Text in square brackets, such as [NAAM], [EMAIL] or [TELEFOON], stands in for personal "
+        "data that was removed. Never guess what it replaced." + term_correction_prompt(roles.own)
+    )
 
 
 class ReportEnrichment(BaseModel):
@@ -162,6 +217,18 @@ class ReportEnrichment(BaseModel):
         )
 
 
+class NeutralReportEnrichment(ReportEnrichment):
+    """``ReportEnrichment`` with field descriptions that do not assume a sales call."""
+
+    overview: str = Field(
+        description=(
+            "A few short paragraphs: why the conversation took place, what was said about the "
+            "situation and needs, doubts or objections, and how it ended. Empty when there "
+            "was no conversation."
+        )
+    )
+
+
 class ReportTermCorrections(BaseModel):
     """The answer of the term-correction call when it runs apart from the report call."""
 
@@ -209,13 +276,31 @@ def _clean_items(items: Iterable[str]) -> list[str]:
     return [item.strip() for item in items if item and item.strip()]
 
 
-def _transcript_lines(transcript: Sequence[Any]) -> list[tuple[int, str, str]]:
+def _prompt_label(label: str, fallback: str) -> str:
+    """``label`` when the numbered transcript can carry it (letters only), else ``fallback``."""
+    return label if label.isascii() and label.isalpha() else fallback
+
+
+def _speaker_names(roles: SpeakerRoles | None, language: str) -> dict[str, str]:
+    """The name each audio channel carries in the prompt: the sales wording, or the call's own roles."""
+    if roles is None:
+        return _SPEAKER_LABELS
+    own_fallback, other_fallback = ("Ik", "Gesprekspartner") if language == "nl" else ("Me", "Other")
+    return {
+        "self": _prompt_label(roles.own, own_fallback),
+        "prospect": _prompt_label(roles.other, other_fallback),
+    }
+
+
+def _transcript_lines(
+    transcript: Sequence[Any], names: dict[str, str] = _SPEAKER_LABELS
+) -> list[tuple[int, str, str]]:
     """``(index, speaker label, text)`` per segment with text; the index is its place in the report."""
     lines: list[tuple[int, str, str]] = []
     for index, segment in enumerate(transcript):
         text = " ".join((segment.text or "").split())
         if text:
-            lines.append((index, _SPEAKER_LABELS.get(segment.speaker, "Unknown"), text))
+            lines.append((index, names.get(segment.speaker, "Unknown"), text))
     return lines
 
 
@@ -225,7 +310,11 @@ def _transcript_text(lines: Iterable[tuple[int, str, str]]) -> str:
 
 
 async def enrich_report(
-    session: Any, detector_config: DetectorConfig | None = None, *, terms: Sequence[str] = ()
+    session: Any,
+    detector_config: DetectorConfig | None = None,
+    *,
+    terms: Sequence[str] = (),
+    roles: SpeakerRoles | None = None,
 ) -> ReportEnrichment:
     """Enrich the report of ``session`` through the ``report`` and ``report_terms`` tasks.
 
@@ -233,6 +322,9 @@ async def enrich_report(
     read). ``detector_config`` is the conversation's config -- provider, model, temperature
     and privacy ceiling -- and ``DetectorConfig.from_env()`` when omitted. ``terms`` is the
     call's term list (``term_corrections.load_report_terms``); empty means no term correction.
+    ``roles`` names the two speakers of a call that is not a sales call; the prompt then speaks
+    of them instead of a seller and a prospect and tells the model to write in the call
+    language. ``None`` keeps the sales prompt.
 
     One call when both tasks resolve to the same provider and model, two when they differ;
     see the module docstring. Never raises for a model or routing problem: each part fails
@@ -240,7 +332,12 @@ async def enrich_report(
     """
     session_id = session.session_id
     transcript = list(session.transcript)
-    lines = _transcript_lines(transcript)
+    config = detector_config or DetectorConfig.from_env()
+    names = _speaker_names(roles, config.call_language)
+    lines = _transcript_lines(transcript, names)
+    prompts = _Prompts.for_call(
+        SpeakerRoles(names["self"], names["prospect"]) if roles is not None else None, config.call_language
+    )
     if not lines:
         logger.info("Report enrichment skipped for session=%s: the transcript has no text.", session_id)
         return ReportEnrichment.fail_open()
@@ -256,7 +353,6 @@ async def enrich_report(
         )
         return ReportEnrichment.fail_open()
 
-    config = detector_config or DetectorConfig.from_env()
     report_route = _resolve_part(resolve_llm, _REPORT_PART, REPORT_TASK, config, session_id)
     terms_route = _resolve_part(resolve_llm, _TERMS_PART, TERMS_TASK, config, session_id) if terms else None
     plan = await _plan_terms(lines, terms, session_id) if terms_route is not None else None
@@ -264,15 +360,15 @@ async def enrich_report(
         plan = None
 
     if plan is not None and terms_route is not None and _same_model(report_route, terms_route):
-        return await _combined_call(report_route, terms_route, plan, transcript, config, session_id)
+        return await _combined_call(report_route, terms_route, plan, transcript, config, session_id, prompts)
 
     report_call = (
         _call(
             _REPORT_PART,
             report_route,
-            system_prompt=_SYSTEM_PROMPT,
+            system_prompt=prompts.report,
             user_text=_transcript_text(lines),
-            response_model=ReportEnrichment,
+            response_model=prompts.report_model,
             temperature=config.llm_temperature,
             session_id=session_id,
         )
@@ -284,7 +380,7 @@ async def enrich_report(
         _call(
             _TERMS_PART,
             terms_route,
-            system_prompt=_TERMS_SYSTEM_PROMPT,
+            system_prompt=prompts.terms,
             user_text=terms_user_text,
             response_model=ReportTermCorrections,
             temperature=config.llm_temperature,
@@ -303,6 +399,28 @@ async def enrich_report(
     return _with_term_corrections(
         enrichment, terms_result.term_corrections, plan, transcript, terms_user_text, terms_route.provider, session_id
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class _Prompts:
+    """The system prompts and answer schema of one call: the sales wording or the neutral one."""
+
+    report: str
+    terms: str
+    combined: str
+    report_model: type[ReportEnrichment]
+
+    @classmethod
+    def for_call(cls, roles: SpeakerRoles | None, language: str) -> _Prompts:
+        if roles is None:
+            return cls(_SYSTEM_PROMPT, _TERMS_SYSTEM_PROMPT, _SYSTEM_PROMPT + TERM_CORRECTION_PROMPT, ReportEnrichment)
+        report = _neutral_report_prompt(roles, language)
+        return cls(
+            report,
+            _neutral_terms_prompt(roles),
+            report + term_correction_prompt(roles.own),
+            NeutralReportEnrichment,
+        )
 
 
 async def _nothing() -> None:
@@ -358,6 +476,7 @@ async def _combined_call(
     transcript: Sequence[Any],
     config: DetectorConfig,
     session_id: str,
+    prompts: _Prompts,
 ) -> ReportEnrichment:
     """Both parts in one call: the same provider and model, the larger timeout and output limit.
 
@@ -376,9 +495,9 @@ async def _combined_call(
     result = await _call(
         _REPORT_PART,
         route,
-        system_prompt=_SYSTEM_PROMPT + TERM_CORRECTION_PROMPT,
+        system_prompt=prompts.combined,
         user_text=user_text,
-        response_model=ReportEnrichment,
+        response_model=prompts.report_model,
         temperature=config.llm_temperature,
         session_id=session_id,
         limit_key=task_max_output_tokens_key(TERMS_TASK if terms_limit_wins else REPORT_TASK),

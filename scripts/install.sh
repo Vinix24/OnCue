@@ -121,13 +121,14 @@ else
     _green "Virtual environment already exists at .venv"
 fi
 
-PIP="$VENV_DIR/bin/pip"
 PYTHON="$VENV_DIR/bin/python"
 
 # ── 6. Install Python dependencies ──────────────────────────────────────────
-_blue "Installing Python dependencies (pip install -e .[smart])..."
-"$PIP" install --quiet --upgrade pip
-"$PIP" install --quiet -e ".[smart]"
+# constraints.txt pins every package to the version uv.lock (and so CI) tests,
+# so a new major of a dependency cannot break a fresh install. No uv needed here.
+_blue "Installing Python dependencies (python -m pip install -e .[smart] -c constraints.txt)..."
+"$PYTHON" -m pip install --quiet --upgrade pip
+"$PYTHON" -m pip install --quiet -e ".[smart]" -c "$ROOT_DIR/constraints.txt"
 _green "Python dependencies installed"
 
 # ── 7. AudioTee (OSS default whole-system tap) ───────────────────────────────

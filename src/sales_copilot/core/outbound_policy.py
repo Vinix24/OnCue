@@ -73,7 +73,7 @@ def _is_truthy(value: str | None) -> bool:
 
 
 def _env_provider() -> str:
-    return (os.getenv("LLM_PROVIDER", "openrouter") or "openrouter").strip().lower()
+    return (os.getenv("LLM_PROVIDER", "none") or "none").strip().lower()
 
 
 def _warn_skip_once(reason_key: str, message: str) -> None:
@@ -97,12 +97,20 @@ def resolve_pii_mode() -> str:
     return mode
 
 
+def is_loopback_host(host: str | None) -> bool:
+    """Is ``host`` one of the loopback names (localhost, 127.0.0.1, ::1)?
+
+    The single loopback test: the LLM tier (``tier_of``) and the transcription tier
+    (``transcription_tier_of``) both go through it.
+    """
+    return (host or "").strip().lower().strip("[]") in _LOCAL_HOSTS
+
+
 def _destination_is_local(provider: str) -> bool:
     if provider != "ollama":
         return False
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434") or "http://localhost:11434"
-    host = urlparse(base_url).hostname or ""
-    return host in _LOCAL_HOSTS
+    return is_loopback_host(urlparse(base_url).hostname)
 
 
 def _destination_is_trusted_tenant(provider: str) -> bool:
@@ -139,17 +147,41 @@ def tier_of(provider: str) -> Literal["local", "tenant", "public"]:
 
     Single source of truth for that classification (klantmap-als-eenheid D2's
     privacy-poort reuses this instead of re-deriving the local/tenant/public
-    rules): ``"local"`` only for Ollama on a loopback address
-    (``outbound_is_local()``), ``"tenant"`` only for a BYO-tenant provider with
-    ``TRUST_OWN_TENANT`` set (``outbound_is_trusted_tenant()``), ``"public"``
-    for everything else -- including a remote Ollama or an azure/vertex tenant
-    without ``TRUST_OWN_TENANT``.
+    rules): ``"local"`` for Ollama on a loopback address
+    (``outbound_is_local()``) and for ``"none"`` (no client, nothing is sent),
+    ``"tenant"`` only for a BYO-tenant provider with ``TRUST_OWN_TENANT`` set
+    (``outbound_is_trusted_tenant()``), ``"public"`` for everything else
+    -- including a remote Ollama or an azure/vertex tenant without ``TRUST_OWN_TENANT``.
     """
     provider = (provider or "").strip().lower()
-    if _destination_is_local(provider):
+    if provider == "none" or _destination_is_local(provider):
         return "local"
     if _destination_is_trusted_tenant(provider):
         return "tenant"
+    return "public"
+
+
+#: Transcription backend names ``create_backend`` accepts, grouped by where the audio goes.
+_LOCAL_TRANSCRIPTION_BACKENDS = frozenset({"mlx-whisper", "mlx", "parakeet", "parakeet-mlx"})
+_WHISPER_CPP_BACKENDS = frozenset({"whisper.cpp", "whisper_cpp"})
+
+
+def transcription_tier_of(
+    backend: str, whisper_cpp_server_host: str | None = None
+) -> Literal["local", "tenant", "public"]:
+    """Classify a transcription backend into the same three tiers as ``tier_of``.
+
+    ``"local"`` for mlx-whisper, parakeet, and whisper.cpp whose server host is loopback.
+    Everything else is ``"public"``: groq, whisper.cpp on a non-loopback host (the
+    ``tier_of`` precedent: a remote Ollama is public), and any name ``create_backend``
+    does not know. Transcription has no trusted-tenant flag, so this never returns
+    ``"tenant"``; the return type matches ``tier_of`` so the ceiling ranking applies as-is.
+    """
+    name = (backend or "").strip().lower()
+    if name in _LOCAL_TRANSCRIPTION_BACKENDS:
+        return "local"
+    if name in _WHISPER_CPP_BACKENDS and is_loopback_host(whisper_cpp_server_host):
+        return "local"
     return "public"
 
 

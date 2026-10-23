@@ -26,12 +26,15 @@ from sales_copilot.core.config import (
 )
 from sales_copilot.core.context_docs import resolve_client_dir, write_dossier_transcript
 from sales_copilot.core.conversion import ConversionCounterStore
+from sales_copilot.core.i18n import configured_language
 from sales_copilot.core.logging import configure_logging
+from sales_copilot.core.preset import load_preset
 from sales_copilot.core.session_store import SessionStore
 from sales_copilot.modules.reports import generator
 from sales_copilot.modules.reports.delivery import validate_report_delivery_config
 from sales_copilot.modules.reports.enrichment import (
     ReportEnrichment,
+    SpeakerRoles,
     enrich_report,
     track_pending_report,
     wait_for_pending_reports,
@@ -296,19 +299,71 @@ def _report_payload(report: CallReport, report_path: Path | None) -> dict[str, o
     }
 
 
+# Neutral speaker labels per LANGUAGE: ``(self, prospect)``. The transcript's channels are
+# the operator's microphone and everything else, not a seller and a prospect.
+_NEUTRAL_SPEAKER_LABELS = {"nl": ("Ik", "Gesprekspartner"), "en": ("Me", "Other")}
+
+
+def _speaker_labels(ui_labels: dict[str, str] | None, preset_name: str | None) -> dict[str, str]:
+    """The label for each audio channel in the readable transcript.
+
+    The call's own ``ui_labels`` (what the dashboard's call preset sent) win as a whole, also
+    when empty: a preset that names no roles gets neutral labels, not the domain preset's.
+    Without them the active domain preset's ``ui_labels`` apply. A role neither names is
+    neutral by ``LANGUAGE``.
+    """
+    labels = ui_labels
+    if labels is None:
+        try:
+            labels = load_preset(preset_name).ui_labels
+        except Exception:
+            logger.warning("Preset %r unreadable for the transcript labels; using neutral ones", preset_name)
+            labels = {}
+    neutral_self, neutral_prospect = _NEUTRAL_SPEAKER_LABELS.get(
+        configured_language(), _NEUTRAL_SPEAKER_LABELS["nl"]
+    )
+    own = labels.get("self")
+    other = labels.get("prospect")
+    return {
+        "self": own.strip() if isinstance(own, str) and own.strip() else neutral_self,
+        "prospect": other.strip() if isinstance(other, str) and other.strip() else neutral_prospect,
+    }
+
+
+def _report_roles(ui_labels: dict[str, str] | None, detector_config: DetectorConfig | None) -> SpeakerRoles | None:
+    """The speakers the report prompt names, or ``None`` for the sales prompt.
+
+    Only a call on the sales domain preset without call-preset labels of its own is a sales
+    call: its prompt keeps the Seller and Prospect wording. Every other call, the notetaker
+    preset and a call without any preset included, gets a neutral prompt that names the
+    speakers as the readable transcript does (``_speaker_labels``).
+    """
+    preset_name = detector_config.preset_name if detector_config is not None else None
+    if ui_labels is None and preset_name == "sales":
+        return None
+    if ui_labels is None and preset_name is None:
+        ui_labels = {}
+    labels = _speaker_labels(ui_labels, preset_name)
+    return SpeakerRoles(own=labels["self"], other=labels["prospect"])
+
+
 def _dossier_transcript_markdown(report: CallReport) -> str:
-    """Render a session's transcript as a readable markdown note for the client dossier."""
-    lines = [f"# Sessie {report.session_id}"]
-    if report.prospect_company:
-        lines.append(f"Klant: {report.prospect_company}")
-    if report.prospect_name:
-        lines.append(f"Contact: {report.prospect_name}")
-    lines.append("")
-    for entry in report.full_transcript:
-        text = entry.text.strip()
-        if text:
-            lines.append(f"{entry.speaker}: {text}")
-    return "\n".join(lines)
+    """Render a session's transcript as a readable markdown note (dossier, klantmap and report folder)."""
+    return generator.transcript_markdown(report)
+
+
+def _write_transcript_next_to_report(written: WrittenReport) -> None:
+    """Write ``<prefix>_transcript.md`` beside the JSON report. Never raises, never logs transcript text."""
+    try:
+        path = generator.write_transcript_copy(written)
+        logger.info("Readable transcript written for session=%s: %s", written.report.session_id, path)
+    except OSError:
+        logger.warning(
+            "Could not write the readable transcript for session=%s; the report at %s is unaffected.",
+            written.report.session_id,
+            written.path,
+            exc_info=True,
+        )
 
 
 def _maybe_save_dossier_transcript(report: CallReport, client_slug: str | None) -> None:
@@ -425,6 +480,7 @@ async def _finish_report(
     aflevering: str | None,
     client_slug: str | None,
     coaching_url: str | None = None,
+    roles: SpeakerRoles | None = None,
 ) -> None:
     """The post-call steps that wait for the report model: enrich, decide, rewrite, deliver, archive.
 
@@ -439,7 +495,7 @@ async def _finish_report(
     """
     try:
         terms = await asyncio.to_thread(load_report_terms, client_slug)
-        enrichment = await enrich_report(report_session, detector_config, terms=terms)
+        enrichment = await enrich_report(report_session, detector_config, terms=terms, roles=roles)
         verdict = decide_junk(enrichment, written.report.full_transcript)
         written = _rewrite_or_keep(written, enrichment, verdict)
         await _send_report_enriched(coaching_url, _enriched_payload(written.report.session_id, enrichment, verdict))
@@ -465,6 +521,7 @@ def _schedule_report_finish(
     aflevering: str | None,
     client_slug: str | None,
     coaching_url: str | None = None,
+    roles: SpeakerRoles | None = None,
 ) -> asyncio.Task[None]:
     task = asyncio.create_task(
         _finish_report(
@@ -474,6 +531,7 @@ def _schedule_report_finish(
             aflevering=aflevering,
             client_slug=client_slug,
             coaching_url=coaching_url,
+            roles=roles,
         ),
         name=f"report-finish-{written.report.session_id}",
     )
@@ -491,12 +549,14 @@ async def main(
     client_slug: str | None = None,
     aflevering: str | None = None,
     detector_config: DetectorConfig | None = None,
+    ui_labels: dict[str, str] | None = None,
 ) -> None:
     """Track one call and, when it ends, write, announce and finish its report.
 
     ``detector_config`` is the conversation's config (provider, model and privacy ceiling)
     the post-call ``report`` LLM task resolves from; ``DetectorConfig.from_env()`` when
-    omitted (the module run on its own).
+    omitted (the module run on its own). ``ui_labels`` are the speaker names of the call's
+    preset for the readable transcript; ``None`` means the domain preset's labels apply.
     """
     load_env()
     configure_logging()
@@ -559,8 +619,12 @@ async def main(
         # The local copy first, without any LLM step: it is on disk before a report model is
         # called, so neither a slow model nor a SIGTERM during the enrichment can cost it.
         # Enrichment, rewrite, delivery and the klantmap archive follow in their own task.
-        written = generator.write_report(report_session)
+        preset_name = detector_config.preset_name if detector_config is not None else None
+        written = generator.write_report(
+            report_session, speaker_labels=_speaker_labels(ui_labels, preset_name)
+        )
         report = written.report
+        _write_transcript_next_to_report(written)
         coaching_url = channel_ws_url(ws_config, "coaching")
         _schedule_report_finish(
             written,
@@ -569,6 +633,7 @@ async def main(
             aflevering=aflevering,
             client_slug=client_slug,
             coaching_url=coaching_url,
+            roles=_report_roles(ui_labels, detector_config),
         )
         _maybe_save_dossier_transcript(report, client_slug)
 

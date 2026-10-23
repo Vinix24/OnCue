@@ -40,7 +40,6 @@ graph LR
         J -. PII-redacted text per task .-> P[Ollama local]
         J -. PII-redacted text per task .-> Q[Azure OpenAI<br/>operator subscription]
         J -. PII-redacted text per task .-> R[Vertex AI<br/>operator GCP project]
-        J -. PII-redacted text per task .-> S[AWS Bedrock<br/>operator account]
     end
 
     style local fill:#e8f5e9,stroke:#2e7d32
@@ -170,8 +169,7 @@ rather than queued alongside prospect speech during the call.
 Both modes support a bring-your-own-tenant LLM configuration: instead of routing
 LLM text to a third-party API (Gemini, Groq, OpenAI), the system
 can point at an Azure OpenAI endpoint within the customer's own Azure subscription,
-a Vertex AI project in their own GCP account, or AWS Bedrock in their own AWS
-account. Audio capture and transcription remain local; the LLM inference happens
+or a Vertex AI project in their own GCP account. Audio capture and transcription remain local; the LLM inference happens
 inside the customer's own cloud contract. This keeps the processed transcript text
 within the customer's existing data-processing boundary and DPA, which is the
 relevant compliance framing for regulated NL B2B (financial services, healthcare,
@@ -478,10 +476,12 @@ ceiling. A client folder without `klant.yaml` keeps working exactly as before
   that resolves outside `KLANTEN_ROOT` (`..` segments, an absolute path, a
   symlink escape) is a hard error.
 - `privacy_gate.py`: rejects `/api/start-call` with a 400 before any capture
-  starts if the configured LLM provider does not meet the client's `privacy`
-  ceiling. Uses the same `outbound_policy.tier_of()` classification as
-  `PII_REDACTION`'s `cloud_only` mode, so the privacy gate and the PII policy
-  can never disagree about what counts as local, tenant, or public.
+  starts if the configured LLM provider or the transcription backend does not
+  meet the client's `privacy` ceiling. Uses the same `outbound_policy.tier_of()`
+  classification as `PII_REDACTION`'s `cloud_only` mode, so the privacy gate and
+  the PII policy can never disagree about what counts as local, tenant, or
+  public. The transcription backend goes through
+  `outbound_policy.transcription_tier_of()`, which reuses the same loopback test.
 - `cloud_sync_warning.py`: detects when `KLANTEN_ROOT` lives under iCloud
   Drive, `Library/CloudStorage` (Dropbox/OneDrive/Google Drive via the File
   Provider), Dropbox, or an iCloud-synced Desktop/Documents. Detect-only,

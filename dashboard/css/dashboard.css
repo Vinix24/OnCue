@@ -1695,6 +1695,21 @@ body.in-call #end-call {
   opacity: 0;
 }
 
+.module-failure {
+  font-size: 11.5px;
+  line-height: 1.4;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--amber-soft);
+  color: #96660E;
+  border: 1px solid var(--orange-line);
+  max-width: 520px;
+}
+
+.module-failure.hidden {
+  display: none;
+}
+
 .system-status-spinner {
   width: 12px;
   height: 12px;

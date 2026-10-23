@@ -14,16 +14,23 @@ classification itself is NOT re-derived here -- it comes from
 ``outbound_policy.tier_of()``, the same function ``PII_REDACTION``'s ``cloud_only`` mode
 uses, so the privacy-poort and the PII policy can never disagree about what counts as
 local, tenant or public.
+
+The ceiling also covers the transcription backend (``enforce_transcription_privacy``,
+lane ``"transcriptie"``): audio is classified by ``outbound_policy.transcription_tier_of``
+and ranked against the same ceiling.
 """
 
 from __future__ import annotations
 
-from sales_copilot.core.outbound_policy import tier_of
+from sales_copilot.core.outbound_policy import tier_of, transcription_tier_of
 
 _TIER_RANK: dict[str, int] = {"local": 0, "tenant": 1, "public": 2}
 
 #: The three privacy profiles a conversation can carry, strictest first.
 PRIVACY_PROFILES: tuple[str, ...] = tuple(_TIER_RANK)
+
+#: Lane name for the transcription backend in a refusal message.
+TRANSCRIPTION_LANE = "transcriptie"
 
 
 class PrivacyGateError(ValueError):
@@ -81,10 +88,41 @@ def enforce_privacy(
     """
     if privacy_allows(privacy, provider):
         return
-    tier = tier_of(provider)
+    raise _refusal(privacy, provider, tier_of(provider), client_slug=client_slug, lane=lane)
+
+
+def _refusal(
+    privacy: str | None, provider: str, tier: str, *, client_slug: str | None, lane: str | None
+) -> PrivacyGateError:
     lane_suffix = f" ({lane}-lane)" if lane else ""
     subject = f"klant '{client_slug}'" if client_slug else "dit gesprek"
-    raise PrivacyGateError(
+    return PrivacyGateError(
         f"{subject} vereist privacy={privacy!r}, maar de geconfigureerde "
         f"provider {provider!r}{lane_suffix} is {tier!r} -- geweigerd, er gaat niets naar deze provider"
     )
+
+
+def enforce_transcription_privacy(
+    privacy: str | None,
+    backend: str,
+    whisper_cpp_server_host: str | None,
+    *,
+    client_slug: str | None,
+    lane: str = TRANSCRIPTION_LANE,
+) -> None:
+    """Raise ``PrivacyGateError`` when the transcription ``backend`` does not satisfy ``privacy``.
+
+    Same ranking and message shape as ``enforce_privacy``, with the tier from
+    ``transcription_tier_of`` (the backend name plus, for whisper.cpp, its server host).
+    ``privacy=None`` allows everything: there is no ceiling to enforce. The error names the
+    ``"transcriptie"`` lane and the audio destination.
+    """
+    if privacy is None:
+        return
+    tier = transcription_tier_of(backend, whisper_cpp_server_host)
+    if _TIER_RANK[tier] <= _TIER_RANK[validate_privacy(privacy)]:
+        return
+    label = (backend or "").strip() or "(leeg)"
+    if (backend or "").strip().lower() in {"whisper.cpp", "whisper_cpp"}:
+        label = f"{label} op host {(whisper_cpp_server_host or '').strip() or '(leeg)'}"
+    raise _refusal(privacy, label, tier, client_slug=client_slug, lane=lane)

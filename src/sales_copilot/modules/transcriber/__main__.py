@@ -35,7 +35,9 @@ from sales_copilot.core.config import (
     env,
     env_float,
     env_int,
+    live_backend_name,
     load_env,
+    load_transcription_engine,
 )
 from sales_copilot.core.logging import configure_logging
 from sales_copilot.modules.transcriber.audio_bufferer import AudioBufferer, TurnState
@@ -77,10 +79,8 @@ def _print_banner(config: TranscriberConfig, ws_config: WebSocketConfig, engine:
 
 
 def _load_transcription_engine() -> TranscriptionEngine:
-    engine = (env("TRANSCRIPTION_ENGINE", "direct") or "direct").strip().lower()
-    if engine not in {"direct", "whisper.cpp"}:
-        raise ValueError("TRANSCRIPTION_ENGINE must be 'direct' or 'whisper.cpp'")
-    return engine
+    engine = load_transcription_engine()
+    return "whisper.cpp" if engine == "whisper.cpp" else "direct"
 
 
 def _load_audio_config() -> AudioConfig:
@@ -192,7 +192,7 @@ def _backend_config(transcription_engine: TranscriptionEngine, config: Transcrib
             "whisper_cpp_server_binary": config.whisper_cpp_server_binary,
         }
     return {
-        "backend": config.backend,
+        "backend": live_backend_name(transcription_engine, config),
         "language": config.language,
     }
 

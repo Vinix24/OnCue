@@ -39,6 +39,30 @@ def test_presets_endpoint_returns_entries() -> None:
     assert discovery.get("transcript", {}).get("backend") == "whisper.cpp"
 
 
+def test_presets_endpoint_serves_the_notetaker_preset() -> None:
+    """The README's notetaker route: live transcript and post-call report, own voice included.
+
+    The preset carries no LLM choice, so the provider stays what ``.env`` (or the dashboard
+    picker) says, ``none`` by default.
+    """
+    client = TestClient(hub.app)
+
+    data = client.get("/api/presets").json()
+    notetaker = next(entry for entry in data if entry.get("name") == "notetaker")
+
+    assert notetaker["screen_mode"] == "single"
+    assert notetaker["modules"] == {
+        "talk_time": False,
+        "transcript": True,
+        "pain_points": False,
+        "presentation": False,
+        "post_call_report": True,
+    }
+    assert notetaker["transcript"] == {"backend": "whisper.cpp", "transcribe_self_live": True}
+    assert "llm_provider" not in notetaker
+    assert "llm_model" not in notetaker
+
+
 def test_upload_endpoint_saves_file(tmp_path: Path, authed_client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(hub_upload, "UPLOAD_ROOT", tmp_path)
 

@@ -193,3 +193,55 @@ test("the Markdown export carries the enriched fields", async () => {
   assert.match(markdown, /## Actiepunten\n\n- Offerte sturen\n- Demo plannen/);
   assert.ok(markdown.includes("Origineel: Team Leader"), markdown);
 });
+
+const downloadMarkdown = async (env, nodes) => {
+  const blobs = [];
+  env.context.Blob = Blob;
+  env.context.URL = { createObjectURL: (blob) => (blobs.push(blob), "blob:report"), revokeObjectURL: () => {} };
+  nodes["report-download-markdown"].click();
+  return blobs[0].text();
+};
+
+const STORED_WITH_TRANSCRIPT = {
+  ...STORED,
+  speaker_labels: { self: "Ik", prospect: "Gesprekspartner" },
+  full_transcript: [
+    { speaker: "self", text: "Dat is helder.", start_ms: 0, end_ms: 2000 },
+    { speaker: "prospect", text: "   ", start_ms: 2000, end_ms: 2500 },
+    { speaker: "prospect", text: "Het budget is vijftigduizend euro", start_ms: 2500, end_ms: 4000 },
+    { speaker: "unknown", text: "Onbekende bron", start_ms: 4000, end_ms: 5000 },
+  ],
+};
+
+test("the Markdown export ends with the transcript, speakers named by the report's labels", async () => {
+  const { env, nodes, socket } = await bootReport({
+    fetchImpl: async () => ({ ok: true, json: async () => STORED_WITH_TRANSCRIPT }),
+  });
+  socket.deliver(readyEvent());
+  socket.deliver(ENRICHED_EVENT);
+  await settle();
+
+  const markdown = await downloadMarkdown(env, nodes);
+
+  const summaryAt = markdown.indexOf("## Final conversation summary");
+  const transcriptAt = markdown.indexOf("## Transcript");
+  assert.ok(summaryAt >= 0 && transcriptAt > summaryAt, "the transcript is the last section");
+  assert.equal(markdown.indexOf("\n## ", transcriptAt + 1), -1, "nothing follows the transcript");
+  const section = markdown.slice(transcriptAt);
+  assert.ok(section.includes("**Ik:** Dat is helder\\."), section);
+  assert.ok(section.includes("**Gesprekspartner:** Het budget is vijftigduizend euro"), section);
+  assert.ok(section.includes("**unknown:** Onbekende bron"), section);
+  assert.equal(section.includes("   "), false, "a blank segment is skipped");
+  assert.deepEqual(env.missingI18nKeys, []);
+});
+
+test("the Markdown export has no transcript section when the report carries no transcript", async () => {
+  const { env, nodes, socket } = await bootReport();
+  socket.deliver(readyEvent());
+  socket.deliver(ENRICHED_EVENT);
+  await settle();
+
+  const markdown = await downloadMarkdown(env, nodes);
+
+  assert.equal(markdown.includes("## Transcript"), false);
+});

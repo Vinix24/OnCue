@@ -1,6 +1,73 @@
 # Changelog
 
-## Unreleased
+## [1.0.0-rc.4] — 2026-10-23
+
+Fourth pre-release. OnCue now has a second entry route: a local notetaker that
+transcribes both sides of a conversation and writes a report afterwards, with
+no live coaching and no LLM by default. Every report gets a readable transcript next to it. Windows
+has a one-command installer, still experimental. Privacy defaults moved into the
+code: without a `.env`, no LLM provider is configured, and the per-conversation
+ceiling now also covers the transcription backend.
+
+### Added
+
+- The `notetaker` preset and a notetaker route in the README: it transcribes
+  both sides of a conversation locally (system audio and microphone) and
+  produces a report with the transcript afterwards. No live coaching, no slides
+  and no LLM by default. Your own microphone is also transcribed live while the
+  call runs (#292).
+- `scripts/install.ps1`, a one-command Windows installer with a `notetaker` and
+  a `full` profile, a preflight that changes nothing (`-PreflightOnly`) and an
+  `-Uninstall` that removes only what it recorded. Experimental until
+  `docs/WINDOWS_TESTPLAN.md` has passed on a clean machine (#293).
+- A readable `<prefix>_transcript.md` next to every report in `data/reports/`,
+  with speaker labels from the call preset or neutral ones by language. It
+  follows `REPORT_REDACT_PII`, and the retention sweep and `purge_session.py`
+  remove it with the report (#297).
+- `constraints.txt`, derived from `uv.lock`. CI and both installers install
+  against it, so a lockless install lands on the tested versions. End users do
+  not need `uv` (#301).
+
+### Changed
+
+- A missing optional module (a detector or reports dependency) now shows a
+  banner in the dashboard with the install hint, and transcription keeps
+  running. Before, the process exited silently with code 0. An unexpected
+  startup error now exits with code 1 and a message on stderr (#296).
+- Every LLM provider defaults to `none` in the code, not only in
+  `.env.example`. Without a `.env`, nothing is sent to a provider (#295).
+- Measurement and test tooling, plus the VNX sync, changed without effect on
+  users (#285, #288, #289, #290, #298, #299).
+
+### Fixed
+
+- An empty provider or model in the start-call is no override, so
+  `LLM_PROVIDER` from `.env` stays in force (#300).
+- The report prompt is neutral for the notetaker preset and for any call
+  without a sales preset. The vocabulary and normalization files resolve
+  through the app's path resolution instead of the working directory (#300).
+
+### Security
+
+- The per-conversation privacy ceiling now covers the transcription backend. At
+  start-call, `WHISPER_BACKEND=groq`, whisper.cpp on a non-loopback
+  `WHISPER_CPP_SERVER_HOST` and an unknown backend name count as `public` and are
+  refused (HTTP 400, lane `transcriptie`) for a client with a `local` or `tenant`
+  ceiling. mlx-whisper, parakeet and whisper.cpp on loopback count as `local`
+  (#286).
+- pillow 13.0.0 (8 CVEs) and certifi 2026.10.19 (PYSEC-2026-4320), with floors in
+  `pyproject.toml` (#287).
+- opentelemetry 1.45.1 (CVE-2026-114603), with a floor in `pyproject.toml`
+  (#291).
+
+### Docs
+
+- The privacy docs match the code: AWS Bedrock is not a provider, reports live in
+  `data/reports/`, and the notetaker preset is described (#294).
+- A non-loopback `WHISPER_CPP_SERVER_HOST` is documented as what it is:
+  whisper-server started on this machine and bound to that address, an open
+  unencrypted listener on a network interface. It never sent audio to another
+  machine (#286).
 
 ## [1.0.0-rc.3] — 2026-10-20
 

@@ -461,6 +461,8 @@ const fetchEnrichedReport = async (sessionId, run) => {
     action_items: stored.action_items,
     term_corrections: stored.term_corrections,
     term_corrections_pii_limited: stored.term_corrections_pii_limited,
+    full_transcript: stored.full_transcript,
+    speaker_labels: stored.speaker_labels,
   };
   applyEnrichment(latestReport);
   applyTermCorrections(latestReport);
@@ -513,6 +515,27 @@ const downloadReportJson = () => {
     return;
   }
   downloadBlob(JSON.stringify(latestReport, null, 2), "application/json", "json");
+};
+
+// The transcript for the Markdown download, one line per segment, speakers named as the
+// readable <prefix>_transcript.md names them (the report's speaker_labels). Blank segments
+// are skipped, a speaker without a label keeps its channel name. Empty without a transcript.
+const transcriptLines = (report) => {
+  const segments = Array.isArray(report?.full_transcript) ? report.full_transcript : [];
+  const labels = report?.speaker_labels && typeof report.speaker_labels === "object" ? report.speaker_labels : {};
+  const lines = [];
+  segments.forEach((segment) => {
+    const text = typeof segment?.text === "string" ? segment.text.trim() : "";
+    if (!text) {
+      return;
+    }
+    const speaker = labels[segment.speaker] || segment.speaker || "";
+    lines.push(`**${escapeMarkdown(speaker)}:** ${escapeMarkdown(text)}`, "");
+  });
+  if (lines.length) {
+    lines.pop();
+  }
+  return lines;
 };
 
 const reportToMarkdown = (report) => {
@@ -618,6 +641,10 @@ const reportToMarkdown = (report) => {
     lines.push("", `> ${window.t("report.junk_title")}: ${escapeMarkdown(report.junk_reason || "")}`);
   }
   lines.push("", `## ${window.t("report.final_summary_title")}`, "", report.conversation_summary || emptySummaryText());
+  const transcript = transcriptLines(report);
+  if (transcript.length) {
+    lines.push("", `## ${window.t("report.transcript_title")}`, "", ...transcript);
+  }
   return lines.join("\n");
 };
 

@@ -25,26 +25,27 @@ LOCAL (your Mac)
   Whisper transcription (whisper.cpp by default, or mlx-whisper)
   Embedding-based detection and talk-time coaching (live cues)
   Session recordings (data/sessions/<id>/)
-  Post-call report
+  Post-call report (data/reports/)
   Case database (SQLite)
 
          |
          | only if an LLM provider is configured
          | (default: none). Text, per task, through one PII seam
          |
-         | audio, only if you opt in to a remote transcription route
+         | audio, only if you opt in to a non-local transcription route
          | (default: none). No PII filter on audio
          v
 
 LLM DESTINATION (optional, your choice)
   A local LLM of your choice (for example via Ollama)
-  Your own cloud tenant (Azure OpenAI, Vertex AI, AWS Bedrock)
+  Your own cloud tenant (Azure OpenAI, Vertex AI)
   A public provider with your own key (Gemini, Groq, OpenAI, OpenRouter)
 
 TRANSCRIPTION DESTINATION (optional, opt-in, default: none)
   Groq (WHISPER_BACKEND=groq): audio chunks as WAV upload over HTTPS
-  A remote whisper.cpp server (WHISPER_CPP_SERVER_HOST): audio chunks over
-  unencrypted HTTP
+  whisper.cpp bound to a non-loopback address (WHISPER_CPP_SERVER_HOST): audio
+  chunks over unencrypted HTTP to the local server, which then listens on your
+  network. Not local, no PII filter
 
 OTHER OPTIONAL DESTINATIONS
   Supabase (case synchronization, optional)
@@ -56,7 +57,8 @@ OTHER OPTIONAL DESTINATIONS
 By default raw audio is transcribed locally with whisper.cpp (or mlx-whisper)
 and does not leave the device. Two opt-in routes change that for audio, see
 "What leaves the machine when a remote transcription route is configured"
-below. Whether any transcript text leaves the device depends on `LLM_PROVIDER`,
+below. The per-conversation privacy ceiling refuses both for a client set to
+`local` or `tenant`. Whether any transcript text leaves the device depends on `LLM_PROVIDER`,
 which ships as `none`:
 
 1. **No LLM (default).** `LLM_PROVIDER=none`. The live cues (embedding-based
@@ -67,7 +69,7 @@ which ships as `none`:
 2. **A local LLM of your choice.** For example `LLM_PROVIDER=ollama` with a
    model you run yourself on a loopback address. The text stays on the machine.
 3. **Your own cloud tenant.** Azure OpenAI within your own Azure subscription,
-   Vertex AI within your own GCP project, or AWS Bedrock. This keeps the text
+   or Vertex AI within your own GCP project. This keeps the text
    within your existing cloud contract/DPA and chosen region, without adding a
    new processor.
 4. **A public provider with your own key.** Gemini, Groq, OpenAI or OpenRouter.
@@ -86,8 +88,8 @@ Which text goes out depends on the task. Every task goes through the same seam:
 to the text before the call (see "How PII redaction works and where it stops"
 below). The destination of each task can be set separately
 (`<TASK>_LLM_PROVIDER`), and a per-conversation privacy ceiling refuses a
-provider above it. That ceiling (`core/privacy_gate.py`) covers LLM tasks only.
-It does not apply to transcription, so it does not stop the audio routes
+provider above it. That ceiling (`core/privacy_gate.py`) covers every LLM task
+and the transcription backend. How it classifies the transcription backends is
 described in the next section.
 
 | Task | What is sent | When |
@@ -111,15 +113,48 @@ opt-in routes where audio leaves the Mac. Neither is on by default.
 | Route | Setting | What is sent | Where to |
 |---|---|---|---|
 | Groq transcription | `WHISPER_BACKEND=groq` and `GROQ_API_KEY` | Every audio chunk, as a WAV upload, with model `whisper-large-v3-turbo` | `https://api.groq.com/openai/v1`, or the URL in `GROQ_BASE_URL` if you set it |
-| Remote whisper.cpp server | `WHISPER_CPP_SERVER_HOST` set to a host other than `127.0.0.1` | Every audio chunk | `http://<host>:<port>`, unencrypted HTTP, on a machine you name (for example a split deploy with a separate inference box) |
+| whisper.cpp server on a non-loopback address | `WHISPER_CPP_SERVER_HOST` set to anything other than `127.0.0.1`, `::1` or `localhost` | Every audio chunk, as an unencrypted HTTP request | `http://<host>:<port>`, the whisper-server that OnCue starts itself on this machine and binds to that address (see below) |
 
 No PII filter runs on audio. The redaction in `core/outbound_policy.py` works on
-text, so it does not touch these routes. The privacy ceiling per client does not
-cover transcription either: today nothing refuses these routes for a sensitive
-client, so choosing the transcription backend is a decision you make per
-conversation. For a sensitive or regulated call keep `WHISPER_BACKEND=whisper.cpp`
-and `WHISPER_CPP_SERVER_HOST=127.0.0.1`. If you use the remote server route, keep
-it on a network you trust, because the audio is not encrypted in transit.
+text, so it does not touch these routes.
+
+**What a non-loopback `WHISPER_CPP_SERVER_HOST` means.** OnCue always starts
+whisper-server itself (`whisper_cpp_backend.py`) and passes the host to it as
+`--host`, so the server binds to that address on this machine. The audio goes
+to that local server over the named address. It does not go to another machine:
+an address that is not one of this machine's own cannot be bound, so the
+setting does not point OnCue at a separate inference box. What the setting does
+is open a listener. With `0.0.0.0` or a LAN address the whisper-server accepts
+connections from other machines on that network, without authentication or
+encryption. That is why it does not count as local.
+
+**The privacy ceiling covers transcription.** The per-conversation ceiling
+(`local`, `tenant` or `public`, from `klant.yaml` or the start-call) is checked
+for the transcription backend at start-call, before any capture starts. These
+backends count as `local`:
+
+- `mlx-whisper` (also `mlx`) and `parakeet` (also `parakeet-mlx`)
+- `whisper.cpp` (also `whisper_cpp`) with `WHISPER_CPP_SERVER_HOST` on
+  `127.0.0.1`, `::1` or `localhost`
+
+Everything else counts as `public`: Groq (`groq`, `groq-whisper`,
+`groq_whisper`), whisper.cpp on any other host, and any backend name OnCue does
+not know. Transcription has no trusted-tenant setting, so no backend counts as
+`tenant`, and a `tenant` ceiling refuses the same backends as `local`. A refused
+start-call returns HTTP 400 and the message names the lane
+(`transcriptie`). Without a ceiling nothing is refused.
+
+The check uses the backend the call will actually run: the backend chosen for
+that call, and `TRANSCRIPTION_ENGINE=whisper.cpp` forcing whisper.cpp. The
+post-call transcription of the recorded microphone channel (only with
+`RECORD_AUDIO=true`) builds its backend from `.env` alone and is checked as
+well. The ceiling is enforced at start-call only: it does not travel into the
+transcriber.
+
+For a sensitive or regulated call keep `WHISPER_BACKEND=whisper.cpp` (or
+`mlx-whisper`) and `WHISPER_CPP_SERVER_HOST=127.0.0.1`, and set the client's
+ceiling to `local`. If you bind the server to a network address anyway, keep it
+on a network you trust, because the audio is not encrypted in transit.
 
 **Your own speech.** With the default `TRANSCRIBE_SELF_LIVE=false` the microphone
 stream is not transcribed during the call. Detection and suggestions only read
@@ -137,7 +172,7 @@ tasks, including the rolling summary. Two things change that:
 **What does not leave the machine in the default configuration:**
 
 - Raw audio (mic stream and system stream), unless you opt in to one of the two
-  remote transcription routes above
+  non-local transcription routes above
 - Session recordings (WAV files)
 - Embeddings and the case database (unless you configure Supabase)
 
@@ -162,6 +197,47 @@ tasks, including the rolling summary. Two things change that:
 **Zero outbound text:** keep `LLM_PROVIDER=none` (the default), or set
 `LLM_PROVIDER=ollama` with a model on a loopback address. In both cases no
 transcript text leaves the machine through the LLM seam.
+
+### Where the report and the recordings are stored
+
+The post-call report, including the full transcript, is written by
+`modules/reports/generator.py` to `data/reports/`. Every report gets a second
+file with the same prefix, `<date>T<time>_<session-id>_transcript.md`: the
+transcript as readable text, one line per segment. Both files are written with
+owner-only rights (0600, folder 0700) and no transcript text goes to the logs. Recordings (WAV, only with
+`RECORD_AUDIO=true`) go to `data/sessions/<id>/`. Both folders sit under the
+same base directory, which depends on how you run OnCue:
+
+| How you run it | Base directory | Report | Recordings |
+|---|---|---|---|
+| Checkout of the repository (also `pip install -e .`) | The repository root | `<repo>/data/reports/` | `<repo>/data/sessions/<id>/` |
+| Packaged macOS app | `~/Library/Application Support/SalesCopilot/` | `.../data/reports/` | `.../data/sessions/<id>/` |
+| `pipx` or `pip install` (not editable), macOS | `~/Library/Application Support/SalesCopilot/` | `.../data/reports/` | `.../data/sessions/<id>/` |
+| `pipx` or `pip install` (not editable), Linux | `$XDG_DATA_HOME/SalesCopilot/`, default `~/.local/share/SalesCopilot/` | `.../data/reports/` | `.../data/sessions/<id>/` |
+| `pipx` or `pip install` (not editable), Windows | `%LOCALAPPDATA%\SalesCopilot\` | `...\data\reports\` | `...\data\sessions\<id>\` |
+
+The base directory is resolved in `core/paths.py`. The local audit ledger
+lives under the same base in `.vnx-data/audit/`.
+
+### Notetaker preset: what runs and what leaves
+
+The `notetaker` preset in `config/presets.yaml` switches the detection module
+off (`pain_points: false`) and keeps the transcript and the post-call report on
+(`transcript: true`, `post_call_report: true`). The live LLM tasks (detection
+window, rolling summary, live suggestions) only run nested inside the detector
+module (`modules/detector/__main__.py`), so with this preset none of them run.
+At call start `__main__._health_check_providers` skips every live task when
+the detector is off and only checks the `report` and `report_terms` tasks of
+the reports module.
+
+Text can therefore only leave in the report step after the call, and only when
+an LLM provider is configured and not switched off with
+`REPORT_LLM_PROVIDER=none` (enrichment) or `REPORT_TERMS_LLM_PROVIDER=none`
+(term corrections). Those two tasks send what the table above lists for them,
+through the same PII seam. Without a provider, the notetaker keeps everything on
+the machine. If `LLM_PROVIDER` is not set at all, the code falls back to
+`openrouter` (`core/config.py`), which needs an API key; the shipped
+`.env.example` sets it to `none`.
 
 **Zero outbound audio:** keep `WHISPER_BACKEND=whisper.cpp` or `mlx-whisper`, and
 leave `WHISPER_CPP_SERVER_HOST` at `127.0.0.1`.
@@ -189,15 +265,15 @@ involved. It is a safety net, not a guarantee.
 
 **What it misses:**
 
-- First names that are not on the list (for example "Heleen" or "Vincent")
+- First names that are not on the list (for example "Roswitha" or "Vincent")
 - Surnames without a tussenvoegsel
 - Company names
 - Street addresses
 - IBANs from other countries
 - Anything that does not look like one of the patterns above
 
-Example: "Ik ben Heleen van Berkel" becomes "[NAAM]" in full. "Ik ben Heleen"
-stays unchanged, because "Heleen" is not on the list.
+Example: "Ik ben Roswitha van Elzenburg" becomes "[NAAM]" in full. "Ik ben Roswitha"
+stays unchanged, because "Roswitha" is not on the list.
 
 **The three modes (`PII_REDACTION`):**
 
@@ -226,8 +302,8 @@ how well you trust the patterns.
 | Data type | Where processed | Retained until |
 |---|---|---|
 | Audio (mic + system) | Locally on your Mac. With `WHISPER_BACKEND=groq` or a remote `WHISPER_CPP_SERVER_HOST` (opt-in), each chunk is sent to that destination for transcription, without a PII filter | Session duration (buffer), WAV in `data/sessions/` if `RECORD_AUDIO=true` |
-| Transcript text (live) | Local (Whisper, unless a remote transcription route is configured). With an LLM provider configured, to that provider per task: detection window, rolling summary, live suggestions (see the per-task table above). PII policy applies | Session duration for buffers; post-call report in `data/sessions/` |
-| Full transcript | Local in post-call report. With an LLM provider configured, the whole transcript goes to the report provider for enrichment and term corrections (PII policy applies); optionally to the deep-insight lane destination (Pro, opt-in, PII-redacted); optionally to an operator-configured report-delivery directory/endpoint (opt-in, unredacted by default, see `REPORT_REDACT_PII`) | Until you delete it (in `data/sessions/`) |
+| Transcript text (live) | Local (Whisper, unless a remote transcription route is configured). With an LLM provider configured, to that provider per task: detection window, rolling summary, live suggestions (see the per-task table above). PII policy applies | Session duration for buffers; post-call report in `data/reports/` |
+| Full transcript | Local in post-call report, and as a readable copy `<prefix>_transcript.md` next to it (same folder, owner-only 0600, same content as `full_transcript`, same `REPORT_REDACT_PII` rule). With an LLM provider configured, the whole transcript goes to the report provider for enrichment and term corrections (PII policy applies); optionally to the deep-insight lane destination (Pro, opt-in, PII-redacted); optionally to an operator-configured report-delivery directory/endpoint (opt-in, unredacted by default, see `REPORT_REDACT_PII`). The `.md` copy is never part of that delivery | Until you delete it (both files in `data/reports/`); `scripts/purge_session.py` and the `DATA_RETENTION_DAYS` sweep remove both |
 | Your own speech (mic) | Local. Not transcribed live by default. Transcribed after the call from `self.wav` when `RECORD_AUDIO=true`, then part of the report text | Until you delete it |
 | Talk-time statistics | Local in post-call report | Until you delete it |
 | API keys | Local in `.env` (gitignored) | Not logged, not sent |
@@ -340,7 +416,7 @@ Guidelines for common scenarios:
 | Full transcript + report | 12-24 months | Sales administration or coaching analysis |
 | Distilled key moments / summary | 24-36 months | Knowledge management and coaching |
 
-Implementation: delete files in `data/sessions/` according to your policy.
+Implementation: delete files in `data/sessions/` (recordings) and `data/reports/` (reports with the transcript, `*_report.json` and `*_transcript.md`) according to your policy.
 Automated purge is available via `DATA_RETENTION_DAYS` in `.env` combined
 with `scripts/retention_purge.py` (to be scheduled via cron). By default
 auto-purge is off (`DATA_RETENTION_DAYS=0`).
@@ -368,8 +444,9 @@ footprint. The reasoning:
 1. **Raw audio stays on the machine by default.** The risks of a data breach at
    an external provider are thereby eliminated for the most sensitive data type,
    as long as you keep the default local transcription. If you opt in to
-   `WHISPER_BACKEND=groq` or a remote `WHISPER_CPP_SERVER_HOST`, audio chunks go
-   to that destination without a PII filter and this advantage does not apply.
+   `WHISPER_BACKEND=groq`, audio chunks go to Groq without a PII filter and this
+   advantage does not apply. A non-loopback `WHISPER_CPP_SERVER_HOST` keeps the audio
+   on the machine but opens an unencrypted listener on your network.
 
 2. **Transcription is local by default.** Whisper runs on the Mac. The textual
    form of the conversation is not sent to an external party unless you configure
@@ -404,7 +481,7 @@ OnCue has two audit layers:
 **Local audit ledger (all tiers):** `AuditWriter` writes an append-only
 NDJSON log of every AI decision that touches personal data. This includes
 consent events, detection outcomes in recruitment mode, and other
-AI Act Annex III-relevant decisions. The log lives in `data/sessions/` and
+AI Act Annex III-relevant decisions. The log lives in `.vnx-data/audit/` and
 does not leave the machine.
 
 **Central audit chaining (Pro):** `TieredAuditWriter` additionally sends a
@@ -587,8 +664,8 @@ configure and use the tool. Engage a lawyer for a formal assessment.
 
 By default, as long as you don't delete them. Set `DATA_RETENTION_DAYS` in `.env`
 to activate an automatic retention limit; `scripts/retention_purge.py`
-then deletes older session data when run via cron. Manage
-`data/sessions/` according to your own policy.
+then deletes older session data, reports and their `_transcript.md` copies when run via cron. Manage
+`data/sessions/` and `data/reports/` according to your own policy.
 
 ---
 

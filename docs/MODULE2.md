@@ -33,7 +33,7 @@ each chunk skips the model reload; it falls back automatically to the one-shot
 `whisper-cli` binary if the server cannot start.
 
 Selectable backends (via `WHISPER_BACKEND`):
-- `whisper.cpp` (default, on-device unless `WHISPER_CPP_SERVER_HOST` points to another machine) — built by `scripts/install.sh`
+- `whisper.cpp` (default, on-device; `WHISPER_CPP_SERVER_HOST` must stay on loopback to count as local for the privacy ceiling) — built by `scripts/install.sh`
 - `mlx-whisper` (experimental, Apple Silicon native fallback)
 - `parakeet` (optional, Apple Silicon; needs `pip install '.[parakeet]'` + ffmpeg)
 - `groq` (cloud, opt-in) — every audio chunk is uploaded to Groq as a WAV; never the

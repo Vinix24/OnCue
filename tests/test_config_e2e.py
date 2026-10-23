@@ -43,6 +43,46 @@ def _wait_for_port(host: str, port: int, timeout: float = 3.0) -> None:
     raise RuntimeError("Timed out waiting for WebSocket hub")
 
 
+#: Upper bound for an event the test EXPECTS. An event that arrives returns at once, so the
+#: size of this bound costs nothing when green; it only absorbs a slow shared runner.
+EVENT_TIMEOUT_S = 10.0
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+async def _recv_json(ws: websockets.ClientConnection, timeout: float = EVENT_TIMEOUT_S) -> dict:
+    return json.loads(await asyncio.wait_for(ws.recv(), timeout=timeout))
+
+
+def _forbid_outbound_http(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Make any non-loopback httpx request fail loudly; returns the blocked URLs.
+
+    Every LLM SDK the project uses (openai, instructor, google-genai) sends through httpx, so
+    guarding ``send`` covers a client that a future change forgets to switch off.
+    """
+    blocked: list[str] = []
+
+    def _check(request: httpx.Request) -> None:
+        if request.url.host not in _LOOPBACK_HOSTS:
+            blocked.append(str(request.url))
+            raise AssertionError(f"outbound HTTP request in a hermetic test: {request.url}")
+
+    original_send = httpx.Client.send
+    original_async_send = httpx.AsyncClient.send
+
+    def _send(self: httpx.Client, request: httpx.Request, **kwargs):
+        _check(request)
+        return original_send(self, request, **kwargs)
+
+    async def _async_send(self: httpx.AsyncClient, request: httpx.Request, **kwargs):
+        _check(request)
+        return await original_async_send(self, request, **kwargs)
+
+    monkeypatch.setattr(httpx.Client, "send", _send)
+    monkeypatch.setattr(httpx.AsyncClient, "send", _async_send)
+    return blocked
+
+
 async def _wait_for_subscribers(channel: str, minimum: int, timeout: float = 3.0) -> None:
     start = time.time()
     while time.time() - start < timeout:
@@ -124,6 +164,24 @@ async def test_config_flow_e2e(
     # The real reports module runs here: switch its post-call LLM step off so the dummy
     # OpenAI key never reaches the network (the step itself: tests/test_report_enrichment.py).
     monkeypatch.setenv("REPORT_LLM_PROVIDER", "none")
+    # Every other LLM lane the call runs is switched off the same way ("none" builds no client
+    # and sends nothing). The test asserts on none of them: the pain point comes from the
+    # mocked WindowClassifier.classify, the slide from the case DB.
+    for task in (
+        "DETECTOR_CONFIRM",
+        "WINDOW_CLASSIFIER",
+        "PHASE",
+        "SUGGESTIONS",
+        "SUMMARY",
+        "SCRIPT_TRACKING",
+        "SLIDES",
+        "REPORT_TERMS",
+    ):
+        monkeypatch.setenv(f"{task}_LLM_PROVIDER", "none")
+    # litellm downloads its model price map from GitHub when first imported; the bundled copy
+    # is enough here.
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    blocked_requests = _forbid_outbound_http(monkeypatch)
     monkeypatch.setenv("DETECTOR_MIN_CHUNKS", "1")
     monkeypatch.setenv("DETECTOR_DEBOUNCE_S", "0")
     monkeypatch.setenv("SHUTDOWN_TOKEN", "test-config-e2e-token")
@@ -221,14 +279,12 @@ async def test_config_flow_e2e(
             )
         )
 
-        pain_raw = await asyncio.wait_for(pain_points_ws.recv(), timeout=1.5)
-        pain_payload = json.loads(pain_raw)
+        pain_payload = await _recv_json(pain_points_ws)
         assert pain_payload["type"] == "pain_point"
         assert pain_payload["category"] == "offerteproces"
         assert pain_payload["case_id"] == "case-017"
 
-        slide_raw = await asyncio.wait_for(slide_control_ws.recv(), timeout=1.0)
-        slide_payload = json.loads(slide_raw)
+        slide_payload = await _recv_json(slide_control_ws)
         assert slide_payload == {"action": "navigate_to_case", "slide_id": "case-017"}
 
         with pytest.raises(asyncio.TimeoutError):
@@ -240,8 +296,7 @@ async def test_config_flow_e2e(
             timeout=3.0,
         )
         assert response.status_code == 200
-        report_raw = await asyncio.wait_for(coaching_ws.recv(), timeout=2.0)
-        report_payload = json.loads(report_raw)
+        report_payload = await _recv_json(coaching_ws)
         assert report_payload["type"] == "report_ready"
         assert report_payload["prospect_name"] == "Riley Prospect"
         assert report_payload["prospect_company"] == "Acme BV"
@@ -250,3 +305,4 @@ async def test_config_flow_e2e(
     await orchestrator
     # The report's post-call steps (enrichment -> rewrite -> delivery) run in their own task.
     await wait_for_pending_reports()
+    assert blocked_requests == []

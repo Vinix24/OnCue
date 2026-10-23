@@ -16,6 +16,33 @@ from sales_copilot.core.privacy_gate import validate_privacy
 
 _ALLOWED_PRESETS = frozenset({"sales", "coach", "recruitment", "acquisitie"})
 
+_UI_LABEL_ROLES = frozenset({"self", "prospect"})
+_UI_LABEL_MAX_LENGTH = 40
+
+
+def validate_ui_labels(ui_labels: object) -> dict[str, str] | None:
+    """Return the speaker labels a call preset sends, or raise ``ValueError`` for a malformed value.
+
+    ``None`` means "the call preset names no roles of its own" and passes through. An empty
+    mapping is a statement too (neutral labels), so it stays an empty mapping. Only the roles
+    ``self`` and ``prospect`` are accepted, each a short string: the labels end up in a
+    Markdown file the operator shares.
+    """
+    if ui_labels is None:
+        return None
+    if not isinstance(ui_labels, dict):
+        raise ValueError("ui_labels must be an object")
+    cleaned: dict[str, str] = {}
+    for role, label in ui_labels.items():
+        if role not in _UI_LABEL_ROLES:
+            raise ValueError(f"ui_labels role must be one of: {sorted(_UI_LABEL_ROLES)}")
+        if not isinstance(label, str) or "\n" in label or len(label.strip()) > _UI_LABEL_MAX_LENGTH:
+            raise ValueError(
+                f"ui_labels.{role} must be a single-line string of at most {_UI_LABEL_MAX_LENGTH} characters"
+            )
+        cleaned[role] = label.strip()
+    return cleaned
+
 # Local Ollama models run cold in up to ~70s and warm in 15-50s (vs. hosted providers that
 # reply in 1-3s). The hosted-provider default LLM_TIMEOUT_MS (7000ms) silently times out
 # every local summary before the model can finish, which looks like "the model is broken"
@@ -251,7 +278,7 @@ class TranscriberConfig:
 
 @dataclass(frozen=True)
 class DetectorConfig:
-    llm_provider: str = "openrouter"
+    llm_provider: str = "none"
     llm_model: str = "anthropic/claude-haiku-4.5"
     llm_temperature: float = 0.1
     llm_timeout_ms: int = 7000
@@ -320,7 +347,7 @@ class DetectorConfig:
         if llm_streaming is None:
             llm_streaming = True
         return cls(
-            llm_provider=env("LLM_PROVIDER", "openrouter") or "openrouter",
+            llm_provider=env("LLM_PROVIDER", "none") or "none",
             llm_model=env("LLM_MODEL", "anthropic/claude-haiku-4.5") or "anthropic/claude-haiku-4.5",
             llm_temperature=env_float("LLM_TEMPERATURE", 0.1) or 0.1,
             llm_timeout_ms=env_int("LLM_TIMEOUT_MS", 7000) or 7000,
@@ -539,9 +566,13 @@ class CallConfig:
     # ``privacy`` ceiling, server-derived in hub_core.extract_start_call_config. None means
     # no ceiling. An unknown value is refused here (and as a 400 in /api/start-call).
     privacy: str | None = None
+    # Speaker names the dashboard's call preset sends for the readable transcript
+    # (``config/presets.yaml`` ``ui_labels``). None: the domain preset's labels apply.
+    ui_labels: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "privacy", validate_privacy(self.privacy))
+        object.__setattr__(self, "ui_labels", validate_ui_labels(self.ui_labels))
         if self.screens not in {1, 2}:
             raise ValueError("screens must be 1 or 2")
         if self.screens == 1 and self.enable_presentation:
@@ -628,9 +659,53 @@ class ReportDeliveryConfig:
         )
 
 
+def blank_to_none(value: Any) -> Any:
+    """``None`` for an empty or whitespace-only string, the value otherwise.
+
+    The dashboard sends ``llm: {provider: "", model: ""}`` while its model picker is on
+    "Select a model". ``with_overrides`` only skips ``None``, so an empty string would
+    overwrite ``LLM_PROVIDER`` from ``.env``; as ``None`` the ``.env`` and code default stand.
+    """
+    if isinstance(value, str):
+        return value.strip() or None
+    return value
+
+
 def with_overrides(config: Any, **overrides: Any) -> Any:
     filtered = {key: value for key, value in overrides.items() if value is not None}
     return replace(config, **filtered)
+
+
+TRANSCRIPTION_ENGINES: frozenset[str] = frozenset({"direct", "whisper.cpp"})
+
+
+def load_transcription_engine() -> str:
+    """The ``TRANSCRIPTION_ENGINE`` setting: ``direct`` (default) or ``whisper.cpp``."""
+    engine = (env("TRANSCRIPTION_ENGINE", "direct") or "direct").strip().lower()
+    if engine not in TRANSCRIPTION_ENGINES:
+        raise ValueError("TRANSCRIPTION_ENGINE must be 'direct' or 'whisper.cpp'")
+    return engine
+
+
+def live_backend_name(engine: str, config: TranscriberConfig) -> str:
+    """The backend name the live transcriber builds: engine ``whisper.cpp`` forces it.
+
+    Single source for the transcriber (``_backend_config``) and the start-call privacy gate,
+    so the gate and the runtime cannot disagree about which backend runs.
+    """
+    return "whisper.cpp" if engine == "whisper.cpp" else config.backend
+
+
+def payload_transcript_backend(payload: dict[str, Any]) -> str | None:
+    """The per-call transcription backend override a start-call payload carries, if any.
+
+    Nested ``transcript.backend`` wins when the key is present (``None`` included, which
+    means "no override"), the flat ``transcript_backend`` is the fallback.
+    """
+    transcript_payload = payload.get("transcript")
+    if not isinstance(transcript_payload, dict):
+        transcript_payload = {}
+    return transcript_payload.get("backend", payload.get("transcript_backend"))
 
 
 def build_module_configs(call_config: CallConfig) -> dict[str, Any]:

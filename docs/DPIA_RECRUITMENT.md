@@ -82,7 +82,7 @@ During fast intake conversations, recruiters miss relevant signals: salary expec
 
 The processing is proportionate because:
 
-- Audio does not leave the machine in the default configuration (local-first architecture). `WHISPER_BACKEND=groq` and a non-loopback `WHISPER_CPP_SERVER_HOST` are opt-in routes that send audio off the machine without a PII filter; leave them off for candidate calls
+- Audio does not leave the machine in the default configuration (local-first architecture). `WHISPER_BACKEND=groq` sends audio off the machine without a PII filter, and a non-loopback `WHISPER_CPP_SERVER_HOST` opens an unencrypted listener on the network; leave both off for candidate calls and set the client's privacy ceiling to `local`, which refuses them
 - The PII filter is active with the recruitment preset (`apply_pii_filter=True`): BSN, phone number, IBAN, email address, postal code, and date of birth are replaced with placeholders before any LLM processing
 - With an LLM provider configured, the LLM receives redacted transcript text per task, including a rolling summary input and, after the call, the whole transcript for the report enrichment (see `docs/PRIVACY.md`). With `LLM_PROVIDER=none` or a local Ollama model, no text leaves the machine
 - Audio recording can be disabled via `RECORD_AUDIO=false` in `.env`

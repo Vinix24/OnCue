@@ -1,7 +1,26 @@
 import pytest
+import yaml
 
-from sales_copilot.__main__ import _parse_call_config
+from sales_copilot.__main__ import _enabled_modules, _parse_call_config
 from sales_copilot.core.config import CallConfig, build_module_configs
+from sales_copilot.core.paths import resolve_app_path
+
+
+def test_notetaker_preset_runs_only_transcriber_and_reports() -> None:
+    """The start-call the dashboard sends for the notetaker preset (setup.js collectConfig)."""
+    presets = yaml.safe_load(resolve_app_path("config/presets.yaml").read_text(encoding="utf-8"))["presets"]
+    preset = next(entry for entry in presets if entry["name"] == "notetaker")
+    payload = {
+        "screen_mode": preset["screen_mode"],
+        "modules": preset["modules"],
+        "transcript": preset["transcript"],
+    }
+
+    call_config = _parse_call_config(payload)
+
+    assert _enabled_modules(call_config) == ["transcriber", "reports"]
+    assert call_config.enable_presentation is False
+    assert build_module_configs(call_config)["transcriber"].transcribe_self_live is True
 
 
 def test_call_config_disables_presentation_on_single_screen() -> None:

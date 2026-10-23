@@ -10,6 +10,7 @@ const selectors = {
   callDuration: document.getElementById("call-duration"),
   monologueWarning: document.getElementById("monologue-warning"),
   systemStatus: document.getElementById("system-status"),
+  moduleFailure: document.getElementById("module-failure"),
   phaseButtons: Array.from(document.querySelectorAll(".phase-button")),
   connectionDot: document.getElementById("connection-dot"),
   connectionText: document.getElementById("connection-text"),
@@ -126,6 +127,29 @@ const showWarning = (message, severity = "amber") => {
     selectors.monologueWarning.textContent = window.t("coaching.monologue_default");
     window.hintFeedback?.hideHero();
   }, 5000);
+};
+
+const hideModuleFailures = () => {
+  if (!selectors.moduleFailure) {
+    return;
+  }
+  selectors.moduleFailure.classList.add("hidden");
+  selectors.moduleFailure.replaceChildren();
+};
+
+// A failed module stays visible for the rest of the call: unlike the
+// five-second monologue warning, the user has to be able to read the install
+// command and act on it.
+const showModuleFailure = (payload) => {
+  if (!selectors.moduleFailure) {
+    return;
+  }
+  const params = { module: payload.module || "?", error: payload.error || "", hint: payload.install_hint || "" };
+  const key = payload.install_hint ? "header.module_missing_message" : "header.module_failed_message";
+  const line = document.createElement("div");
+  line.textContent = window.t(key, params);
+  selectors.moduleFailure.appendChild(line);
+  selectors.moduleFailure.classList.remove("hidden");
 };
 
 const clearSystemStatusTimer = () => {
@@ -246,6 +270,10 @@ const handleCoachingMessage = (payload) => {
   }
   if (payload.type === "license_grace" || payload.type === "license_expired") {
     window.dispatchEvent(new CustomEvent("license-grace-event", { detail: { event: payload.type } }));
+    return;
+  }
+  if (payload.type === "module_failure") {
+    showModuleFailure(payload);
     return;
   }
   if (payload.type === "system_status") {
@@ -551,6 +579,7 @@ const resetCallState = () => {
 
 const resetCallPanels = () => {
   resetCallState();
+  hideModuleFailures();
   if (window.resetTranscriptPanel) {
     window.resetTranscriptPanel();
   }

@@ -71,27 +71,33 @@ _EMPTY_LISTS = NormalizationLists(enabled=True, terms=(), variants={})
 _SEGMENT_LINE_RE = re.compile(r"^segment (\d+) \(([A-Za-z]+)\): (.*)$")
 _CANDIDATES_LINE_RE = re.compile(r"^candidates for segment (\d+): (.*)$")
 
+
+def term_correction_prompt(example_speaker: str) -> str:
+    """The term-correction section of a prompt; ``example_speaker`` names the speaker in its example line."""
+    return (
+        "\n\nIn this transcript every line starts with its segment number and who spoke: "
+        f"'segment N ({example_speaker}): text'. Some segments are followed by a line 'candidates for segment N: "
+        "...' with candidate terms, separated by semicolons: entries from the customer's term list "
+        "that resemble something in that segment. Speech recognition sometimes writes such a term as "
+        "an ordinary word or a name that looks or sounds alike, for example a product name as two "
+        "ordinary words, or an acronym as a first name. Just as often the ordinary word or the name "
+        "is exactly what was said.\n\n"
+        "For every place where the context makes clear that a candidate term was meant, return one "
+        "term correction: segment_index (the segment number N), source (the exact text as it appears "
+        "in that segment, which is replaced as a whole), occurrence (which occurrence of source in "
+        "that segment, counting from 1), target (the candidate term, written exactly as in the list) "
+        "and reason (a few words on what in the context shows the term was meant).\n\n"
+        "Correct only when the context shows the term was meant. When a word or a name is plausible "
+        "as written, leave it. A person's name stays a name unless the context shows the term was "
+        "meant, and a term stays a term unless the context shows a person was meant. Never correct "
+        "text that is already right, never rewrite anything else, never correct text in square "
+        "brackets, and never return a target that is not among the candidates of that segment. "
+        "Return an empty list of term corrections when nothing needs correcting."
+    )
+
+
 #: Appended to the report system prompt when at least one segment has candidates.
-TERM_CORRECTION_PROMPT = (
-    "\n\nIn this transcript every line starts with its segment number and who spoke: "
-    "'segment N (Seller): text'. Some segments are followed by a line 'candidates for segment N: "
-    "...' with candidate terms, separated by semicolons: entries from the customer's term list "
-    "that resemble something in that segment. Speech recognition sometimes writes such a term as "
-    "an ordinary word or a name that looks or sounds alike, for example a product name as two "
-    "ordinary words, or an acronym as a first name. Just as often the ordinary word or the name "
-    "is exactly what was said.\n\n"
-    "For every place where the context makes clear that a candidate term was meant, return one "
-    "term correction: segment_index (the segment number N), source (the exact text as it appears "
-    "in that segment, which is replaced as a whole), occurrence (which occurrence of source in "
-    "that segment, counting from 1), target (the candidate term, written exactly as in the list) "
-    "and reason (a few words on what in the context shows the term was meant).\n\n"
-    "Correct only when the context shows the term was meant. When a word or a name is plausible "
-    "as written, leave it. A person's name stays a name unless the context shows the term was "
-    "meant, and a term stays a term unless the context shows a person was meant. Never correct "
-    "text that is already right, never rewrite anything else, never correct text in square "
-    "brackets, and never return a target that is not among the candidates of that segment. "
-    "Return an empty list of term corrections when nothing needs correcting."
-)
+TERM_CORRECTION_PROMPT = term_correction_prompt("Seller")
 
 
 class TermCorrection(BaseModel):

@@ -67,7 +67,7 @@ The installer checks and installs:
 3. Python 3.11+ (installs via Homebrew if missing)
 4. git (Xcode command line tools)
 5. Virtual environment at `.venv/`
-6. All Python dependencies (`pip install -e .[smart]`)
+6. All Python dependencies (`pip install -e .[smart] -c constraints.txt`), pinned to the versions CI tests
 7. whisper.cpp backend — binary compiled from the vendored submodule + its GGML model (large-v3-turbo, ~800 MB)
 8. `.env` from `.env.example` if not already present
 9. Local data directories
@@ -168,15 +168,72 @@ OnCue supports Windows via a WASAPI loopback capture path (no virtual-audio-devi
 
 **Windows requirements:**
 - Windows 10 2004+ or Windows 11 (WASAPI loopback + per-process loopback API)
-- Python 3.11+ (3.13 verified working as of 2026-07-26)
+- Python 3.11 to 3.14, 64-bit (3.13 verified working as of 2026-07-26). PyTorch, which the voice activity detection (Silero VAD) needs, published no Windows wheels for Python 3.15 when this was checked on 2026-10-22
 - A headset — WASAPI loopback captures the whole system-output endpoint, not a single app; speakers cause echo/self-capture
 - Telephony (phone-relay) audio is confirmed recordable on Windows via Stereo Mix, but whether it reaches the render pipeline OnCue's WASAPI tap reads from is unconfirmed — Stereo Mix and WASAPI loopback tap different points in the audio stack and can diverge; you must also start the session manually, since automatic call detection is macOS-only; see **Telephony capture** under Known Windows caveats below
 - An NVIDIA GPU with 4+ GB VRAM if you want GPU-accelerated transcription (CPU-only transcription also works, see below)
 
-### Install
+### Install with one command
+
+Open a normal PowerShell window (not as administrator) in the OnCue folder you cloned or unzipped, and run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+`-ExecutionPolicy Bypass` holds for that one PowerShell process only. The execution policy of the machine stays as it is.
+
+The script runs these steps in order. Running it again resumes where it stopped.
+
+1. **Preflight, which changes nothing.** Windows version, CPU and cores, RAM, free disk space, Python 3.11 to 3.14 (64-bit), and whether pypi.org, github.com and huggingface.co answer. Run it on its own with `-PreflightOnly`. The script does not install Python. When Python is missing it prints the install command: `winget install -e --id Python.Python.3.13 --scope user` (no administrator rights needed), or the 64-bit installer from [python.org](https://www.python.org/downloads/windows/).
+2. **A virtual environment in `.venv`** with the pip extras in the order of the manual route below, including the `--only-binary` route for litellm. The package is installed editable (`-e`). OnCue then keeps its data in the project folder, where a plain install would write it to `%LOCALAPPDATA%\SalesCopilot`.
+3. **Prebuilt whisper.cpp v1.9.1**, the CPU build `whisper-bin-x64.zip` from the [ggml-org releases](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.1). The release ships no checksum file. The script checks the download against the sha256 digest GitHub publishes for that asset, pinned in the script.
+4. **The model `large-v3-turbo-q8_0`** (874 MB), the value pick on CPU in [docs/BENCHMARKS.md](docs/BENCHMARKS.md). It is pinned to one revision of the Hugging Face repository and checked against its sha256.
+5. **A `.env`** from `.env.example` with the Windows defaults: `AUDIO_CAPTURE_METHOD` left empty (wasapi is picked automatically), `WHISPER_CPP_THREADS` set to the physical core count minus one (between 2 and 8), `LLM_PROVIDER=none`, and the whisper.cpp paths. An existing `.env` is never overwritten. When it points at files that do not exist, the script prints the lines to put in.
+6. **A final check**: OnCue imports in `.venv`, whisper.cpp transcribes two seconds of silence with the model, and the script prints the exact line to start OnCue.
+
+| Option | What it does |
+|---|---|
+| `-Profile notetaker` (default) | Recording and transcription: `.[windows]` plus `aiosqlite`. The post-call report needs `aiosqlite`, and that report is what writes the transcript to `data\reports`. |
+| `-Profile full` | Also pain-point detection: `.[windows]`, the litellm wheel, `.[detector]` and `aiosqlite`. The first call with detection downloads its embedding model (about 470 MB) to `%USERPROFILE%\.cache\huggingface`. |
+| `-Model <name>` | Another model: `large-v3-turbo-q5_0`, `large-v3-turbo`, `large-v3`, `medium`, `medium-q8_0`, `small`, `small-q8_0` or `base`. On a CPU with fewer than four cores, `small-q8_0` keeps up better. |
+| `-PreflightOnly` | Only the preflight. Writes nothing. |
+| `-Uninstall` | Removes what the script installed, after you confirm. See below. |
+
+**Notetaker profile and "AI detectie".** The dashboard has it on by default (label "AI detection" in English). The notetaker profile does not install the detection packages. You do not have to switch it off. At Start Call the dashboard shows a message that the detector module did not start, with the install command (`pip install ".[detector]" -c constraints.txt`). OnCue keeps running: talk time and live transcription work as normal. If "Post-call Report" fails to start for a missing package, you get the same kind of message with `pip install ".[slides]" -c constraints.txt`. Any other unexpected error ends OnCue with a message in the window and a non-zero exit code, and the details are in the log.
+
+**Where everything lands.** `.venv\`, `.env` and `.oncue-win\` (whisper.cpp, models, the install log and an install manifest), all inside the project folder. pip's cache and temporary files are pointed into `.oncue-win` for the length of the run. No administrator rights, no registry or PATH changes.
+
+**Start OnCue.** The installer prints this line with your folder filled in:
+
+```powershell
+Set-Location -LiteralPath 'C:\Users\you\OnCue'; .\.venv\Scripts\python.exe -m sales_copilot
+```
+
+The browser opens the setup wizard. For a call, go to `http://localhost:8760/dashboard`. Stop OnCue with Ctrl+C in that PowerShell window.
+
+**Uninstall.**
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1 -Uninstall
+```
+
+It lists what it will remove and asks for confirmation first. It removes only what the script put down, as recorded in `.oncue-win\install-manifest.json`: `.oncue-win\`, `.venv` when the script created it, and `.env` when the script created it and it is unchanged since. It leaves `data\` and `.vnx-data\` (your sessions, reports and transcripts), the project folder and Python. Afterwards it reports, for the locations outside the project folder that an OnCue install or run could touch, whether anything appeared there since the install.
+
+**GPU.** The script installs the CPU build of whisper.cpp. For an NVIDIA GPU, follow the cuBLAS route under the manual install below and point `.env` at those binaries.
+
+**LLM provider.** Optional, as on macOS, and it builds on the full profile. Install the provider extra into the same environment, for example `.\.venv\Scripts\python.exe -m pip install -e ".[gemini]" -c constraints.txt`, and set it in `.env` as described under [Add an LLM provider for pain-point detection](#add-an-llm-provider-for-pain-point-detection).
+
+The installer has not yet run on real Windows hardware. [docs/WINDOWS_TESTPLAN.md](docs/WINDOWS_TESTPLAN.md) is the protocol for that first run.
+
+### Manual install (fallback)
+
+The steps the installer automates, for when the script stops on your machine or you want to run each step yourself.
+
+Every `pip install` below carries `-c constraints.txt`. That file pins each package to the version `uv.lock` locks, which is what CI tests. Without it pip takes the newest release of every dependency, and a new major release can break a fresh install. Run the commands from the repository folder. You do not need `uv`.
 
 ```bash
-pip install ".[windows]"
+pip install ".[windows]" -c constraints.txt
 ```
 
 That's enough to boot a capture-only run — talk-time tracking and live transcription, no pain-point detection. The orchestrator (`src/sales_copilot/__main__.py`) only imports the detector and reports modules from inside `_run_call()`, once a call actually enables them, so a plain `.[windows]` install never needs `litellm`, `instructor`, `semantic-router`, `sentence-transformers`, or `aiosqlite` just to start.
@@ -184,10 +241,10 @@ That's enough to boot a capture-only run — talk-time tracking and live transcr
 **Full install, with pain-point detection:**
 
 ```bash
-pip install ".[windows]"
-pip install "litellm>=1.83.10" --only-binary=:all:
-pip install ".[detector]"
-pip install aiosqlite --only-binary=:all:
+pip install ".[windows]" -c constraints.txt
+pip install "litellm>=1.83.10" --only-binary=:all: -c constraints.txt
+pip install ".[detector]" -c constraints.txt
+pip install aiosqlite --only-binary=:all: -c constraints.txt
 ```
 
 **Why the four-step sequence for the full install:**
@@ -227,7 +284,7 @@ Use the non-CUDA binaries from the same v1.9.1 release instead of the cuBLAS zip
 ### Add an LLM provider for pain-point detection
 
 ```bash
-pip install ".[gemini]"
+pip install ".[gemini]" -c constraints.txt
 ```
 
 ```env
@@ -246,6 +303,8 @@ Machines behind a corporate firewall or antivirus that injects a root CA will hi
 - `litellm` runtime model-cost fetch → `CERTIFICATE_VERIFY_FAILED` (non-fatal; falls back to a local backup).
 
 Until an offline/bundled embedding model or a certifi-based downloader lands, pain-point detection cannot warm up on machines with TLS inspection. Tracked as a known gap.
+
+The one-command installer downloads whisper.cpp and the model through .NET, which checks certificates against the Windows certificate store. A root CA that the company installed there is trusted, so those two downloads are not hit by this pitfall. The embedding-model download at first startup still is.
 
 ### Known Windows caveats
 
@@ -271,7 +330,7 @@ What Windows does *not* have, independent of the above: (1) automatic call detec
 >
 > That 2026-09-06/07 field test (Windows 11 build 26200.9278) hit a native crash the 2026-07-26 run did not report, plus five install defects — see **Native crash** and **Telephony capture** above. A follow-up code review (#227) found and fixed five further defects in the native-crash fix itself, two of them regressions the original fix (#224) introduced. All are fixed on `main`; none of the fixes has been re-verified on real Windows hardware since landing.
 >
-> What remains untested: the #223, #224 and #227 fixes on real hardware, telephony audio through OnCue's own WASAPI tap, device hotplug, day-to-day reliability across diverse hardware, and pain-point detection on machines without TLS inspection. Windows users are welcome to try it and report back on [GitHub Issues](https://github.com/Vinix24/OnCue/issues): what worked, what didn't, and your audio setup. Your results are what move Windows from experimental to fully supported.
+> What remains untested: the #223, #224 and #227 fixes on real hardware, the one-command installer (`scripts/install.ps1`, protocol in [docs/WINDOWS_TESTPLAN.md](docs/WINDOWS_TESTPLAN.md)), telephony audio through OnCue's own WASAPI tap, device hotplug, day-to-day reliability across diverse hardware, and pain-point detection on machines without TLS inspection. Windows users are welcome to try it and report back on [GitHub Issues](https://github.com/Vinix24/OnCue/issues): what worked, what didn't, and your audio setup. Your results are what move Windows from experimental to fully supported.
 
 ---
 
@@ -389,9 +448,11 @@ git clone https://github.com/Vinix24/OnCue.git
 cd OnCue
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[full,dev]"
+pip install -e ".[full,dev]" -c constraints.txt
 pytest tests/
 ```
+
+After a change to `uv.lock`, regenerate the constraints with `python scripts/constraints.py --write` (needs `uv` on your PATH) and commit both files. `python scripts/constraints.py --check` fails when they disagree, in CI and in `scripts/ci.sh`.
 
 Run tests:
 ```bash

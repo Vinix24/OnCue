@@ -12,7 +12,7 @@ Feature entitlement is enforced in code by `FeaturePolicy` (`src/sales_copilot/a
 
 | Capability | Free (AGPL-3.0, self-host) | Pro (commercial license) |
 |---|---|---|
-| Live transcription (whisper.cpp, on-device by default; opt-in Groq or remote whisper.cpp server send audio off the machine, see `docs/PRIVACY.md`) | Yes | Yes |
+| Live transcription (whisper.cpp, on-device by default; opt-in Groq sends audio off the machine and a non-loopback whisper.cpp server host is not local; the per-client privacy ceiling covers both, see `docs/PRIVACY.md`) | Yes | Yes |
 | Talk-time balance visualization + monologue alerts | Yes | Yes |
 | Pain-point, objection, and buying-signal detection | Yes | Yes |
 | Coaching dashboard shell (transcript, detections, talk-time) | Yes | Yes |

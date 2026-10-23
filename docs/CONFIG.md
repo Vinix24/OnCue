@@ -175,14 +175,31 @@ to `[NAAM]` there is not corrected. With `REPORT_REDACT_PII=true`, `source`,
 `target` and `reason` are redacted on disk like the rest of the report. The
 dashboard's `report_enriched` event carries only the counts.
 
+## Model pick, report wording and word lists
+
+An empty model pick in the dashboard ("Select a model") sends no override: `LLM_PROVIDER` and
+`LLM_MODEL` from `.env` stay in force, and so does the code default when `.env` sets nothing.
+
+The report prompt speaks of a seller and a prospect only for a call on the `sales` domain preset
+without call-preset labels. The `notetaker` preset and any call without a sales preset get a
+neutral prompt that names the two speakers by the preset's `ui_labels` (neutral by language when
+it names none) and tells the model to write the summary in `CALL_LANGUAGE`.
+
+`config/transcription_vocabulary.yaml` and `config/transcript_normalization.yaml` are found the
+way the rest of the app finds its files, whatever the working directory: a copy in the app
+support folder first, then the bundled one (checkout, pip/pipx install, packaged app). An
+absolute `WHISPER_VOCABULARY_CONFIG` is used as given.
+
 ## One model per task
 
 Every LLM task has its own provider, model, timeout and output limit. A task
 without its own value falls back to the global `LLM_PROVIDER`, `LLM_MODEL` and
-`LLM_TIMEOUT_MS`; `report_terms` falls back to `report` first. A client's
+`LLM_TIMEOUT_MS`; `report_terms` falls back to `report` first. `LLM_PROVIDER` defaults to `none` in the code as well as in `.env.example`: without a `.env` no model is configured, no client is built and nothing is sent. A provider of `none` counts as local for a `klant.yaml` privacy ceiling. A client's
 `klant.yaml` privacy ceiling applies to every LLM task, and a task whose provider
-is above it is refused. The ceiling does not cover transcription: `WHISPER_BACKEND=groq`
-or a remote `WHISPER_CPP_SERVER_HOST` send audio off the machine regardless of it. A provider other than the global one needs its own
+is above it is refused. The ceiling covers the transcription backend too:
+`WHISPER_BACKEND=groq`, whisper.cpp on a non-loopback `WHISPER_CPP_SERVER_HOST` and an
+unknown backend count as `public`, so a `local` or `tenant` ceiling refuses them at start-call.
+A provider other than the global one needs its own
 `<TASK>_LLM_MODEL`. Defaults live in `src/sales_copilot/core/llm_routing.py`.
 
 | Task | Does | Keys |

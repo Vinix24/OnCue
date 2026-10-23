@@ -4,13 +4,106 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-orange)](docs/BETA_TESTER_GUIDE.md)
 
-An open-source, real-time sales copilot that runs during video calls. It transcribes the conversation, detects pain points, objections, and buying signals as they happen, and coaches talk-time balance on a second screen.
+OnCue is a local notetaker and a live copilot for conversations. It captures a call on your own computer, transcribes it there, and writes the full transcript to a file when the call ends. If you want more, it also coaches you while you talk: talk-time balance, and pain points, objections and buying signals as they come up.
 
-Privacy is the default, not an option you opt into. Audio capture, transcription, and pain-point detection run on your machine by default. No LLM is configured by default. Transcript text only leaves the machine if you explicitly configure an LLM destination, and that choice is made per conversation, not locked in at install time.
+Sales calls are one use, not the definition. Interviews, intake and discovery calls, coaching sessions and internal meetings run through the same pipeline. OnCue captures system audio instead of joining the call, so Teams, Zoom, Meet, Webex or a phone bridge all look the same to it, and no bot joins the meeting.
+
+**Nederlands:** [wat OnCue is, wat er op je computer blijft en hoe je het als notulist probeert](#nederlands).
 
 ---
 
-## Demo
+## Nederlands
+
+OnCue is een notulist en een gesprekscoach die op je eigen computer draaien. Het luistert mee met een videogesprek in Teams, Zoom, Meet of een ander programma. Wat er gezegd wordt, zet het om in tekst. Na afloop staat het hele gesprek in een bestand op je computer. Coaching tijdens het gesprek is een extra mogelijkheid, die je als notulist uit laat.
+
+**Wat op je computer blijft.** In de standaardinstelling blijven geluid en tekst op je computer. Het omzetten van spraak naar tekst gebeurt op je eigen computer. Er is geen online AI-dienst aangesloten. De tekst van het gesprek gaat nergens heen. Het geluid zelf wordt niet bewaard, tenzij je dat aanzet. Zonder licentiesleutel maakt OnCue ook geen contact met de maker.
+
+**Wat je zelf kunt aanzetten.** Een samenvatting met actiepunten vraagt om een taalmodel. Met een taalmodel op je eigen computer blijft de tekst daar. Met de cloudomgeving van je eigen organisatie of een openbare AI-dienst gaat de tekst van het gesprek wel naar buiten. Die keuze maak je per gesprek. Twee andere instellingen halen het geluid van die lokale route af. De eerste stuurt het geluid naar de dienst Groq voor snellere transcriptie. De tweede zet de transcriptieserver open voor andere computers in je netwerk, zonder versleuteling. Beide staan standaard uit.
+
+**Zo probeer je het als notulist.** De stappen hieronder zijn voor een Mac. Je plakt een paar regels in het programma Terminal. Voor Windows staan de stappen in [INSTALL.md](INSTALL.md#windows), in het Engels.
+
+1. Installeer en start OnCue met de stappen onder [Install](#install).
+2. Ga in je browser naar `http://localhost:8760/dashboard`. Dat adres is OnCue op je eigen computer, geen website.
+3. Klik links onder **Presets** op `notetaker`.
+4. Klik op **Start Call** als het gesprek begint en op **Stop & rapport** als het klaar is.
+5. Het hele gesprek staat daarna als tekstbestand (JSON) in de map `data/reports` binnen de OnCue-map.
+
+Een samenvatting erbij laten maken door een taalmodel op je eigen computer: zie [Notetaker](#notetaker). Vertel je gesprekspartners vooraf dat je het gesprek laat uitwerken. De privacy-uitleg met de AVG staat in [docs/PRIVACY.md](docs/PRIVACY.md), in het Engels.
+
+---
+
+## Two ways to use it
+
+| | Notetaker | Live copilot |
+|---|---|---|
+| During the call | Live transcript of both sides | Live transcript, talk-time coaching and detection cards on a second screen |
+| After the call | The full transcript in a file on your machine | The same file, plus detections and talk-time in the report |
+| Needs an LLM | No. An LLM adds a summary and action items | No. An LLM adds summaries and live suggestions |
+
+Both start from the same install.
+
+## Install
+
+macOS 13 or newer with [Homebrew](https://brew.sh). Building the local transcriber needs the Xcode command line tools and `cmake`; the installer adds Python 3.11 when it is missing. Windows: see [INSTALL.md](INSTALL.md#windows).
+
+```bash
+xcode-select --install          # skip if already installed
+brew install cmake
+git clone https://github.com/Vinix24/OnCue.git
+cd OnCue
+bash scripts/install.sh         # .venv, dependencies, whisper.cpp and its model, .env with LLM_PROVIDER=none
+.venv/bin/sales-copilot start   # starts OnCue on localhost:8760 and opens the browser
+```
+
+The installer ends by suggesting an LLM API key. Neither route needs one. On first launch the browser may open a setup wizard; you can go straight to `http://localhost:8760/dashboard`. The dashboard is in Dutch by default (`LANGUAGE=nl`); set `LANGUAGE=en` in `.env` for English. Other install paths and troubleshooting: [INSTALL.md](INSTALL.md). Every setting: [docs/CONFIG.md](docs/CONFIG.md).
+
+---
+
+## Notetaker
+
+1. Open `http://localhost:8760/dashboard`.
+2. Under **Presets**, click `notetaker`. It turns detection, talk-time coaching and slides off, keeps the live transcript and the post-call report on, and transcribes your own microphone as well as the other side.
+3. Click **Start Call** when the conversation starts and **Stop & report** (Dutch UI: *Stop & rapport*) when it ends. macOS asks once for permission to record audio. Tell the other participants that the call is transcribed ([consent](docs/PRIVACY.md#consent-for-recording)).
+
+The transcript is then on disk, in your OnCue folder:
+
+```
+data/reports/<date>T<time>_<session-id>_report.json
+```
+
+A packaged app or a `pipx` install writes it under `~/Library/Application Support/SalesCopilot/data/reports/` instead. The `full_transcript` field lists every segment with `speaker`, `text`, `start_ms` and `end_ms`. Speakers are split by audio channel, not by person: `self` is your microphone, `prospect` is everything you hear through the computer. The audio itself is not stored unless you set `RECORD_AUDIO=true`.
+
+Next to it sits the same transcript as a text you can read and share, with the same prefix:
+
+```
+data/reports/<date>T<time>_<session-id>_transcript.md
+```
+
+One line per segment, in time order, written as soon as the call ends. The notetaker preset names the two sides neutrally by `LANGUAGE`: `Ik` and `Gesprekspartner` in Dutch, `Me` and `Other` in English. Other presets use their own speaker names, for example `verkoper` and `prospect`. The **Download Report (Markdown)** button in the report view ends with the same transcript, with the same names. The file follows `REPORT_REDACT_PII`: with it on, the PII redaction of the JSON applies to the `.md` as well.
+
+What else the JSON file holds depends on the LLM setting:
+
+- **No LLM (`LLM_PROVIDER=none`, the default):** the transcript, the call's start and end time, its duration and the talk-time split. The summary fields (`short_summary`, `overview`, `keywords`, `action_items`) stay empty. No transcript text is sent anywhere.
+- **A local model**, for example Ollama on this machine: add `REPORT_LLM_PROVIDER=ollama` and `REPORT_LLM_MODEL=<a model you pulled>` to `.env`. After the call the whole transcript goes to that model, and the same file gets a short summary, an overview, keywords and action items. The text stays on the machine.
+- **Your own cloud tenant** (`azure` or `vertex` as `REPORT_LLM_PROVIDER`, with its model and credentials): the same fields, and the transcript stays inside a cloud boundary your organization already governs.
+
+Use the `REPORT_LLM_*` keys rather than `LLM_PROVIDER` for this. The dashboard sends its own model choice with every call, and when its picker is left on *Select a model*, that empty choice overrides `LLM_PROVIDER` for the call.
+
+The dashboard shows the report after the call. Its JSON and Markdown download buttons export that report view, not the transcript; the transcript is only in the file above. By default it stays there until you delete it.
+
+---
+
+## Live copilot
+
+The coaching route: a live transcript, talk-time coaching on your second screen, and pain points, objections and buying signals as they come up. Detection runs through `semantic-router`, an embedding classifier that stays local, so it works without an LLM.
+
+1. Open `http://localhost:8760/dashboard`.
+2. Under **Modules**, check that **Talk Time**, **Live Transcript** and **AI detection** (Dutch UI: *AI detectie*) are on. The `discovery`, `coaching_only` and `notetaker` presets leave detection off on purpose.
+3. Click **Start Call**.
+
+With an LLM provider set, OnCue also uses it for window classification, a rolling summary, live suggestions and the post-call report. Choosing one: [INSTALL.md](INSTALL.md#choosing-an-llm-provider). Detection profiles for other conversation types: [docs/PRESETS.md](docs/PRESETS.md).
+
+### Demo
 
 ![OnCue live demo](docs/assets/demo/demo.gif)
 
@@ -22,132 +115,58 @@ A scripted discovery call playing through the coaching dashboard: live transcrip
 
 ---
 
-## Three things worth knowing before you clone this
+## Privacy
 
-**1. Transcription and detection run on-device by default.**
-By default audio never touches a network call. Transcription runs locally through the `TranscriptionBackend` protocol, backed by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (the default, built by `scripts/install.sh`) or `mlx-whisper` as an experimental Apple Silicon fallback. Pain-point and objection detection runs through `semantic-router`, an embedding classifier that also stays local. Two opt-in routes send audio off the machine: `WHISPER_BACKEND=groq` uploads every audio chunk to Groq, and a non-loopback `WHISPER_CPP_SERVER_HOST` sends it over unencrypted HTTP to that host. Neither is on by default and no PII filter runs on audio. Otherwise the only thing that can leave the device is transcript text, and only if you've configured an LLM provider (none is configured by default). Which text depends on the task: detection windows, a rolling summary, live suggestions and, after the call, the whole transcript for the report. It passes a pattern-based PII filter first. The per-task list is in [docs/PRIVACY.md](docs/PRIVACY.md).
+Privacy is the default, not an option you opt into. Audio capture, transcription, and pain-point detection run on your machine by default. No LLM is configured by default. Transcript text only leaves the machine if you explicitly configure an LLM destination, and that choice is made per conversation, not locked in at install time.
 
-**2. Cloud, when you use it, can stay inside your own tenant.**
-LLM routing is provider-agnostic through `src/sales_copilot/core/llm_client.py`, built on `instructor`. Leave it at `none` (the default) or point it at a local model such as Ollama for zero external calls, or at your own Azure OpenAI subscription, your own Vertex AI project, or your own AWS Bedrock account. The text then stays inside a cloud boundary your organization already governs, under your existing contract and DPA, instead of adding a new processor. This is the difference between "we call an API" and "your data stays in your tenant." For regulated NL B2B specifically, that difference is what gets a tool through procurement.
+| Where LLM text goes | What it means | When to use it |
+|---|---|---|
+| **No LLM (default)** | `LLM_PROVIDER=none`. The live cues (embedding-based detection and talk-time coaching) run fully local. No transcript text is sent anywhere. | Default. Sensitive or regulated calls. |
+| **Local LLM of your choice** | For example `LLM_PROVIDER=ollama` with a model you run yourself. The text stays on the machine. | Calls where you want LLM-backed features without any outbound text. |
+| **Own cloud tenant** | Your own Azure OpenAI subscription or Vertex AI project. The text stays inside a cloud boundary your organization already governs. | Regulated B2B where a new processor is a procurement blocker. |
+| **Public provider with your own key** | A public API (OpenAI, OpenRouter, Groq, Gemini). | Internal meetings, sales training, or any call where the sensitivity allows it. |
 
-**3. It works with any video-call platform, because it doesn't integrate with any of them.**
-OnCue captures whole-system audio (AudioTee on macOS, WASAPI loopback on Windows) instead of talking to the Teams, Zoom, or Meet API. That means no bot joining the call, no per-platform integration to build or maintain, and no admin consent or calendar access to request. Meet, Zoom, Teams, Webex, or a phone bridge all look the same to the capture layer: system audio.
+**Text.** With an LLM configured, what is sent depends on the task: a sliding window of prospect speech for detection, a rolling summary input (every 60 seconds, up to 40 lines with speaker labels), live suggestions with your uploaded context documents, and the whole transcript for the post-call report. All of it passes one PII seam first. That redaction is pattern based (no name recognition beyond a fixed list of Dutch first names), so it is a safety net and not a guarantee. The first three tasks run inside detection, which the notetaker preset switches off. A notetaker call therefore sends text only in the post-call report step: the whole transcript, after the call.
 
----
+**Audio.** By default audio never touches a network call. One opt-in route sends audio off the machine: `WHISPER_BACKEND=groq` uploads every audio chunk to Groq. Binding the whisper.cpp server to a non-loopback `WHISPER_CPP_SERVER_HOST` is not local either: it opens an unencrypted listener on your network. Neither is on by default, no PII filter runs on audio, and a client's privacy ceiling refuses both.
 
-## Beyond sales
+**No calls to the maker.** Without a license key, the open source version makes no call to the maker: no license check, no central audit, and the measurement signals are off.
 
-OnCue is built and positioned for sales calls first. The underlying pipeline, local transcription plus pain-point/objection/buying-signal detection plus talk-time coaching plus a post-call report, doesn't know it's a sales call. The same capability applies to other conversation types:
-
-- **Coaching and performance reviews**: talk-time balance and pattern detection apply just as well to a manager-employee conversation as a sales call.
-- **Job interviews / recruitment conversations**: detecting recurring themes and questions asked (or missed) works the same regardless of who's being evaluated.
-- **Deep-dive / user-research interviews**: a live transcript plus a structured post-call report is useful for research synthesis, not just deal tracking.
-- **1:1s and mentoring**: talk-time coaching (not dominating the conversation) is a skill independent of sales context.
-- **Consulting discovery calls**: pain-point detection is the same mechanic whether the "prospect" is a sales lead or a consulting client.
-- **Customer-success / support calls**: objection and sentiment detection transfer directly to a support or retention conversation.
-
-Same capability, other conversation types. Nothing here changes today's sales-first defaults (`config/pain_points.yaml`, the sales preset, the case-slide library); building out a preset for a different conversation type is a matter of configuration, not a different pipeline.
+No LLM key or model ships with OnCue. Per task, the limits of the redaction, AVG/GDPR and the AI Act: [docs/PRIVACY.md](docs/PRIVACY.md). The invariants CI checks on every PR: [docs/ARCHITECTURE_BOUNDARIES.md](docs/ARCHITECTURE_BOUNDARIES.md).
 
 ---
 
 ## How it works
 
 ```
-Audio (mic + system) ─▶ VAD (talk-time) ──────────────────────────▶ Coaching dashboard
-                     ─▶ Transcription (whisper.cpp / mlx-whisper) ─▶ Detection (semantic-router)
-                                                                       │
-                                                          ┌────────────┴────────────┐
-                                                          ▼                         ▼
-                                                  Coaching dashboard      Reveal.js presentation
-                                                  (your second screen)    (screen you share)
+Audio (mic + system) ─┬─▶ Transcription (whisper.cpp, local) ─┬─▶ Live transcript in the dashboard
+                      │                                        ├─▶ Post-call report file
+                      │                                        └─▶ Detection (semantic-router) ─▶ Coaching dashboard
+                      └─▶ VAD (talk-time) ──────────────────────────────────────────────────────▶ Coaching dashboard
 ```
 
-All components talk to each other over WebSocket on `localhost:8760`. Every module (audio capture, transcription, detection, the WebSocket hub) is independently runnable and testable. Full breakdown, including the BYO-tenant boundary and a component-level diagram: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
----
-
-## Quickstart
-
-Requires Python 3.11+. macOS is the primary platform. Windows works through WASAPI loopback, with one limitation around phone-call audio (see [Platform support](#platform-support)).
-
-```bash
-git clone https://github.com/Vinix24/OnCue.git
-cd OnCue
-./scripts/setup.sh          # creates .venv, installs deps, builds AudioTee locally
-cp .env.example .env        # an LLM is optional: LLM_PROVIDER=none by default, set a provider and key to enable LLM features
-python -m sales_copilot     # starts audio capture, transcription, detection, and the WebSocket hub
-```
-
-The coaching dashboard opens on `localhost:8760/dashboard`. Product language defaults to Dutch (`LANGUAGE=nl` in `.env.example`); English is a fully supported first-class toggle via `LANGUAGE=en`, independent of `CALL_LANGUAGE`, the spoken language passed to the transcriber.
-
-Two other install paths exist for non-developer setups (a one-shot installer script and a packaged `.app`); see [INSTALL.md](INSTALL.md) for those and for provider setup, troubleshooting, and the full configuration reference ([docs/CONFIG.md](docs/CONFIG.md)).
-
----
-
-## Privacy and cloud, as a spectrum
-
-The choice of where LLM text goes is made per conversation, not per install and not per customer. The same person can run one call fully local and route the next through a cloud LLM, depending on what that specific call allows.
-
-| Tier | What it means | When to use it |
-|---|---|---|
-| **No LLM (default)** | `LLM_PROVIDER=none`. The live cues (embedding-based detection and talk-time coaching) run fully local. No transcript text is sent anywhere. | Default. Sensitive or regulated calls. |
-| **Local LLM of your choice** | For example `LLM_PROVIDER=ollama` with a model you run yourself. The text stays on the machine. | Calls where you want LLM-backed features without any outbound text. |
-| **Own cloud tenant** | Your own Azure OpenAI subscription, Vertex AI project, or AWS Bedrock account. The text stays inside a cloud boundary your organization already governs. | Regulated B2B where a new processor is a procurement blocker. |
-| **Public provider with your own key** | A public API (OpenAI, OpenRouter, Groq, Gemini). | Internal meetings, sales training, or any call where the sensitivity allows it. |
-
-With an LLM configured, what is sent depends on the task: a sliding window of prospect speech for detection, a rolling summary input (every 60 seconds, up to 40 lines with speaker labels), live suggestions with your uploaded context documents, and the whole transcript for the post-call report. All of it passes one PII seam first. That redaction is pattern based (no name recognition beyond a fixed list of Dutch first names), so it is a safety net and not a guarantee. The per-task list and the limits of the redaction are in [docs/PRIVACY.md](docs/PRIVACY.md).
-
-No LLM key or model ships with OnCue. The default tier is the only one that needs no setup. Enforcement detail: [docs/ARCHITECTURE_BOUNDARIES.md](docs/ARCHITECTURE_BOUNDARIES.md) (the invariants CI checks on every PR). Full AVG/GDPR and AI Act treatment: [docs/PRIVACY.md](docs/PRIVACY.md).
-
----
-
-## What's inside
-
-- **Live transcription**: whisper.cpp large-v3-turbo by default, locally, with speaker-side attribution.
-- **Pain-point detection**: 12+ NL categories in `config/pain_points.yaml`, sliding-window multi-task classification.
-- **Objection detection**: 5 categories (price, timing, competitor, scope, authority); the curated counter-response playbook is a Pro feature.
-- **Talk-time coaching**: a breathing-bar indicator on your second screen, not a popup or alert, based on academic research on non-disruptive real-time feedback.
-- **Post-call reports**: full transcript, pain points, objections, and talk-time stats as JSON and Markdown, written locally.
-- **Vakgebied-presets**: the `sales` preset ships with the OSS app as a full pre-configured detection + compliance profile. The vertical starter-packs (`coach`, `recruitment`, `acquisitie`) are Pro content and ship with the Pro distribution; the OSS app fail-softs to `sales` when they are requested but absent. See [docs/PRESETS.md](docs/PRESETS.md).
-
-Full feature matrix, including what's Pro versus Free: [docs/FEATURES.md](docs/FEATURES.md).
-
-### Tech stack
-
-Python 3.11+ backend, FastAPI + websockets for the hub, `instructor` + `semantic-router` for structured LLM output and detection, Silero VAD for talk-time, SQLite by default for sessions and the case database (Supabase optional), Reveal.js for the shared presentation, and a vanilla HTML/CSS/JS coaching dashboard with no build step.
-
----
+The notetaker uses transcription, the live transcript and the report file. The live copilot adds detection and talk-time. All components talk over WebSocket on `localhost:8760`, and every module runs and tests on its own. Full breakdown: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Platform support
 
-**macOS** is primary and working. AudioTee's whole-system audio tap is the default capture path (no BlackHole routing needed); BlackHole remains available as a manual fallback.
-
-**Windows** works. WASAPI loopback capture (`src/sales_copilot/audio/wasapi.py`) is the capture path, confirmed on physical hardware on 2026-07-26 (RTX 2050, cuBLAS transcription, live WASAPI capture) and on a second Windows machine since. Anything playing through the system is captured, so calls in Teams, Zoom and Meet behave the same as on macOS.
-
-One thing Windows cannot do: capture telephony. On macOS a relayed iPhone call runs through the `avconferenced` daemon, and OnCue taps that process directly with a Core Audio process tap (`CallTapStream`, macOS only, Pro). Windows has no equivalent process-tap API, so phone calls stay out of reach. Video calls are unaffected: those play through the system endpoint and WASAPI captures them like any other audio.
-
-macOS remains the primary platform and gets new capture work first.
-
-Current pilot limitations and known issues: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
-
----
+**macOS** is the primary platform. AudioTee's whole-system audio tap is the default capture path, with no virtual audio device needed. **Windows** works through WASAPI loopback: anything playing through the system is captured, so calls in Teams, Zoom and Meet behave the same as on macOS. Setup and current limits: [INSTALL.md](INSTALL.md#windows) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Documentation
 
 | Document | Covers |
 |---|---|
+| [INSTALL.md](INSTALL.md) | Install paths, LLM providers, Windows, troubleshooting |
+| [docs/PRIVACY.md](docs/PRIVACY.md) | What leaves the machine per task, PII redaction, AVG/GDPR and the AI Act |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture: data plane, BYO-tenant boundary, component diagram |
 | [docs/ARCHITECTURE_BOUNDARIES.md](docs/ARCHITECTURE_BOUNDARIES.md) | The invariants CI enforces (local-first, provider-agnostic, localhost-only, ...) |
-| [docs/PRIVACY.md](docs/PRIVACY.md) | AVG/GDPR and AI Act treatment |
 | [docs/CONFIG.md](docs/CONFIG.md) | Full `.env` configuration reference |
-| [docs/PRESETS.md](docs/PRESETS.md) | Vakgebied-presets: sales, coach, recruitment |
+| [docs/PRESETS.md](docs/PRESETS.md) | Module presets and detection profiles per conversation type |
+| [docs/USE_CASES.md](docs/USE_CASES.md) | Conversation types and their legal context |
 | [docs/FEATURES.md](docs/FEATURES.md) | Free vs. Pro feature matrix |
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Local latency per pipeline stage, measured on real hardware |
 | [docs/FAQ.md](docs/FAQ.md) | Common setup and usage questions |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Diagnosing setup problems |
 | [docs/INDEX.md](docs/INDEX.md) | Full documentation index |
-
----
 
 ## Testing
 
@@ -156,7 +175,7 @@ source .venv/bin/activate
 python -m pytest tests/
 ```
 
-CI runs the full suite on every PR (see the badge at the top of this file); test coverage spans the audio pipeline, transcription backends, the sliding-window detector, the LLM client across all supported providers, the license gate, the PII filter, and the WebSocket hub.
+CI runs the full suite on every PR (see the badge at the top of this file).
 
 ---
 

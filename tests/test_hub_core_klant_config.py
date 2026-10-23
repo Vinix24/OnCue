@@ -240,13 +240,31 @@ class TestPrivacyGate:
 
         assert "privacy" not in config
 
-    def test_missing_provider_is_treated_as_public(self, tmp_path: Path, monkeypatch) -> None:
-        """No llm.provider set at all resolves to "" -> tier "public" -- the strictest
-        default, so an unconfigured provider never accidentally satisfies a ceiling."""
+    def test_missing_provider_without_global_provider_does_not_block(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """No ``llm.provider`` in the payload and no ``LLM_PROVIDER`` in the environment:
+        the omitted provider falls back to the global default, which is ``none``. Nothing
+        leaves the machine, so a ``privacy: local`` client is not refused."""
         monkeypatch.setattr(context_docs, "UPLOAD_ROOT", tmp_path)
+        monkeypatch.delenv("LLM_PROVIDER", raising=False)
         _write_klant_yaml(tmp_path, "acme-corp", "bedrijf: Acme Corp B.V.\nprivacy: local\n")
 
-        with pytest.raises(ValueError):
+        config = hub_core.extract_start_call_config({"config": {"client_slug": "acme-corp"}})
+
+        assert config["privacy"] == "local"
+
+    def test_missing_provider_with_public_global_provider_raises(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """No ``llm.provider`` in the payload but ``LLM_PROVIDER=openrouter`` in the
+        environment: the detector will run on that public provider, so the strict path
+        still refuses a ``privacy: local`` client."""
+        monkeypatch.setattr(context_docs, "UPLOAD_ROOT", tmp_path)
+        monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+        _write_klant_yaml(tmp_path, "acme-corp", "bedrijf: Acme Corp B.V.\nprivacy: local\n")
+
+        with pytest.raises(ValueError, match="acme-corp"):
             hub_core.extract_start_call_config({"config": {"client_slug": "acme-corp"}})
 
 

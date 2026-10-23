@@ -102,10 +102,12 @@ Assessment remains solely with the human consultant (EU AI Act Annex III).
 
 ## Presets that switch detection off
 
-Two of the shipped module presets set `modules.pain_points: false` on purpose:
-`discovery` ("talk-time coaching only, no slides") and `coaching_only`
-("live coaching metrics without detector or slides"). That is a legitimate
-choice, not a defect, and it stays selectable.
+Three of the shipped module presets set `modules.pain_points: false` on purpose:
+`discovery` ("talk-time coaching only, no slides"), `coaching_only`
+("live coaching metrics without detector or slides") and `notetaker` (live
+transcript and post-call report only, your own microphone included, no
+talk-time coaching; see "Notetaker" in the [README](../README.md#notetaker)).
+That is a legitimate choice, not a defect, and it stays selectable.
 
 What changed on 2026-09-05 is that the choice can no longer be made *for* you.
 `discovery` is the first preset in `config/presets.yaml`, and the dashboard used

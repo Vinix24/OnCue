@@ -23,6 +23,8 @@ from typing import Any
 
 import yaml
 
+from sales_copilot.core.paths import resolve_config_file
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_VOCABULARY_PATH = Path("config/transcription_vocabulary.yaml")
@@ -68,7 +70,7 @@ def load_vocabulary_config(path: str | Path) -> VocabularyConfig:
     Missing or malformed files are logged and return an empty/disabled config
     so a bad vocabulary file cannot break transcription startup.
     """
-    resolved = Path(path).expanduser()
+    resolved = resolve_config_file(path)
     try:
         data = _load_yaml(resolved)
     except FileNotFoundError:
