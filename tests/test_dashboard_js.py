@@ -164,9 +164,23 @@ def test_fixture_selectors_exist_in_the_real_shells() -> None:
     selectors = re.findall(r"'([^']+)'", block.group(1))
     assert len(selectors) >= 10, "FIXTURE_SELECTORS looks truncated"
 
+    # The demo player deliberately drops the screen-mode toggle, its buttons and the
+    # presentation module switch: slide UI, which no public demo asset may show (the
+    # dashboard itself keeps it).
+    demo_omits = {
+        'id="screen-mode-toggle"',
+        'class="toggle-button',
+        'data-module="presentation"',
+        'data-mode="single"',
+        'data-mode="dual"',
+    }
+
     for html_path in (_DASHBOARD / "index.html", _DEMO / "index.html"):
         html = html_path.read_text(encoding="utf-8")
         for selector in selectors:
+            if html_path.parent == _DEMO and selector in demo_omits:
+                assert selector not in html, f"{selector!r} is slide UI and must stay out of {html_path.name}"
+                continue
             assert selector in html, f"{selector!r} missing from {html_path.name}"
 
 

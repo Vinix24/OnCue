@@ -35,7 +35,7 @@
         <span class="degrade-banner-text">
           <span data-i18n="degrade.banner_intro">Je Pro-licentie is niet meer actief. De app blijft gratis werken:</span>
           <strong data-i18n="degrade.banner_active_features">live transcript, samenvatting en post-call diagnose</strong> <span data-i18n="degrade.banner_active_suffix">blijven actief.</span>
-          <span data-i18n="degrade.banner_disabled_features">Live coaching, slide-injectie, autostart en centrale audit zijn uitgeschakeld.</span>
+          <span data-i18n="degrade.banner_disabled_features">Live coaching, autostart en centrale audit zijn uitgeschakeld.</span>
         </span>
         <div class="degrade-banner-actions">
           <a
@@ -130,19 +130,10 @@
               <img src="../dashboard/assets/oncue-mark.svg" alt="OnCue" />
               <span>OnCue</span>
             </div>
-            <p class="setup-subtitle" id="setup-subtitle" data-i18n="setup.subtitle">Instellingen voor realtime coaching en slides.</p>
+            <p class="setup-subtitle" id="setup-subtitle" data-i18n="setup.subtitle">Instellingen voor realtime coaching.</p>
           </div>
 
           <div class="sidebar-scroll">
-
-            <section class="s-card">
-              <h3 class="s-title" data-i18n="setup.screen_mode_title">Screen mode</h3>
-              <div class="toggle-group" id="screen-mode-toggle" role="group" aria-label="Schermmodus" data-i18n-attr="aria-label:setup.screen_mode_group_aria">
-                <button class="toggle-button active" type="button" data-mode="single" data-i18n="setup.screen_mode_single">1 Screen</button>
-                <button class="toggle-button" type="button" data-mode="dual" data-i18n="setup.screen_mode_dual">2 Screens</button>
-              </div>
-              <p class="s-help" data-i18n="setup.screen_mode_help">1-screen schakelt de presentatie-module uit.</p>
-            </section>
 
             <section class="s-card">
               <h3 class="s-title" data-i18n="setup.presets_title">Presets</h3>
@@ -174,11 +165,6 @@
                   <input type="checkbox" data-module="pain_points" checked />
                   <span class="switch"></span>
                   <span class="module-label" data-i18n="setup.module_pain_points">AI detectie</span>
-                </label>
-                <label class="module-toggle">
-                  <input type="checkbox" data-module="presentation" checked />
-                  <span class="switch"></span>
-                  <span class="module-label" data-i18n="setup.module_presentation">Slide Injector</span>
                 </label>
                 <label class="module-toggle">
                   <input type="checkbox" data-module="post_call_report" checked />
@@ -645,15 +631,21 @@
     <script src="../dashboard/js/pro-upgrade.js?v=2.0.0"></script>
     <script src="../dashboard/js/dashboard-shell.js?v=2.0.0"></script>
     <!-- Scripted conversation — pushes messages into the fake sockets above. Must load last.
-         Language is chosen via ?lang=nl (English demo-timeline.js is the default). -->
+         ?lang=nl selects Dutch; ?mode=notetaker selects the notetaker timeline
+         (demo-timeline-notetaker[-nl].js) instead of the live-copilot one (demo-timeline[-nl].js). -->
     <script>
       (() => {
-        const isNl = new URLSearchParams(window.location.search).get("lang") === "nl";
+        const params = new URLSearchParams(window.location.search);
+        const isNl = params.get("lang") === "nl";
+        const isNotetaker = params.get("mode") === "notetaker";
         if (isNl) {
           document.documentElement.lang = "nl";
         }
+        if (isNotetaker) {
+          document.body.classList.add("demo-notetaker");
+        }
         const timelineScript = document.createElement("script");
-        timelineScript.src = isNl ? "demo-timeline-nl.js" : "demo-timeline.js";
+        timelineScript.src = `demo-timeline${isNotetaker ? "-notetaker" : ""}${isNl ? "-nl" : ""}.js`;
         timelineScript.async = false;
         document.body.appendChild(timelineScript);
       })();

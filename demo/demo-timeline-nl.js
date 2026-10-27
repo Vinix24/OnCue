@@ -149,7 +149,7 @@
   // Detection cards — categories from the real Dutch config files.
   // ------------------------------------------------------------------
 
-  // Pain point 1: handmatig_werk (config/pain_points.yaml) — no case matched.
+  // Pain point 1: handmatig_werk (config/pain_points.yaml).
   at(9400, () =>
     emit("pain-points", {
       type: "pain_point",
@@ -165,7 +165,7 @@
     }),
   );
 
-  // Pain point 2: rapportage (config/pain_points.yaml) — case matched.
+  // Pain point 2: rapportage (config/pain_points.yaml) with a response suggestion.
   at(18000, () =>
     emit("pain-points", {
       type: "pain_point",
@@ -176,15 +176,13 @@
       timestamp_ms: 18000,
       live: true,
       provisional: false,
-      case_matched: true,
-      case_id: "case-024",
-      case_title: "Van Doorn Logistiek — rapportagecyclus van twee dagen naar dezelfde dag",
+      case_matched: false,
       response_suggestion:
         "Van Doorn Logistiek bracht hun rapportagecyclus terug van twee dagen naar dezelfde dag — zelfde drie databronnen, geen extra personeel.",
     }),
   );
 
-  // Coaching suggestion — next-best-question, right after the case-matched pain point lands.
+  // Coaching suggestion — next-best-question, right after the reporting pain point lands.
   at(18600, () =>
     emit("suggestions", {
       type: "suggestion",
@@ -197,7 +195,7 @@
     }),
   );
 
-  // Coaching alert — monologue warning, during the rep's longer case-story line.
+  // Coaching alert — monologue warning, during the rep's longer story line.
   at(23200, () =>
     emit("coaching", {
       type: "coaching_alert",
@@ -208,7 +206,7 @@
     }),
   );
 
-  // Pain point 3: capaciteit (config/pain_points.yaml) — no case matched.
+  // Pain point 3: capaciteit (config/pain_points.yaml).
   at(30600, () =>
     emit("pain-points", {
       type: "pain_point",
@@ -261,7 +259,7 @@
         "Prospect zit vast in handmatige rapportage en krappe capaciteit, duwde één keer terug op prijs, maar reageerde goed op de tijd-reframe en is klaar voor een pilot.",
       key_moments: [
         { timestamp_ms: 9400, description: "Handmatig werk pijnpunt gedetecteerd" },
-        { timestamp_ms: 18000, description: "Rapportage pijnpunt — case matched (Van Doorn Logistiek)" },
+        { timestamp_ms: 18000, description: "Rapportage pijnpunt gedetecteerd" },
         { timestamp_ms: 39800, description: "Prijsbezwaar geuit" },
         { timestamp_ms: 51000, description: "Koopsignaal — klaar om verder te gaan" },
       ],

@@ -45,3 +45,69 @@
   font-size: 10px;
   font-family: inherit;
 }
+
+/* Case line of a pain-point card ("Case used" / "No case match"): the demo shows
+   detections only, not case matching. Scoped to the pain-point rail, because the
+   objection and opportunity responses reuse the .pain-point-case class. */
+#pain-points-panel .pain-point-case {
+  display: none;
+}
+
+/* Notetaker mode (?mode=notetaker): the preset switches detection and talk-time
+   coaching off, so the demo shows the live transcript alone, full width. */
+body.demo-notetaker #hero,
+body.demo-notetaker .rail,
+body.demo-notetaker .phase-controls,
+body.demo-notetaker #swap-speakers {
+  display: none;
+}
+
+body.demo-notetaker .body {
+  grid-template-columns: 1fr;
+}
+
+/* Markdown download preview — the file content the report view builds. */
+.demo-md-preview {
+  position: fixed;
+  z-index: 9000;
+  top: 96px;
+  right: 40px;
+  bottom: 40px;
+  width: 640px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-strong, rgba(10, 36, 99, 0.16));
+  border-radius: 12px;
+  background: var(--bg-elev, #ffffff);
+  box-shadow: var(--shadow-lg, 0 24px 56px rgba(6, 24, 69, 0.18));
+  overflow: hidden;
+}
+
+.demo-md-preview-head {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border, rgba(10, 36, 99, 0.1));
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text, #0a2463);
+}
+
+.demo-md-preview-body {
+  flex: 1;
+  margin: 0;
+  padding: 14px 16px;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text, #0a2463);
+}
+
+.demo-md-h {
+  margin: 4px 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.demo-md-line {
+  margin-bottom: 9px;
+}

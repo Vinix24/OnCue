@@ -272,6 +272,41 @@ def test_demo_timelines_objection_feeds_hero() -> None:
         assert match, f"{name} objection carries no response_suggestion — hero stays dark in the demo"
 
 
+@_requires_demo_assets
+def test_demo_player_shows_no_slide_ui() -> None:
+    """The demo player carries no slide UI: no Slide Injector, screen-mode toggle or case-slide match line."""
+    pattern = re.compile(r"slide injector|[12] screens?\b|case slide|case-slide|case_id|case_title", re.IGNORECASE)
+    for path in sorted(_DEMO_DIR.iterdir()):
+        if path.suffix not in {".html", ".js", ".css"}:
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            assert not pattern.search(line), f"{path.name}:{number} shows slide UI: {line.strip()}"
+    html = (_DEMO_DIR / "index.html").read_text(encoding="utf-8")
+    assert 'data-module="presentation"' not in html, "demo player still has the presentation module toggle"
+    assert "screen-mode-toggle" not in html, "demo player still has the screen-mode toggle"
+
+
+@_requires_demo_assets
+def test_demo_notetaker_timelines_show_transcript_only() -> None:
+    """The notetaker timelines (EN, NL) emit transcript lines and a report, and no detection or talk-time events."""
+    html = (_DEMO_DIR / "index.html").read_text(encoding="utf-8")
+    assert 'params.get("mode") === "notetaker"' in html, "index.html does not select the notetaker mode"
+    assert "demo-timeline${isNotetaker" in html, "index.html does not load the notetaker timeline"
+    expected_labels = {
+        "demo-timeline-notetaker.js": ('self: "Me"', 'prospect: "Other"'),
+        "demo-timeline-notetaker-nl.js": ('self: "Ik"', 'prospect: "Gesprekspartner"'),
+    }
+    for name, labels in expected_labels.items():
+        src = (_DEMO_DIR / name).read_text(encoding="utf-8")
+        assert src.count('say("') + src.count("say(\n") >= 11, f"{name} has fewer than 11 transcript lines"
+        assert 'type: "report_ready"' in src, f"{name} never emits the post-call report"
+        assert "full_transcript: segments" in src, f"{name} report carries no transcript"
+        for label in labels:
+            assert label in src, f"{name} lacks the neutral speaker label {label}"
+        for channel in ("pain-points", "objections", "buying-signals", "talk-time", "coaching-alert", "suggestions"):
+            assert f'emit("{channel}"' not in src, f"{name} emits {channel}, which the notetaker preset switches off"
+
+
 # ---------------------------------------------------------------------------
 # Opportunity (buying-signal) panel structure
 # ---------------------------------------------------------------------------

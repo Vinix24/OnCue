@@ -62,8 +62,12 @@ The installer ends by suggesting an LLM API key. Neither route needs one. On fir
 ## Notetaker
 
 1. Open `http://localhost:8760/dashboard`.
-2. Under **Presets**, click `notetaker`. It turns detection, talk-time coaching and slides off, keeps the live transcript and the post-call report on, and transcribes your own microphone as well as the other side.
+2. Under **Presets**, click `notetaker`. It turns detection and talk-time coaching off, keeps the live transcript and the post-call report on, and transcribes your own microphone as well as the other side.
 3. Click **Start Call** when the conversation starts and **Stop & report** (Dutch UI: *Stop & rapport*) when it ends. macOS asks once for permission to record audio. Tell the other participants that the call is transcribed ([consent](docs/PRIVACY.md#consent-for-recording)).
+
+![OnCue notetaker demo](docs/assets/demo/demo-notetaker.gif)
+
+A scripted discovery call in the notetaker preset: the live transcript of both sides, then **Stop & report** and the Markdown download, which ends with the transcript. Nothing is detected and no talk-time coaching shows.
 
 The transcript is then on disk, in your OnCue folder:
 

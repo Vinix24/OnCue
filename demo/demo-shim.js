@@ -35,6 +35,11 @@
   // index.html). Any other value (or none) keeps the English default.
   const ACTIVE_LANG = new URLSearchParams(window.location.search).get("lang") === "nl" ? "nl" : "en";
 
+  // Mode selection — ?mode=notetaker plays the notetaker timeline. The notetaker
+  // preset (config/presets.yaml) names the two sides neutrally by language, so
+  // the catalog below swaps the speaker labels for that mode only.
+  const NOTETAKER = new URLSearchParams(window.location.search).get("mode") === "notetaker";
+
   // ---------------------------------------------------------------------
   // Inlined English i18n catalog — verbatim copy of dashboard/i18n/en.json.
   // dashboard/js/i18n.js fetches dashboard/i18n/<lang>.json at runtime; under
@@ -47,12 +52,7 @@
     setup: {
       privacy_notice: "Audio is recorded locally for playback. Never uploaded.",
       sample_aha_button: "Show me what it does",
-      screen_mode_help: "1-screen mode disables the presentation module.",
-      subtitle: "Settings for realtime coaching and slides.",
-      screen_mode_title: "Screen mode",
-      screen_mode_group_aria: "Screen mode",
-      screen_mode_single: "1 Screen",
-      screen_mode_dual: "2 Screens",
+      subtitle: "Settings for realtime coaching.",
       presets_title: "Presets",
       conversation_type_label: "Conversation type",
       preset_sales: "Sales",
@@ -63,7 +63,6 @@
       module_transcript: "Live Transcript",
       module_pain_points: "AI detection",
       detection_off_indicator: "AI detection is off for this call.",
-      module_presentation: "Slide Injector",
       module_post_call_report: "Post-call Report",
       llm_prospect_title: "LLM & Prospect",
       llm_provider_label: "LLM provider & model",
@@ -136,7 +135,7 @@
       banner_intro: "Your Pro license is no longer active. The app keeps working for free:",
       banner_active_features: "live transcript, summary and post-call diagnosis",
       banner_active_suffix: "remain active.",
-      banner_disabled_features: "Live coaching, slide injection, autostart and central audit are disabled.",
+      banner_disabled_features: "Live coaching, autostart and central audit are disabled.",
       upgrade_cta: "Upgrade to Sales Pro",
     },
     pro_upgrade: {
@@ -206,8 +205,8 @@
     painpoints: {
       title: "Pain points",
       empty_state: "No detections yet.",
-      case_match_label: "→ Case {caseId}",
-      no_case_match: "No case match",
+      case_match_label: "",
+      no_case_match: "",
     },
     detector: {
       status_waiting: "Detection not started yet",
@@ -290,6 +289,9 @@
       objections_title: "Objections raised",
       key_moments_title: "Key moments",
       final_summary_title: "Final conversation summary",
+      insights_title: "Deep insights",
+      no_insights: "No deep insights for this session.",
+      transcript_title: "Transcript",
       download_json: "Download Report (JSON)",
       download_markdown: "Download Report (Markdown)",
       new_call_button: "New Call",
@@ -320,12 +322,7 @@
     setup: {
       privacy_notice: "Audio wordt lokaal opgenomen voor terugluisteren. Wordt niet ge-upload.",
       sample_aha_button: "Toon me wat het doet",
-      screen_mode_help: "1-screen schakelt de presentatie-module uit.",
-      subtitle: "Instellingen voor realtime coaching en slides.",
-      screen_mode_title: "Screen mode",
-      screen_mode_group_aria: "Schermmodus",
-      screen_mode_single: "1 Screen",
-      screen_mode_dual: "2 Screens",
+      subtitle: "Instellingen voor realtime coaching.",
       presets_title: "Presets",
       conversation_type_label: "Gesprekstype",
       preset_sales: "Sales",
@@ -336,7 +333,6 @@
       module_transcript: "Live Transcript",
       module_pain_points: "AI detectie",
       detection_off_indicator: "AI-detectie staat uit voor dit gesprek.",
-      module_presentation: "Slide Injector",
       module_post_call_report: "Post-call Report",
       llm_prospect_title: "LLM & Prospect",
       llm_provider_label: "LLM provider & model",
@@ -409,7 +405,7 @@
       banner_intro: "Je Pro-licentie is niet meer actief. De app blijft gratis werken:",
       banner_active_features: "live transcript, samenvatting en post-call diagnose",
       banner_active_suffix: "blijven actief.",
-      banner_disabled_features: "Live coaching, slide-injectie, autostart en centrale audit zijn uitgeschakeld.",
+      banner_disabled_features: "Live coaching, autostart en centrale audit zijn uitgeschakeld.",
       upgrade_cta: "Upgrade naar Sales Pro",
     },
     pro_upgrade: {
@@ -479,8 +475,8 @@
     painpoints: {
       title: "Pijnpunten",
       empty_state: "Nog geen detections binnen.",
-      case_match_label: "→ Case {caseId}",
-      no_case_match: "Geen case match",
+      case_match_label: "",
+      no_case_match: "",
     },
     detector: {
       status_waiting: "Detectie nog niet actief",
@@ -563,6 +559,9 @@
       objections_title: "Objections raised",
       key_moments_title: "Key moments",
       final_summary_title: "Final conversation summary",
+      insights_title: "Deep insights",
+      no_insights: "Geen diepte-inzichten voor deze sessie.",
+      transcript_title: "Transcript",
       download_json: "Download Report (JSON)",
       download_markdown: "Download Report (Markdown)",
       new_call_button: "New Call",
@@ -585,6 +584,11 @@
   // ---------------------------------------------------------------------
   // fetch() shim
   // ---------------------------------------------------------------------
+  const withNeutralSpeakers = (catalog, selfLabel, otherLabel) => ({
+    ...catalog,
+    talktime: { ...catalog.talktime, you_label: selfLabel, prospect_label: otherLabel },
+  });
+
   const jsonResponse = (body) =>
     new Response(JSON.stringify(body), {
       status: 200,
@@ -600,23 +604,41 @@
       );
     }
     if (url.endsWith("i18n/en.json")) {
-      return Promise.resolve(jsonResponse(EN_CATALOG));
+      return Promise.resolve(jsonResponse(NOTETAKER ? withNeutralSpeakers(EN_CATALOG, "Me", "Other") : EN_CATALOG));
     }
     if (url.endsWith("i18n/nl.json")) {
       // Selected whenever ?lang=nl is set (js/i18n.js reads config.language
       // from /api/config above); real Dutch chrome catalog either way.
-      return Promise.resolve(jsonResponse(NL_CATALOG));
+      return Promise.resolve(
+        jsonResponse(NOTETAKER ? withNeutralSpeakers(NL_CATALOG, "Ik", "Gesprekspartner") : NL_CATALOG),
+      );
+    }
+    if (NOTETAKER && url.endsWith("/api/presets")) {
+      // The notetaker preset, as in config/presets.yaml: the dashboard applies it
+      // through its own applyPreset(), so modules and the detection-off notice
+      // come from the real setup code.
+      return Promise.resolve(
+        jsonResponse([
+          {
+            name: "notetaker",
+            label: "Notetaker",
+            screen_mode: "single",
+            transcript: { backend: "whisper.cpp", transcribe_self_live: true },
+            modules: { talk_time: false, transcript: true, pain_points: false, post_call_report: true },
+            ui_labels: {},
+          },
+        ]),
+      );
     }
     if (url.endsWith("/api/v1/license/features")) {
-      // Pro tier so the demo shows the full product (curated objection/case
-      // suggestions, Slide Injector toggle, script-tracking panel) instead of
+      // Pro tier so the demo shows the full product (curated objection
+      // suggestions, script-tracking panel) instead of
       // the Free upgrade banner and locked-teaser text.
       return Promise.resolve(
         jsonResponse({
           tier: "pro",
           features: [
             "audio.calltap",
-            "presentation.dynamic_slides",
             "coaching.script_tracking",
             "response_playbook",
           ],
@@ -635,6 +657,69 @@
     // backend running. Every caller in the real dashboard code already
     // handles a failed fetch gracefully (try/catch with a sane fallback).
     return Promise.reject(new TypeError("Failed to fetch (demo: no backend, path not stubbed): " + url));
+  };
+
+  // ---------------------------------------------------------------------
+  // Markdown download preview
+  // ---------------------------------------------------------------------
+  // The report view's "Download Report (Markdown)" button builds the file in
+  // js/report.js and hands it to a blob URL + <a download>. A recording cannot
+  // show a file landing in a Downloads folder, so the real file content is
+  // captured here and shown in a panel; the actual download is suppressed.
+  const originalCreateObjectURL = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (blob) => {
+    if (blob instanceof Blob && blob.type === "text/markdown") {
+      const stamp = new Date().toISOString().replace(/:/g, "-");
+      blob.text().then((text) => showMarkdownPreview(`${stamp}_report.md`, text));
+    }
+    return originalCreateObjectURL(blob);
+  };
+  const originalAnchorClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function (...args) {
+    if (this.hasAttribute("download")) {
+      return undefined;
+    }
+    return originalAnchorClick.apply(this, args);
+  };
+
+  // Shows the file the way a Markdown reader displays it: headings and bold
+  // names rendered, backslash escapes resolved.
+  const showMarkdownPreview = (fileName, text) => {
+    const panel = document.createElement("div");
+    panel.className = "demo-md-preview";
+    const head = document.createElement("div");
+    head.className = "demo-md-preview-head";
+    head.textContent = fileName;
+    const body = document.createElement("div");
+    body.className = "demo-md-preview-body";
+    const unescape = (value) => value.replace(/\\([\\`*_{}\[\]()#+\-.!|])/g, "$1");
+    text.split("\n").forEach((line) => {
+      if (!line.trim()) {
+        return;
+      }
+      const row = document.createElement("div");
+      const heading = line.match(/^## (.*)$/);
+      const speaker = line.match(/^\*\*(.+?):\*\* (.*)$/);
+      if (heading) {
+        row.className = "demo-md-h";
+        row.textContent = unescape(heading[1]);
+      } else if (speaker) {
+        row.className = "demo-md-line";
+        const name = document.createElement("strong");
+        name.textContent = `${unescape(speaker[1])}: `;
+        row.appendChild(name);
+        row.appendChild(document.createTextNode(unescape(speaker[2])));
+      } else {
+        row.className = "demo-md-line";
+        row.textContent = unescape(line.replace(/^- /, ""));
+      }
+      body.appendChild(row);
+    });
+    panel.appendChild(head);
+    panel.appendChild(body);
+    document.body.appendChild(panel);
+    // The transcript is the last section of the file: scroll to it.
+    body.scrollTop = body.scrollHeight;
   };
 
   // ---------------------------------------------------------------------

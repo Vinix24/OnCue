@@ -139,7 +139,7 @@
   // Detection cards — categories from the real English config files.
   // ------------------------------------------------------------------
 
-  // Pain point 1: manual_work (config/pain_points_en.yaml) — no case matched.
+  // Pain point 1: manual_work (config/pain_points_en.yaml).
   at(9400, () =>
     emit("pain-points", {
       type: "pain_point",
@@ -155,7 +155,7 @@
     }),
   );
 
-  // Pain point 2: reporting (config/pain_points_en.yaml) — case matched.
+  // Pain point 2: reporting (config/pain_points_en.yaml) with a response suggestion.
   at(18000, () =>
     emit("pain-points", {
       type: "pain_point",
@@ -166,15 +166,13 @@
       timestamp_ms: 18000,
       live: true,
       provisional: false,
-      case_matched: true,
-      case_id: "case-024",
-      case_title: "Vantage Logistics — same-day reporting instead of two days",
+      case_matched: false,
       response_suggestion:
         "Vantage Logistics cut their reporting cycle from two days to same-day — same three data sources, zero added headcount.",
     }),
   );
 
-  // Coaching suggestion — next-best-question, right after the case-matched pain point lands.
+  // Coaching suggestion — next-best-question, right after the reporting pain point lands.
   at(18600, () =>
     emit("suggestions", {
       type: "suggestion",
@@ -187,7 +185,7 @@
     }),
   );
 
-  // Coaching alert — monologue warning, during the rep's longer case-story line.
+  // Coaching alert — monologue warning, during the rep's longer story line.
   at(23200, () =>
     emit("coaching", {
       type: "coaching_alert",
@@ -198,7 +196,7 @@
     }),
   );
 
-  // Pain point 3: capacity (config/pain_points_en.yaml) — no case matched.
+  // Pain point 3: capacity (config/pain_points_en.yaml).
   at(30600, () =>
     emit("pain-points", {
       type: "pain_point",
@@ -250,7 +248,7 @@
         "Prospect is bogged down by manual reporting and tight capacity, pushed back once on price, but responded well to the time-reframe and is ready for a pilot.",
       key_moments: [
         { timestamp_ms: 9400, description: "Manual work pain point detected" },
-        { timestamp_ms: 18000, description: "Reporting pain point — case matched (Vantage Logistics)" },
+        { timestamp_ms: 18000, description: "Reporting pain point detected" },
         { timestamp_ms: 39800, description: "Price objection raised" },
         { timestamp_ms: 51000, description: "Buying signal — ready to move forward" },
       ],
