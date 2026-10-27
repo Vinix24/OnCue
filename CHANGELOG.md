@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.0.0-rc.5] — 2026-10-27
+
+Fifth pre-release. Dependency security updates, a privacy fix for the
+presentation (no more third-party requests for scripts and fonts) and two
+documentation corrections.
+
+### Security
+
+- The presentation no longer loads Reveal.js from jsDelivr or the Inter font
+  from Google Fonts. Both ship locally, and the Content Security Policy allows
+  only `'self'` for scripts, styles and fonts (#307).
+- filelock 3.29.3 to 4.2.4 (CVE-2026-112940, CVE-2026-112913, CVE-2026-112907)
+  and setuptools 81 to 84.2.1 (GHSA-xmj3-9gf7-h52w). torch moves from 2.12.0 to
+  2.14.1 because torch 2.12 capped setuptools below 82. The CI venv floor is
+  now `setuptools>=84.1.0` (#305).
+
+### Changed
+
+- The README demo description no longer mentions case slides.
+
+### Fixed
+
+- Docs corrected: an unset `LLM_PROVIDER` defaults to `none` in the code, not
+  `openrouter` (`docs/PRIVACY.md`, `docs/INTEGRATIONS.md`, `docs/MODULE3.md`)
+  (#306).
+
 ## [1.0.0-rc.4] — 2026-10-23
 
 Fourth pre-release. OnCue now has a second entry route: a local notetaker that

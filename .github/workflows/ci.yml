@@ -18,11 +18,65 @@ jobs:
         if: vars.CI_RUNNER != 'self-hosted'
         with:
           python-version: '3.11'
+      # Self-hosted: de venv leeft buiten de werkmap en is gekeyd op de inhoud, zodat
+      # actions/checkout (clean: true) hem niet bij elke run wegvaagt en opnieuw bouwt.
+      # .venv in de werkmap is een symlink; git clean volgt geen symlinks naar mappen.
+      - name: Prepare cached venv (self-hosted)
+        if: vars.CI_RUNNER == 'self-hosted'
+        env:
+          BASE_TOOLS: 'pip>=26.2 setuptools>=84.1.0'
+          EXTRAS: 'full,dev'
+        run: |
+          set -euo pipefail
+          ROOT="$HOME/actions-runner/_venvs"
+          mkdir -p "$ROOT"
+          KEY=$( { cat pyproject.toml constraints.txt; python3 --version; printf '%s\n%s\n' "$BASE_TOOLS" "$EXTRAS"; } | shasum -a 256 | cut -c1-16 )
+          VENV="$ROOT/sales-copilot-$KEY"
+          BUILDING="$ROOT/.building-sales-copilot-$KEY"
+          if [ -d "$VENV" ]; then
+            echo "venv cache hit: $VENV (geen pip install van de afhankelijkheden)"
+          else
+            echo "venv cache miss: $VENV wordt gebouwd"
+            # Een afgebroken bouw van een eerdere run laat alleen een .building-map achter.
+            for stale in "$ROOT"/.building-sales-copilot-*; do
+              if [ -d "$stale" ]; then
+                echo "ruim achtergebleven bouwmap op: $stale"
+                rm -rf "$stale"
+              fi
+            done
+            python3 -m venv "$BUILDING"
+            read -r -a UPGRADE_SPECS <<< "$BASE_TOOLS"
+            "$BUILDING/bin/python" -m pip install --upgrade "${UPGRADE_SPECS[@]}"
+            "$BUILDING/bin/python" -m pip install -e ".[$EXTRAS]" -c constraints.txt
+            # Een venv is niet verplaatsbaar: herschrijf het bouwpad in bin/ (shebangs, activate).
+            grep -rlIF "$BUILDING" "$BUILDING/bin" | while IFS= read -r f; do
+              sed -i '' "s|$BUILDING|$VENV|g" "$f"
+            done
+            mv "$BUILDING" "$VENV"
+          fi
+          # Gebruik telt als mtime, ook van deze run.
+          touch "$VENV"
+          if [ -e .venv ] && [ ! -L .venv ]; then
+            echo ".venv is geen symlink" >&2
+            exit 1
+          fi
+          ln -sfn "$VENV" .venv
+          source .venv/bin/activate
+          python -m pip install -e . --no-deps
+          # Bewaar de twee nieuwste (deze run is de nieuwste), verwijder de rest.
+          ls -1dt "$ROOT"/sales-copilot-* | tail -n +3 | while IFS= read -r old; do
+            if [ "$old" != "$VENV" ] && [ -d "$old" ]; then
+              echo "ruim oude venv op: $old"
+              rm -rf "$old"
+            fi
+          done
+          du -sh "$ROOT"
       - name: Install dependencies
+        if: vars.CI_RUNNER != 'self-hosted'
         run: |
           python3 -m venv .venv
           source .venv/bin/activate
-          python -m pip install --upgrade "pip>=26.2" "setuptools>=78.1.1"
+          python -m pip install --upgrade "pip>=26.2" "setuptools>=84.1.0"
           python -m pip install -e ".[full,dev]" -c constraints.txt
       - name: Constraints match uv.lock
         run: |
@@ -35,7 +89,7 @@ jobs:
       - name: Dependency audit
         run: |
           source .venv/bin/activate
-          # PYSEC-2026-3447 (setuptools 81): zelfde bewuste acceptatie als scripts/ci.sh gate 4, reden staat daar.
+          # Ignore-lijst identiek aan scripts/ci.sh gate 4 en scripts/export_public.sh; reden staat in ci.sh.
           pip-audit --skip-editable --ignore-vuln CVE-2025-3000 --ignore-vuln PYSEC-2026-3447
       - name: Tests (pytest)
         run: |
@@ -63,7 +117,7 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies (windows + dev extras only — no mlx-whisper/whisper.cpp)
         run: |
-          python -m pip install --upgrade "pip>=26.2" "setuptools>=78.1.1"
+          python -m pip install --upgrade "pip>=26.2" "setuptools>=84.1.0"
           python -m pip install -e ".[windows,dev]" -c constraints.txt
       - name: Import smoke
         run: python -c "import sales_copilot.audio.wasapi; import sales_copilot.audio.capture"

@@ -73,10 +73,10 @@ fi
 
 # Gate 4: Dependency vulnerability audit
 echo "--- [5/6] Dependency audit ---"
-# PYSEC-2026-3447 (setuptools 81.0.0): macOS-sdist MANIFEST.in Unicode-normalisatie
-# packaging-bug, fixed in setuptools>=83.0.0. Geen runtime- of Windows-install-risico.
-# Upgrade geblokkeerd door de torch<82-pin uit de diarization-extra. Precedent:
-# CVE-2025-3000 hieronder. Accept + monitor (zie claudedocs/2026-06-12-dependency-audit.md).
+# PYSEC-2026-3447 (setuptools): macOS-sdist MANIFEST.in Unicode-normalisatie
+# packaging-bug, fixed in setuptools>=83.0.0. De lock staat sinds torch 2.14 op setuptools>=84.1.0;
+# de ignore blijft staan zodat de lijst identiek is aan ci.yml en export_public.sh.
+# CVE-2025-3000: accept + monitor (zie claudedocs/2026-06-12-dependency-audit.md).
 "$PYTHON_BIN" -m pip_audit --skip-editable --ignore-vuln CVE-2025-3000 --ignore-vuln PYSEC-2026-3447
 
 # Gate 5: SBOM generation

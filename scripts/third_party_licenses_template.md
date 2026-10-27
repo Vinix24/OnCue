@@ -122,3 +122,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+
+### Reveal.js 5.0.4 (served locally)
+- **Location:** `presentation/vendor/reveal.js/` (files from the npm package `reveal.js@5.0.4`, unmodified; license text in `presentation/vendor/reveal.js/LICENSE`)
+- **License:** MIT
+
+### Source Sans Pro (bundled with the Reveal.js `black` theme)
+- **Location:** `presentation/vendor/reveal.js/dist/theme/fonts/source-sans-pro/` (license text in the `LICENSE` file in that directory)
+- **License:** SIL Open Font License 1.1
+
+### Inter (latin subset, weights 400/600/700/900)
+- **Upstream:** https://github.com/rsms/inter, taken from the npm package `@fontsource/inter@5.3.0`
+- **Location:** `presentation/vendor/inter/` (license text in `OFL.txt`)
+- **License:** SIL Open Font License 1.1
+- **Copyright:** 2016 The Inter Project Authors

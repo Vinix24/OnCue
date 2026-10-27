@@ -1,6 +1,6 @@
 [project]
 name = "live-sales-copilot"
-version = "1.0.0rc4"
+version = "1.0.0rc5"
 description = "OnCue — open source real-time sales copilot: talk-time tracker, live transcriber, pain point detector, presentation automation"
 readme = "README.md"
 license = { text = "AGPL-3.0-only" }

@@ -107,7 +107,7 @@ With an LLM provider set, OnCue also uses it for window classification, a rollin
 
 ![OnCue live demo](docs/assets/demo/demo.gif)
 
-A scripted discovery call playing through the coaching dashboard: live transcript, pain points firing with a matched case slide, a monologue coaching alert with the talk-time split, a price objection with its counter-response suggestion, and a buying signal.
+A scripted discovery call playing through the coaching dashboard: live transcript, pain points firing, a monologue coaching alert with the talk-time split, a price objection with its counter-response suggestion, and a buying signal.
 
 | Talk-time coaching | Objection detected |
 |---|---|

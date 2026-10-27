@@ -29,8 +29,8 @@ WindowClassifier.classify() — single multi-task LLM call over the window's joi
 ```
 
 `WindowClassifier.classify()` is not gated on `llm_provider`: it only no-ops when
-`provider` is `"none"` or empty. `DetectorConfig.llm_provider` defaults to `openrouter`
-(`.env.example` ships `LLM_PROVIDER=none`), so on a default install the LLM-free
+`provider` is `"none"` or empty. `DetectorConfig.llm_provider` defaults to `none`
+(`config.py`, and `.env.example` ships `LLM_PROVIDER=none` too), so on a default install the LLM-free
 fallback below runs; this sliding-window path runs once a provider is configured. Detections below `CONFIDENCE_THRESHOLD_LOW` are dropped in
 `_consume_transcripts` before dispatch; `CONFIDENCE_THRESHOLD_HIGH` plays no role in this
 path (it is only used by the fallback router below).
@@ -198,7 +198,7 @@ matches a detected pain point.
 
 Window classifier (primary path):
 - `LLM_PROVIDER` — `.env.example` ships `none`; `DetectorConfig` falls back to
-  `openrouter` if unset. Any non-empty value other than `none`/`""` activates the
+  `none` if unset. Any non-empty value other than `none`/`""` activates the
   sliding-window path.
 - `LLM_MODEL`, `LLM_TEMPERATURE` (default 0.1), `LLM_TIMEOUT_MS` (default 7000; a 90s
   floor is enforced for `ollama`)

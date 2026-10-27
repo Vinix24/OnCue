@@ -98,3 +98,6 @@ scripts/_analyse_time_investment.py
 .claude/skills/fabric-reference/
 .claude/skills/featureplan-kickoff/
 .claude/skills/pm/
+
+# Vendored presentation assets: the global dist/ rule must not swallow Reveal.js's dist/
+!presentation/vendor/reveal.js/dist/

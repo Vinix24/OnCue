@@ -929,3 +929,13 @@ def test_report_endpoint_never_follows_a_symlink(
     monkeypatch.setattr(generator, "REPORTS_DIR", reports)
 
     assert authed_client.get(f"/api/reports/{_REPORT_SESSION}").status_code == 404
+
+
+def test_csp_has_no_cdn_origin() -> None:
+    client = TestClient(hub.app)
+
+    csp = client.get("/dashboard/").headers["content-security-policy"]
+
+    assert "jsdelivr" not in csp
+    assert "script-src 'self' 'unsafe-inline';" in csp
+    assert "style-src 'self' 'unsafe-inline';" in csp

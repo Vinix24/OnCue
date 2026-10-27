@@ -135,10 +135,10 @@ async def security_headers(request: Request, call_next) -> Response:
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
         "connect-src 'self' http://localhost:8760 http://127.0.0.1:8760 ws://localhost:8760 ws://127.0.0.1:8760; "
-        "img-src 'self' data: https:; font-src 'self' data: https:; "
+        "img-src 'self' data: https:; font-src 'self' data:; "
         "object-src 'none'; base-uri 'none'; frame-ancestors 'self'"
     )
     response.headers["Referrer-Policy"] = "no-referrer"

@@ -235,9 +235,9 @@ an LLM provider is configured and not switched off with
 `REPORT_LLM_PROVIDER=none` (enrichment) or `REPORT_TERMS_LLM_PROVIDER=none`
 (term corrections). Those two tasks send what the table above lists for them,
 through the same PII seam. Without a provider, the notetaker keeps everything on
-the machine. If `LLM_PROVIDER` is not set at all, the code falls back to
-`openrouter` (`core/config.py`), which needs an API key; the shipped
-`.env.example` sets it to `none`.
+the machine. If `LLM_PROVIDER` is not set at all, the code default is
+`none` (`core/config.py`), so no LLM is configured and no transcript text leaves
+the machine. The shipped `.env.example` sets it to `none` as well.
 
 **Zero outbound audio:** keep `WHISPER_BACKEND=whisper.cpp` or `mlx-whisper`, and
 leave `WHISPER_CPP_SERVER_HOST` at `127.0.0.1`.
