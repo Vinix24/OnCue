@@ -86,11 +86,6 @@ jobs:
         run: |
           source .venv/bin/activate
           ruff check src/ tests/ scripts/
-      - name: Dependency audit
-        run: |
-          source .venv/bin/activate
-          # Ignore-lijst identiek aan scripts/ci.sh gate 4 en scripts/export_public.sh; reden staat in ci.sh.
-          pip-audit --skip-editable --ignore-vuln CVE-2025-3000 --ignore-vuln PYSEC-2026-3447
       - name: Tests (pytest)
         run: |
           source .venv/bin/activate

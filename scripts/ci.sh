@@ -75,7 +75,7 @@ fi
 echo "--- [5/6] Dependency audit ---"
 # PYSEC-2026-3447 (setuptools): macOS-sdist MANIFEST.in Unicode-normalisatie
 # packaging-bug, fixed in setuptools>=83.0.0. De lock staat sinds torch 2.14 op setuptools>=84.1.0;
-# de ignore blijft staan zodat de lijst identiek is aan ci.yml en export_public.sh.
+# de ignore blijft staan zodat de lijst identiek is aan security-audit.yml en export_public.sh.
 # CVE-2025-3000: accept + monitor (zie claudedocs/2026-06-12-dependency-audit.md).
 "$PYTHON_BIN" -m pip_audit --skip-editable --ignore-vuln CVE-2025-3000 --ignore-vuln PYSEC-2026-3447
 
