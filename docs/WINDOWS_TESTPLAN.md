@@ -1,8 +1,8 @@
 # Windows test plan: the one-command installer
 
-This is the protocol for the first run of `scripts/install.ps1` on a real Windows machine. It covers the preflight, a notetaker install, starting OnCue, a two-minute test conversation, the transcript check, stopping, and `-Uninstall`.
+This is the protocol for running `scripts/install.ps1` on a real Windows machine. It covers the preflight, a notetaker install, starting OnCue, a two-minute test conversation, the transcript check, stopping, and `-Uninstall`.
 
-Windows stays labelled experimental in [INSTALL.md](../INSTALL.md#windows) until this run passes. The pass criteria are at the end.
+Windows is supported in [INSTALL.md](../INSTALL.md#windows). Use this protocol to verify the installer on a new machine. The pass criteria are at the end.
 
 **What you need**
 

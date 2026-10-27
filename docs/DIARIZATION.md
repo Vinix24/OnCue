@@ -1,11 +1,26 @@
 # Multi-Speaker Diarization
 
 Speaker diarization identifies who is speaking and when. The sales copilot uses
-pyannote.audio 3.1/4.x to tag each audio segment with a speaker ID
-(`SPEAKER_00`, `SPEAKER_01`, etc.).
+pyannote.audio 3.1/4.x to tag audio with a speaker ID (`SPEAKER_00`,
+`SPEAKER_01`, etc.). It runs in two places:
 
-This is an **opt-in feature** — the default pipeline is unchanged when
+| Route | Entry point | What you get |
+|---|---|---|
+| Live | `DIARIZATION_ENABLED=1` (`modules/diarizer/factory.py`, called from `modules/transcriber/whisper_direct.py`) | A `speaker_segments` WebSocket event per transcribed chunk. The transcript itself is unchanged. |
+| Offline, after the call | `scripts/post_process_call.py` with `modules/reports/diarize_merge.py` | A text file with one `SPEAKER_XX:` line per speaker turn |
+
+**What the report files contain.** Neither route changes `full_transcript` in
+`*_report.json` or the `*_transcript.md`. Those two keep the channel names
+(`self` and `prospect`, or the preset's own names). A transcript with one label
+per person exists only as the `-labeled.txt` file from the offline route. No
+code consumes the live `speaker_segments` event: the dashboard, the report
+builder and the detector ignore it.
+
+This is an **opt-in feature**. The default pipeline is unchanged when
 `DIARIZATION_ENABLED=0`.
+
+**Local.** Audio and speaker data stay on your machine. The only network traffic
+is the one-time model download from Hugging Face, which needs your token.
 
 ---
 
@@ -52,6 +67,15 @@ DIARIZATION_MIN_SPEAKERS=1   # lower bound for clustering
 DIARIZATION_MAX_SPEAKERS=10  # upper bound; set to expected speaker count for best accuracy
 ```
 
+With `DIARIZATION_ENABLED=1` and no token (or a `hf_PLACEHOLDER` token), the live
+diarizer logs a warning and stays off (`modules/diarizer/factory.py:23-27`).
+
+`DIARIZATION_BACKEND` (default `sortformer`, `core/config.py:172`) and
+`MIN_SPEAKERS` / `MAX_SPEAKERS` are a different setting. The transcriber only
+logs the backend name at startup (`modules/transcriber/__main__.py`). The live
+diarizer is always `PyannoteV3Diarizer`, and it reads only the
+`DIARIZATION_*` variables above.
+
 ### 3. Dependencies
 
 All diarization dependencies (`pyannote.audio`, `torch`, `torchaudio`) ship with the
@@ -63,6 +87,31 @@ pip install "live-sales-copilot[diarization]"
 
 On an existing install, pyannote.audio 4.0.4 is already present if you ran
 `pip install -e ".[full]"`.
+
+---
+
+## Offline route: speaker-labeled transcript
+
+Record the call with `RECORD_AUDIO=true`. The recorder writes one WAV per stream
+under `data/sessions/<session>/`. Run the script on the stream that carries
+several voices:
+
+```bash
+python scripts/post_process_call.py data/sessions/<session>/<stream>.wav --num-speakers 4
+```
+
+The script transcribes the WAV with the local Whisper backend (or takes
+`--transcript-json`), diarizes the whole file with pyannote
+(`pyannote/speaker-diarization-3.1` by default, `--model` overrides), assigns each
+segment to the speaker with the greatest overlap and merges consecutive segments
+of one speaker. The result is `<wav name>-labeled.txt` (`--output` overrides):
+
+```
+SPEAKER_00: Goedemorgen allemaal.
+SPEAKER_01: Goedemorgen.
+```
+
+The labels are anonymous. Mapping them to names is not part of this script.
 
 ---
 
@@ -95,8 +144,12 @@ No WS events, no overhead, no model download.
 ```
 
 The pain point **detector continues to receive the unchanged `transcript` event**.
-Speaker data is available to the dashboard and audit ledger for future use, but
-does not influence detection logic in this release.
+The event is published to the WebSocket hub only. Nothing in this repository
+stores it or shows it, and it does not influence detection logic in this release.
+
+Each chunk is diarized on its own, so `SPEAKER_00` in one event is not guaranteed
+to be the same person as `SPEAKER_00` in the next. Use the offline route when you
+need labels that stay consistent over a whole call.
 
 ---
 

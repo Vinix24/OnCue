@@ -71,7 +71,7 @@ The transcript is then on disk, in your OnCue folder:
 data/reports/<date>T<time>_<session-id>_report.json
 ```
 
-A packaged app or a `pipx` install writes it under `~/Library/Application Support/SalesCopilot/data/reports/` instead. The `full_transcript` field lists every segment with `speaker`, `text`, `start_ms` and `end_ms`. Speakers are split by audio channel, not by person: `self` is your microphone, `prospect` is everything you hear through the computer. The audio itself is not stored unless you set `RECORD_AUDIO=true`.
+A packaged app or a `pipx` install writes it under `~/Library/Application Support/SalesCopilot/data/reports/` instead. The `full_transcript` field lists every segment with `speaker`, `text`, `start_ms` and `end_ms`. Speakers are split by audio channel, not by person: `self` is your microphone, `prospect` is everything you hear through the computer. Per-person speaker labels are optional and local: with `DIARIZATION_ENABLED=1` the live transcriber runs pyannote and emits a separate `speaker_segments` event, but `full_transcript` and the `_transcript.md` keep the two channel names. To get a transcript with one label per person (`SPEAKER_00`, `SPEAKER_01`, ...), record the call with `RECORD_AUDIO=true` and run `scripts/post_process_call.py` on the WAV of the stream with several voices (`data/sessions/<session>/<stream>.wav`) afterwards. It writes a `<wav name>-labeled.txt` next to the WAV and does not change the report files. Setup, limits and the Hugging Face token are in [docs/DIARIZATION.md](docs/DIARIZATION.md). The audio itself is not stored unless you set `RECORD_AUDIO=true`.
 
 Next to it sits the same transcript as a text you can read and share, with the same prefix:
 

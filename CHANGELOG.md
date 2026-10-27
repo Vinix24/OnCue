@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Docs: Windows is now described as supported instead of experimental
+  (`INSTALL.md`, `docs/FAQ.md`, `docs/WINDOWS_TESTPLAN.md`, `KNOWN_ISSUES.md`).
+  The README and `docs/DIARIZATION.md` now say what speaker diarization does:
+  the live route emits a `speaker_segments` event only, and per-person labels
+  in a transcript come from `scripts/post_process_call.py`.
+
 ### Security
 
 - msgpack 1.2.1 to 1.2.4 (CVE-2026-114613). msgpack is a transitive

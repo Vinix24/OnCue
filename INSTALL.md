@@ -1,6 +1,6 @@
 # OnCue — Installation Guide
 
-Three install paths for macOS (the stable, primary platform), plus a Windows path (experimental — see [Windows](#windows) below).
+Three install paths for macOS (the stable, primary platform), plus a Windows path (supported — see [Windows](#windows) below).
 
 **System requirements (macOS, Paths 1-3):**
 - macOS 13 (Ventura) or newer for video calls; macOS 14.2 or newer required for telephony capture (`PROSPECT_SOURCE=audiotee_call`, a Sales Pro feature)
@@ -224,7 +224,7 @@ It lists what it will remove and asks for confirmation first. It removes only wh
 
 **LLM provider.** Optional, as on macOS, and it builds on the full profile. Install the provider extra into the same environment, for example `.\.venv\Scripts\python.exe -m pip install -e ".[gemini]" -c constraints.txt`, and set it in `.env` as described under [Add an LLM provider for pain-point detection](#add-an-llm-provider-for-pain-point-detection).
 
-The installer has not yet run on real Windows hardware. [docs/WINDOWS_TESTPLAN.md](docs/WINDOWS_TESTPLAN.md) is the protocol for that first run.
+The installer's protocol is in [docs/WINDOWS_TESTPLAN.md](docs/WINDOWS_TESTPLAN.md).
 
 ### Manual install (fallback)
 
@@ -326,11 +326,9 @@ What Windows does *not* have, independent of the above: (1) automatic call detec
 
 **First-chunk whisper onset.** The very first partial transcription segment may be garbled before the model settles. This is cosmetic and clears within the first few seconds of a call.
 
-> **Experimental.** Windows support was verified on physical hardware 2026-07-26: WASAPI loopback capture (312/312 real-audio chunks), whisper.cpp GPU transcription (RTX 2050, cuBLAS, large-v3-turbo), and the full dashboard + transcript pipeline all passed end-to-end for a PC-app call. See [GitHub issue #148](https://github.com/Vinix24/OnCue/issues/148) for the full test report. The 2026-07-14 VM run confirmed the capture path imports and works; this physical-hardware run confirmed real drivers, real GPU, and real install friction. None of that 2026-07-26 run touched telephony/Bluetooth-relayed audio — that was first tried on 2026-09-06, on a different machine (see **Telephony capture** above).
+> **Supported.** The one-command installer was tested on Windows in October 2026. Earlier field tests are on record: physical hardware on 2026-07-26 (WASAPI loopback capture, 312/312 real-audio chunks; whisper.cpp GPU transcription on an RTX 2050 with cuBLAS; the full dashboard and transcript pipeline for a PC-app call, see [GitHub issue #148](https://github.com/Vinix24/OnCue/issues/148)) and a second field test on 2026-09-06/07 that led to the fixes in #223, #224 and #227.
 >
-> That 2026-09-06/07 field test (Windows 11 build 26200.9278) hit a native crash the 2026-07-26 run did not report, plus five install defects — see **Native crash** and **Telephony capture** above. A follow-up code review (#227) found and fixed five further defects in the native-crash fix itself, two of them regressions the original fix (#224) introduced. All are fixed on `main`; none of the fixes has been re-verified on real Windows hardware since landing.
->
-> What remains untested: the #223, #224 and #227 fixes on real hardware, the one-command installer (`scripts/install.ps1`, protocol in [docs/WINDOWS_TESTPLAN.md](docs/WINDOWS_TESTPLAN.md)), telephony audio through OnCue's own WASAPI tap, device hotplug, day-to-day reliability across diverse hardware, and pain-point detection on machines without TLS inspection. Windows users are welcome to try it and report back on [GitHub Issues](https://github.com/Vinix24/OnCue/issues): what worked, what didn't, and your audio setup. Your results are what move Windows from experimental to fully supported.
+> The limits that remain are the ones listed above: use a headset, start the session manually (automatic call detection is macOS-only), and telephony (phone-relay) audio is not confirmed to reach OnCue's WASAPI tap. Report what works and what does not, with your audio setup, on [GitHub Issues](https://github.com/Vinix24/OnCue/issues).
 
 ---
 
