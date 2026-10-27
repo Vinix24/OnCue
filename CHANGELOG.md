@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- msgpack 1.2.1 to 1.2.4 (CVE-2026-114613). msgpack is a transitive
+  dependency of cachecontrol (pip-audit) and librosa (parakeet extra).
+
 ## [1.0.0-rc.5] — 2026-10-27
 
 Fifth pre-release. Dependency security updates, a privacy fix for the
