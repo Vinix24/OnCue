@@ -16,6 +16,8 @@ audioop-lts==0.2.2 ; python_full_version >= '3.13'
 audioread==3.1.0
 aurelio-sdk==0.0.19
 boolean-py==5.0
+boto3==1.43.119
+botocore==1.43.119
 build==1.6.0
 cachecontrol==0.14.4
 certifi==2026.10.19
@@ -68,6 +70,7 @@ iniconfig==2.3.0
 instructor==1.15.1
 jinja2==3.1.6
 jiter==0.13.0
+jmespath==1.1.0
 joblib==1.5.3
 jsonref==1.1.0
 jsonschema==4.26.0
@@ -79,7 +82,7 @@ librosa==0.11.0
 license-expression==30.4.4
 lightning==2.6.6
 lightning-utilities==0.15.3
-litellm==1.88.6
+litellm==1.103.9
 llvmlite==0.47.0
 mako==1.3.12
 markdown-it-py==4.2.0
@@ -155,6 +158,7 @@ pyasn1-modules==0.4.2
 pycparser==3.0 ; implementation_name != 'PyPy'
 pydantic==2.13.4
 pydantic-core==2.46.4
+pydantic-settings==2.16.1
 pygments==2.20.0
 pyjwt==2.15.1
 pyparsing==3.3.2
@@ -176,6 +180,7 @@ requests-toolbelt==1.0.0
 rich==14.3.4
 rpds-py==2026.5.1
 ruff==0.15.17
+s3transfer==0.19.3
 safetensors==0.8.0
 scikit-learn==1.9.0
 scipy==1.17.1

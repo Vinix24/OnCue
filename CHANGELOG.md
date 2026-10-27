@@ -6,6 +6,12 @@
 
 - msgpack 1.2.1 to 1.2.4 (CVE-2026-114613). msgpack is a transitive
   dependency of cachecontrol (pip-audit) and librosa (parakeet extra).
+- litellm 1.88.6 to 1.103.9 (GHSA-g5ff-637f-6q2m, fixed in 1.95.0). The `llm`
+  extra now requires `litellm>=1.95.0`. litellm 1.104 and later cap filelock
+  below 4.0, which would reopen CVE-2026-112940, CVE-2026-112913 and
+  CVE-2026-112907, so `[tool.uv]` carries a `filelock>=4.2.1` floor and the lock
+  stays on 1.103.9. The new litellm pulls in boto3, botocore, jmespath,
+  s3transfer and pydantic-settings.
 
 ## [1.0.0-rc.5] — 2026-10-27
 

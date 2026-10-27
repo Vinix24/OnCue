@@ -147,8 +147,9 @@ slides-supabase = [
 # by any module in this codebase today, so it is opt-in via this extra; the
 # macOS/Linux install bundles below (`smart`, `full`) pull it back in.
 llm = [
-    # 1.88.1 carries CVE-2026-84377, fixed in 1.88.6.
-    "litellm>=1.88.6",
+    # 1.88.1 carries CVE-2026-84377 (fixed in 1.88.6) and 1.88.6 carries
+    # GHSA-g5ff-637f-6q2m (fixed in 1.95.0).
+    "litellm>=1.95.0",
 ]
 gemini = [
     "google-genai>=1.0,<2.0",
@@ -283,3 +284,10 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.uv]
+# litellm 1.104+ caps filelock below 4.0, which would pull the lock back to
+# filelock 3.x (CVE-2026-112940, CVE-2026-112913, CVE-2026-112907, fixed in
+# 4.2.1). The floor makes the resolver stay on the newest litellm that allows
+# filelock 4. Revisit once litellm lifts its cap.
+constraint-dependencies = ["filelock>=4.2.1"]
