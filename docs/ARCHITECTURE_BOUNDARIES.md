@@ -106,6 +106,11 @@ decision for this data, not two independently-configured ones that could disagre
 config-driven, timeout-bounded outbound POSTs. It is listed in
 `_NETWORK_ALLOWLIST` in `scripts/check_architecture_boundaries.py`.
 
+`src/sales_copilot/modules/reports/diarize_sherpa.py` uses `urllib.request` for one
+purpose: the first-use download of the sherpa-onnx model files from fixed https URLs
+(GitHub releases). It is a GET of public model files; no recording, transcript or
+speaker data is sent. It is on the same allow-list.
+
 ## How the check works
 
 `scripts/check_architecture_boundaries.py` is a deterministic, grep/AST-based gate with no external dependencies. It scans the following paths relative to the repo root:

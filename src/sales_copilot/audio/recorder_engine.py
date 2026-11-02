@@ -249,6 +249,7 @@ class RecorderEngine:
             if not self._recording:
                 return None
             self._stop_event.set()
+            elapsed_s = time.monotonic() - self._start_monotonic if self._start_monotonic is not None else 0.0
             thread = self._thread
             self._thread = None
             self._recording = False
@@ -259,4 +260,22 @@ class RecorderEngine:
                 stream.stop()
             except Exception:  # noqa: BLE001
                 pass
-        return self._recorder.finalize() if self._recorder is not None else None
+        recorder = self._recorder
+        if recorder is None:
+            return None
+        self.pump(time.monotonic())
+        self._pad_tracks_to(recorder, elapsed_s)
+        return recorder.finalize()
+
+    def _pad_tracks_to(self, recorder: AudioRecorder, elapsed_s: float) -> None:
+        """End-of-call safety net: bring every started track up to the call length.
+
+        Mid-call gaps are the streams' job; this only covers what is still
+        missing after the final drain. The streams' own counters are untouched.
+        """
+        for label, _stream in self._streams:
+            if label not in self._started_labels:
+                continue
+            padded_ms = recorder.pad_track_to(label, elapsed_s * 1000.0)
+            if padded_ms > 0:
+                logger.info("Padded track '%s' with %.2f s of silence at end of call", label, padded_ms / 1000.0)

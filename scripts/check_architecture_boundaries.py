@@ -129,6 +129,8 @@ _NETWORK_ALLOWLIST: dict[str, set[str]] = {
     "src/sales_copilot/core/compliance_audit.py": {"urllib.request"},
     "src/sales_copilot/auth/revocation_cache.py": {"urllib.request"},
     "src/sales_copilot/modules/reports/delivery.py": {"urllib.request"},
+    # fixed https URLs for the sherpa-onnx model files; no recording or transcript data is sent
+    "src/sales_copilot/modules/reports/diarize_sherpa.py": {"urllib.request"},
     # websockets: local hub only
     "src/sales_copilot/__main__.py": {"websockets"},
     "src/sales_copilot/modules/reports/__main__.py": {"websockets"},

@@ -7,6 +7,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -632,16 +633,92 @@ def check_device_health(device_name: str) -> tuple[bool, float]:
     return level > 0.0005, level
 
 
+# The microphone track must follow the wall clock for the whole call. A paused
+# device (Bluetooth profile switch) or a vanished one (headset off, USB pulled)
+# otherwise leaves a hole in the track and everything after it lands too early.
+MIC_CATCHUP_THRESHOLD_S = 1.0
+MIC_STALL_THRESHOLD_S = 2.0
+MIC_REOPEN_INTERVAL_S = 1.0
+MIC_SWITCHBACK_INTERVAL_S = 2.0
+MIC_WATCHDOG_POLL_S = 0.25
+# PortAudio's MME host API truncates device names to this many characters.
+_MME_NAME_LIMIT = 31
+
+
+def _same_device_name(a: str, b: str) -> bool:
+    return a[:_MME_NAME_LIMIT] == b[:_MME_NAME_LIMIT]
+
+
+def _live_input_names() -> list[str] | None:
+    """Names of the input endpoints present right now, or None when unknowable.
+
+    PortAudio's own list only refreshes while no PortAudio stream is open, so it
+    cannot see a device return while a fallback microphone is running.
+    ``soundcard`` asks the OS directly. Runs on the watchdog thread, so on
+    Windows that thread joins the COM apartment for the call.
+    """
+    from sales_copilot.audio import wasapi
+
+    joined = wasapi._com_initialize_mta()
+    try:
+        sc = wasapi._import_soundcard()
+        return [str(getattr(m, "name", "") or "") for m in sc.all_microphones()]
+    except Exception:
+        return None
+    finally:
+        if joined:
+            wasapi._com_uninitialize()
+
+
 class MicStream:
-    def __init__(self, config: AudioConfig, *, queue_maxsize: int = 100, device: int | str | None = None) -> None:
+    def __init__(
+        self,
+        config: AudioConfig,
+        *,
+        queue_maxsize: int = 100,
+        device: int | str | None = None,
+        catchup_threshold_s: float = MIC_CATCHUP_THRESHOLD_S,
+        stall_threshold_s: float = MIC_STALL_THRESHOLD_S,
+        reopen_interval_s: float = MIC_REOPEN_INTERVAL_S,
+        switchback_interval_s: float = MIC_SWITCHBACK_INTERVAL_S,
+        watchdog_poll_s: float = MIC_WATCHDOG_POLL_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._config = config
         self._device = device
         self._resolved_device: int | str | None = None
         self._queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=queue_maxsize)
         self._stream = None
+        # Guards start/stop and every stream swap. The watchdog takes it; stop()
+        # joins the watchdog *before* taking it.
         self._lock = threading.Lock()
+        # Guards the delivered-chunk arithmetic shared by callback and watchdog.
+        self._fill_lock = threading.Lock()
         self._chunks_received = 0
         self._health = TapHealthTracker(is_microphone=True)
+        self._catchup_threshold_s = catchup_threshold_s
+        self._stall_threshold_s = stall_threshold_s
+        self._reopen_interval_s = reopen_interval_s
+        self._switchback_interval_s = switchback_interval_s
+        self._watchdog_poll_s = watchdog_poll_s
+        self._clock = clock
+        self._chunk_s = config.chunk_size / config.sample_rate
+        self._started = False
+        self._stop_event = threading.Event()
+        self._watchdog: threading.Thread | None = None
+        # Clock origin of the track. Set by the first block of a start(), never earlier:
+        # device-open latency must not become padding.
+        self._t0: float | None = None
+        self._delivered = 0
+        self._last_block_at: float | None = None
+        self._block_template: tuple[tuple[int, ...], Any] | None = None
+        self._orig_name: str | None = None
+        self._orig_hostapi: int | None = None
+        self._label: str | None = None
+        self._on_fallback = False
+        self._outage_since: float | None = None
+        self._next_reopen_at = 0.0
+        self._next_switchback_at = 0.0
 
     @property
     def chunks_received(self) -> int:
@@ -649,6 +726,8 @@ class MicStream:
 
     @property
     def device_label(self) -> str:
+        if self._label is not None:
+            return self._label
         value = self._resolved_device if self._resolved_device is not None else self._device
         if value is None or (isinstance(value, str) and not value.strip()):
             return "default"
@@ -657,34 +736,75 @@ class MicStream:
     def tap_health(self) -> TapHealth:
         return self._health.snapshot()
 
+    # -- real-time callback ------------------------------------------------
+
+    def _expected_chunks(self, now: float) -> int:
+        if self._t0 is None:
+            return 0
+        return int((now - self._t0) / self._chunk_s + 1e-9)
+
+    def _queue_silence(self, count: int) -> None:
+        shape, dtype = self._block_template or (
+            (self._config.chunk_size, self._config.channels),
+            self._config.dtype,
+        )
+        for _ in range(count):
+            _drop_oldest_and_put(self._queue, np.zeros(shape, dtype=dtype))
+        self._delivered += count
+
+    def _callback(self, indata: np.ndarray, frames: int, time_info: object, status: object) -> None:
+        now = self._clock()
+        padded = 0
+        with self._fill_lock:
+            self._last_block_at = now
+            if self._t0 is None:
+                # This block is the first chunk of the track.
+                self._t0 = now - self._chunk_s
+            if self._block_template is None:
+                self._block_template = (indata.shape, indata.dtype)
+            # The incoming block is the one expected at `now`, so it is not missing.
+            missing = self._expected_chunks(now) - self._delivered - 1
+            if missing > 0 and missing * self._chunk_s > self._catchup_threshold_s:
+                self._queue_silence(missing)
+                padded = missing
+            self._chunks_received += 1
+            _drop_oldest_and_put(self._queue, indata.copy())
+            self._delivered += 1
+        if padded:
+            logger.info(
+                "Mic track caught up after a gap: device=%s filled %.1fs with silence.",
+                self.device_label,
+                padded * self._chunk_s,
+            )
+        if self._health.observe(indata):
+            logger.info(
+                "Mic stream carrying signal: device=%s first audible frame after %s chunks.",
+                self.device_label,
+                self._chunks_received,
+            )
+
+    # -- lifecycle ---------------------------------------------------------
+
     def start(self) -> None:
         with self._lock:
-            if self._stream is not None:
+            if self._started:
                 return
 
             sd = _import_sounddevice()
-
-            def callback(indata: np.ndarray, frames: int, time_info: object, status: object) -> None:
-                self._chunks_received += 1
-                if self._health.observe(indata):
-                    logger.info(
-                        "Mic stream carrying signal: device=%s first audible frame after %s chunks.",
-                        self.device_label,
-                        self._chunks_received,
-                    )
-                _drop_oldest_and_put(self._queue, indata.copy())
 
             _reinit_portaudio_and_register(sd)
             try:
                 # Resolve blank/ambiguous MIC_INPUT_DEVICE before it reaches
                 # PortAudio -- see resolve_mic_device()'s docstring.
                 self._resolved_device = resolve_mic_device(self._device)
+                with self._fill_lock:
+                    self._reset_run_state()
                 self._stream = sd.InputStream(
                     samplerate=self._config.sample_rate,
                     channels=self._config.channels,
                     dtype=self._config.dtype,
                     blocksize=self._config.chunk_size,
-                    callback=callback,
+                    callback=self._callback,
                     device=self._resolved_device,
                 )
                 self._stream.start()
@@ -700,29 +820,357 @@ class MicStream:
                     ) from exc
                 raise
             self._health.mark_attached(f"mic:{self.device_label}")
+            self._started = True
+            self._remember_original(sd)
+            self._stop_event = threading.Event()
+            self._watchdog = threading.Thread(target=self._watchdog_loop, name="mic-watchdog", daemon=True)
+            self._watchdog.start()
+
+    def _reset_run_state(self) -> None:
+        """Clear clock and watchdog state; runs before the stream can deliver a block."""
+        self._t0 = None
+        self._delivered = 0
+        self._last_block_at = None
+        self._block_template = None
+        self._label = None
+        self._on_fallback = False
+        self._outage_since = None
 
     def stop(self) -> None:
+        self._stop_event.set()
+        watchdog = self._watchdog
+        if watchdog is not None and watchdog is not threading.current_thread():
+            watchdog.join(timeout=5.0)
         with self._lock:
-            if self._stream is None:
+            self._watchdog = None
+            if not self._started:
                 return
+            self._started = False
             stream = self._stream
             self._stream = None
-            try:
-                stream.stop()
-            except Exception:
-                logger.warning("MicStream stop() raised on device=%s", self.device_label, exc_info=True)
-            try:
-                stream.close()
-            except Exception:
-                logger.warning("MicStream close() raised on device=%s", self.device_label, exc_info=True)
-            finally:
-                _unregister_stream()
+            if stream is not None:
+                self._close_stream(stream)
+
+    def _close_stream(self, stream: Any) -> None:
+        """Stop and close ``stream`` without raising; keeps the register count balanced."""
+        try:
+            stream.stop()
+        except Exception:
+            logger.warning("MicStream stop() raised on device=%s", self.device_label, exc_info=True)
+        try:
+            stream.close()
+        except Exception:
+            logger.warning("MicStream close() raised on device=%s", self.device_label, exc_info=True)
+        finally:
+            _unregister_stream()
 
     def read(self) -> np.ndarray | None:
         try:
             return self._queue.get_nowait()
         except queue.Empty:
             return None
+
+    # -- device identity ---------------------------------------------------
+
+    def _remember_original(self, sd: Any) -> None:
+        """Remember the configured device by name and host API.
+
+        PortAudio renumbers its devices on every re-enumeration, so an index is
+        worthless after a headset came or went. None means "follow the default".
+        """
+        self._orig_name = None
+        self._orig_hostapi = None
+        device = self._resolved_device
+        if device is None:
+            return
+        try:
+            info = sd.query_devices(device)
+            self._orig_name = str(info["name"])
+            hostapi = info.get("hostapi") if hasattr(info, "get") else None
+            self._orig_hostapi = None if hostapi is None else int(hostapi)
+        except Exception:
+            self._orig_name = device if isinstance(device, str) else None
+
+    def _find_original_index(self) -> int | None:
+        if self._orig_name is None:
+            return None
+        for dev in list_audio_devices():
+            if int(dev.get("max_input_channels", 0) or 0) <= 0:
+                continue
+            if self._orig_hostapi is not None and dev.get("hostapi") != self._orig_hostapi:
+                continue
+            if _same_device_name(str(dev.get("name", "")), self._orig_name):
+                return int(dev["index"])
+        return None
+
+    def _open_input(self, *, original_only: bool = False, skip_original: bool = False) -> tuple[Any, str, bool] | None:
+        """Open an input stream on the best available device.
+
+        Order: the configured device (by name), then the current default input.
+        With nothing configured the default *is* the original. ``skip_original``
+        goes straight to the default input (a switch-back that just failed must
+        not retry the same device). Returns
+        ``(stream, label, is_original)`` or None, leaving the register count
+        exactly as it was on failure. Caller holds ``self._lock``.
+        """
+        sd = _import_sounddevice()
+        _reinit_portaudio_and_register(sd)
+        stream = None
+        try:
+            target: tuple[int | None, str, bool] | None = None
+            index = None if skip_original else self._find_original_index()
+            if index is not None:
+                target = (index, self._orig_name or "default", True)
+            elif self._orig_name is None and not skip_original:
+                default = get_default_input_device()
+                target = (
+                    None if default is None else int(default["index"]),
+                    "default" if default is None else str(default["name"]),
+                    True,
+                )
+            elif not original_only:
+                default = get_default_input_device()
+                target = (
+                    None if default is None else int(default["index"]),
+                    "default" if default is None else str(default["name"]),
+                    False,
+                )
+            if target is None:
+                _unregister_stream()
+                return None
+            device, label, is_original = target
+            stream = sd.InputStream(
+                samplerate=self._config.sample_rate,
+                channels=self._config.channels,
+                dtype=self._config.dtype,
+                blocksize=self._config.chunk_size,
+                callback=self._callback,
+                device=device,
+            )
+            stream.start()
+        except Exception:
+            logger.warning("MicStream could not open an input device.", exc_info=True)
+            if stream is not None:
+                self._close_stream(stream)
+            else:
+                _unregister_stream()
+            return None
+        return stream, label, is_original
+
+    # -- watchdog ----------------------------------------------------------
+
+    def _watchdog_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                self._watchdog_step()
+            except Exception:
+                logger.warning("Mic watchdog step failed; will retry.", exc_info=True)
+            self._stop_event.wait(self._watchdog_poll_s)
+
+    def _fill_to_clock(self, now: float) -> None:
+        with self._fill_lock:
+            missing = self._expected_chunks(now) - self._delivered
+            if missing > 0:
+                self._queue_silence(missing)
+
+    def _watchdog_step(self) -> None:
+        """One watchdog pass. Never raises; runs only on the watchdog thread."""
+        with self._lock:
+            if not self._started or self._stop_event.is_set() or self._last_block_at is None:
+                return
+            now = self._clock()
+            if self._outage_since is not None:
+                self._fill_to_clock(now)
+                if now >= self._next_reopen_at:
+                    self._try_reopen(now)
+                return
+            if now - self._last_block_at > self._stall_threshold_s:
+                self._handle_loss(now)
+            elif self._on_fallback and now >= self._next_switchback_at:
+                self._try_switch_back(now)
+
+    def _handle_loss(self, now: float) -> None:
+        lost_label = self.device_label
+        logger.warning(
+            "Mic device lost: device=%s no audio for %.1fs. Reopening.",
+            lost_label,
+            now - (self._last_block_at or now),
+        )
+        self._outage_since = self._last_block_at
+        stream = self._stream
+        self._stream = None
+        if stream is not None:
+            self._close_stream(stream)
+        self._health.mark_detached(f"mic:{lost_label} lost")
+        self._fill_to_clock(now)
+        self._try_reopen(now)
+
+    def _install(self, stream: Any, label: str, is_original: bool, now: float) -> None:
+        if self._stop_event.is_set():
+            self._close_stream(stream)
+            return
+        self._stream = stream
+        self._label = label
+        self._on_fallback = not is_original
+        self._last_block_at = now
+        self._next_switchback_at = now + self._switchback_interval_s
+        self._health.mark_attached(f"mic:{label}")
+
+    def _try_reopen(self, now: float) -> None:
+        self._next_reopen_at = now + self._reopen_interval_s
+        opened = self._open_input(original_only=False)
+        if opened is None:
+            return
+        old_label = self.device_label
+        stream, label, is_original = opened
+        outage_s = now - (self._outage_since or now)
+        self._outage_since = None
+        self._install(stream, label, is_original, now)
+        logger.info(
+            "Mic device reopened: %s -> %s after %.1fs outage%s.",
+            old_label,
+            label,
+            outage_s,
+            "" if is_original else " (fallback)",
+        )
+
+    def _try_switch_back(self, now: float) -> None:
+        self._next_switchback_at = now + self._switchback_interval_s
+        live = _live_input_names()
+        if live is None or self._orig_name is None:
+            return
+        if not any(_same_device_name(name, self._orig_name) for name in live):
+            return
+        fallback_label = self.device_label
+        old = self._stream
+        self._stream = None
+        if old is not None:
+            self._close_stream(old)
+        opened = self._open_input(original_only=True)
+        if opened is None:
+            # Never lose the current microphone: put a fallback back.
+            opened = self._open_input(skip_original=True)
+            if opened is None:
+                self._outage_since = now
+                self._health.mark_detached(f"mic:{fallback_label} lost")
+                self._next_reopen_at = now + self._reopen_interval_s
+                return
+            self._install(*opened, now)
+            return
+        self._install(*opened, now)
+        logger.info("Mic switched back to original device: %s -> %s.", fallback_label, opened[1])
+
+
+SYSTEM_CATCHUP_THRESHOLD_S = 1.0
+SYSTEM_STALL_THRESHOLD_S = 2.0
+SYSTEM_WATCHDOG_POLL_S = 0.25
+SYSTEM_RESTART_BACKOFF_S = 1.0
+SYSTEM_RESTART_BACKOFF_MAX_S = 30.0
+
+
+class _TrackClock:
+    """Keeps a macOS system-audio track on the wall clock while its tap is detached.
+
+    AudioTee and BlackHole push chunks into a queue only while they deliver. A
+    gap leaves the recorded system track shorter than the microphone track and
+    shifts every later word. This counts delivered chunks (real and silence)
+    against the time since the first real chunk, so a watchdog can top the
+    queue up at real-time pace during an outage and the first real chunk after
+    it can close what is left. Silence is only ever produced after a real chunk
+    has arrived: a tap that never delivered keeps reporting its setup failure.
+    """
+
+    def __init__(self, config: AudioConfig, out_queue: queue.Queue[np.ndarray], clock: Callable[[], float]) -> None:
+        self._config = config
+        self._queue = out_queue
+        self._clock = clock
+        self.chunk_s = config.chunk_size / config.sample_rate
+        self.lock = threading.Lock()
+        self._t0: float | None = None
+        self._delivered = 0
+        self._last_chunk_at: float | None = None
+        self._outage_since: float | None = None
+        self._template: tuple[tuple[int, ...], Any] | None = None
+
+    def reset(self) -> None:
+        with self.lock:
+            self._t0 = None
+            self._delivered = 0
+            self._last_chunk_at = None
+            self._outage_since = None
+            self._template = None
+
+    @property
+    def delivering(self) -> bool:
+        """True once a real chunk has arrived; nothing is filled before that."""
+        return self._t0 is not None
+
+    @property
+    def in_outage(self) -> bool:
+        return self._outage_since is not None
+
+    def silent_for(self, now: float) -> float:
+        last = self._last_chunk_at
+        return 0.0 if last is None else now - last
+
+    def _expected(self, now: float) -> int:
+        if self._t0 is None:
+            return 0
+        return int((now - self._t0) / self.chunk_s + 1e-9)
+
+    def _put_silence(self, count: int) -> None:
+        shape, dtype = self._template or (
+            (self._config.chunk_size, self._config.channels),
+            self._config.dtype,
+        )
+        for _ in range(count):
+            _drop_oldest_and_put(self._queue, np.zeros(shape, dtype=dtype))
+        self._delivered += count
+
+    def push(self, frame: np.ndarray, catchup_threshold_s: float) -> tuple[int, float | None]:
+        """Queue one real chunk. Returns ``(chunks padded before it, outage length)``.
+
+        The outage length is not None only for the chunk that ends an outage.
+        """
+        now = self._clock()
+        with self.lock:
+            self._last_chunk_at = now
+            if self._t0 is None:
+                # This chunk is the first one of the track.
+                self._t0 = now - self.chunk_s
+            self._template = (frame.shape, frame.dtype)
+            missing = self._expected(now) - self._delivered - 1
+            outage_s: float | None = None
+            if self._outage_since is not None:
+                outage_s = now - self._outage_since
+                self._outage_since = None
+                pad = missing if missing > 0 else 0
+            else:
+                pad = missing if missing * self.chunk_s > catchup_threshold_s else 0
+            if pad:
+                self._put_silence(pad)
+            _drop_oldest_and_put(self._queue, frame)
+            self._delivered += 1
+        return pad, outage_s
+
+    def begin_outage(self) -> bool:
+        """Mark the tap as detached since its last real chunk. False when not applicable."""
+        with self.lock:
+            if self._t0 is None or self._outage_since is not None:
+                return False
+            self._outage_since = self._last_chunk_at
+            return True
+
+    def fill(self, now: float) -> int:
+        """During an outage, bring the delivered count up to the clock."""
+        with self.lock:
+            if self._outage_since is None:
+                return 0
+            missing = self._expected(now) - self._delivered
+            if missing > 0:
+                self._put_silence(missing)
+                return missing
+            return 0
 
 
 class AudioTeeStream:
@@ -734,6 +1182,12 @@ class AudioTeeStream:
         tap_all: bool = False,
         exclude_processes: tuple[str, ...] | None = None,
         on_warning: Callable[[dict[str, Any]], None] | None = None,
+        catchup_threshold_s: float = SYSTEM_CATCHUP_THRESHOLD_S,
+        stall_threshold_s: float = SYSTEM_STALL_THRESHOLD_S,
+        watchdog_poll_s: float = SYSTEM_WATCHDOG_POLL_S,
+        restart_backoff_s: float = SYSTEM_RESTART_BACKOFF_S,
+        restart_backoff_max_s: float = SYSTEM_RESTART_BACKOFF_MAX_S,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._config = config
         # tap_all taps every process' system output instead of a single target
@@ -760,6 +1214,23 @@ class AudioTeeStream:
         self._stderr_lines: list[str] = []
         self._stderr_lock = threading.Lock()
         self._health = TapHealthTracker()
+        self._clock = clock
+        self._track = _TrackClock(config, self._queue, clock)
+        self._catchup_threshold_s = catchup_threshold_s
+        self._stall_threshold_s = stall_threshold_s
+        self._watchdog_poll_s = watchdog_poll_s
+        self._restart_backoff_s = restart_backoff_s
+        self._restart_backoff_max_s = restart_backoff_max_s
+        self._backoff_s = restart_backoff_s
+        self._next_restart_at = 0.0
+        # Set by the stdout reader when the subprocess exited after delivering
+        # audio; consumed by the watchdog, which restarts it.
+        self._needs_restart = False
+        self._restarting = False
+        # Separate from _stop_event: that one ends a single subprocess run and is
+        # also set by reattach(); this one ends the watchdog for good.
+        self._watchdog_stop = threading.Event()
+        self._watchdog: threading.Thread | None = None
 
     @property
     def chunks_received(self) -> int:
@@ -803,91 +1274,100 @@ class AudioTeeStream:
         with self._lock:
             if self._proc is not None:
                 return
+            self._track.reset()
+            self._needs_restart = False
+            self._backoff_s = self._restart_backoff_s
+            self._next_restart_at = 0.0
+            self._launch()
 
-            if not os.path.exists(self._config.audiotee_path):
+    def _launch(self) -> None:
+        """Spawn the AudioTee subprocess and its reader threads. Caller holds ``_lock``."""
+
+        if not os.path.exists(self._config.audiotee_path):
+            self._fail_start(
+                f"AudioTee-binary niet gevonden ({self._config.audiotee_path}); prospect-tap kan niet starten.",
+                "binary ontbreekt",
+            )
+            return
+
+        chunk_duration_s = self._config.chunk_size / float(self._config.sample_rate)
+        args = [
+            self._config.audiotee_path,
+            "--sample-rate",
+            str(self._config.sample_rate),
+            "--chunk-duration",
+            str(chunk_duration_s),
+        ]
+
+        if not self._tap_all:
+            if not self._config.target_process:
                 self._fail_start(
-                    f"AudioTee-binary niet gevonden ({self._config.audiotee_path}); prospect-tap kan niet starten.",
-                    "binary ontbreekt",
+                    "Geen doelproces ingesteld voor de AudioTee-prospect-tap en geen "
+                    "meeting-app automatisch gedetecteerd.",
+                    "geen doelproces",
                 )
                 return
 
-            chunk_duration_s = self._config.chunk_size / float(self._config.sample_rate)
-            args = [
-                self._config.audiotee_path,
-                "--sample-rate",
-                str(self._config.sample_rate),
-                "--chunk-duration",
-                str(chunk_duration_s),
-            ]
-
-            if not self._tap_all:
-                if not self._config.target_process:
-                    self._fail_start(
-                        "Geen doelproces ingesteld voor de AudioTee-prospect-tap en geen "
-                        "meeting-app automatisch gedetecteerd.",
-                        "geen doelproces",
-                    )
-                    return
-
-                pid = _find_pid(self._config.target_process)
-                if pid is None:
-                    self._fail_start(
-                        f"Meeting-app '{self._config.target_process}' niet (meer) gevonden. "
-                        "Open de app en start het gesprek opnieuw.",
-                        f"doelproces '{self._config.target_process}' niet gevonden",
-                    )
-                    return
-
-                args += ["--include-processes", str(pid)]
-
-            excluded_pids = self._resolve_excluded_pids()
-            if excluded_pids:
-                # AudioTee expects space-separated PIDs as distinct argv tokens
-                # (`--exclude-processes 1234 5678`); a comma-joined single value
-                # ("1234,5678") is rejected with "Invalid value" and aborts the
-                # whole tap. Spread each PID as its own argument.
-                args += ["--exclude-processes", *(str(pid) for pid in sorted(excluded_pids))]
-
-            self._stop_event.clear()
-            try:
-                proc = subprocess.Popen(
-                    args,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    bufsize=0,
-                )
-            except OSError:
+            pid = _find_pid(self._config.target_process)
+            if pid is None:
                 self._fail_start(
-                    f"Kon AudioTee niet starten ({self._config.audiotee_path}).",
-                    "subprocess kon niet starten",
+                    f"Meeting-app '{self._config.target_process}' niet (meer) gevonden. "
+                    "Open de app en start het gesprek opnieuw.",
+                    f"doelproces '{self._config.target_process}' niet gevonden",
                 )
                 return
 
-            if proc.stdout is None or proc.stderr is None:
-                self._fail_start(
-                    "AudioTee-subprocess heeft geen stdout/stderr pipes.",
-                    "geen stdout/stderr pipes",
-                )
-                return
+            args += ["--include-processes", str(pid)]
 
-            self._proc = proc
-            # From here the tap is attached: the subprocess is running and its
-            # stdout is ours. Whether audio actually flows through it is a
-            # separate question, answered by tap_health() rather than by this
-            # branch -- that separation is the whole point.
-            self._health.mark_attached(self.device_label)
+        excluded_pids = self._resolve_excluded_pids()
+        if excluded_pids:
+            # AudioTee expects space-separated PIDs as distinct argv tokens
+            # (`--exclude-processes 1234 5678`); a comma-joined single value
+            # ("1234,5678") is rejected with "Invalid value" and aborts the
+            # whole tap. Spread each PID as its own argument.
+            args += ["--exclude-processes", *(str(pid) for pid in sorted(excluded_pids))]
 
-            # Start the stderr drainer before the stdout reader: an immediate
-            # setup failure makes stdout hit EOF right away, and
-            # _maybe_emit_setup_failure() (called from the stdout thread) joins
-            # this thread to pick up its diagnostic output. Starting it first
-            # guarantees self._stderr_thread is already set by then.
-            self._stderr_thread = threading.Thread(target=self._drain_stderr_loop, name="audiotee-stderr", daemon=True)
-            self._stderr_thread.start()
+        self._stop_event.clear()
+        try:
+            proc = subprocess.Popen(
+                args,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+            )
+        except OSError:
+            self._fail_start(
+                f"Kon AudioTee niet starten ({self._config.audiotee_path}).",
+                "subprocess kon niet starten",
+            )
+            return
 
-            self._reader_thread = threading.Thread(target=self._read_stdout_loop, name="audiotee-stdout", daemon=True)
-            self._reader_thread.start()
+        if proc.stdout is None or proc.stderr is None:
+            self._fail_start(
+                "AudioTee-subprocess heeft geen stdout/stderr pipes.",
+                "geen stdout/stderr pipes",
+            )
+            return
+
+        self._proc = proc
+        # From here the tap is attached: the subprocess is running and its
+        # stdout is ours. Whether audio actually flows through it is a
+        # separate question, answered by tap_health() rather than by this
+        # branch -- that separation is the whole point.
+        self._health.mark_attached(self.device_label)
+
+        # Start the stderr drainer before the stdout reader: an immediate
+        # setup failure makes stdout hit EOF right away, and
+        # _maybe_emit_setup_failure() (called from the stdout thread) joins
+        # this thread to pick up its diagnostic output. Starting it first
+        # guarantees self._stderr_thread is already set by then.
+        self._stderr_thread = threading.Thread(target=self._drain_stderr_loop, name="audiotee-stderr", daemon=True)
+        self._stderr_thread.start()
+
+        self._reader_thread = threading.Thread(target=self._read_stdout_loop, name="audiotee-stdout", daemon=True)
+        self._reader_thread.start()
+        self._ensure_watchdog()
 
     def _read_stdout_loop(self) -> None:
         assert self._proc is not None
@@ -931,7 +1411,27 @@ class AudioTeeStream:
                     self.device_label,
                     self._chunks_received,
                 )
-            _drop_oldest_and_put(self._queue, frame)
+            padded, outage_s = self._track.push(frame, self._catchup_threshold_s)
+            if outage_s is not None:
+                self._on_tap_recovered(outage_s)
+            elif padded:
+                logger.info(
+                    "AudioTee tap caught up after a gap: target=%s filled %.1fs with silence.",
+                    self.device_label,
+                    padded * self._track.chunk_s,
+                )
+
+    def _on_tap_recovered(self, outage_s: float) -> None:
+        logger.info(
+            "AudioTee tap re-attached: %s after %.1fs of silence filled.",
+            self.device_label,
+            outage_s,
+        )
+        self._backoff_s = self._restart_backoff_s
+        self._needs_restart = False
+        self._setup_failure_emitted = False
+        self._degraded = False
+        self._health.mark_attached(self.device_label)
 
     def _drain_stderr_loop(self) -> None:
         assert self._proc is not None
@@ -976,6 +1476,7 @@ class AudioTeeStream:
         if self._stop_event.is_set():
             return
         if self._chunks_received > 0:
+            self._needs_restart = True
             self._handle_unexpected_detach()
             return
         self._maybe_emit_setup_failure()
@@ -983,6 +1484,12 @@ class AudioTeeStream:
     def _handle_unexpected_detach(self) -> None:
         """Report a tap that delivered audio and then died on its own."""
 
+        if self._track.begin_outage():
+            logger.warning(
+                "AudioTee tap lost: target=%s subprocess exited after %s chunks; filling silence to the clock.",
+                self.device_label,
+                self._chunks_received,
+            )
         if self._setup_failure_emitted:
             return
         self._setup_failure_emitted = True
@@ -994,13 +1501,18 @@ class AudioTeeStream:
         self._emit_warning(
             f"De AudioTee-tap ({self.device_label}) is tijdens het gesprek gestopt na "
             f"{self._chunks_received} frames{detail}. Er komt geen prospect-audio meer binnen. "
-            "Stop het gesprek en start het opnieuw."
+            "De tap wordt automatisch opnieuw gestart; tot die tijd neemt het prospect-spoor stilte op."
         )
 
     def _fail_start(self, message: str, detail: str) -> None:
         """Record and report a tap that never attached."""
 
-        self._emit_warning(message)
+        if self._restarting:
+            # A retry of a tap that already worked: one warning went out when it
+            # was lost, so the backoff loop must not repeat it every attempt.
+            logger.warning("AudioTee restart failed: %s", message)
+        else:
+            self._emit_warning(message)
         self._degraded = True
         self._health.mark_attach_failed(detail)
 
@@ -1074,49 +1586,130 @@ class AudioTeeStream:
         """
 
         logger.info("Reattaching AudioTee tap (%s): stopping and restarting.", self.device_label)
-        self.stop()
-        self._setup_failure_emitted = False
-        self.start()
+        with self._lock:
+            if self._track.begin_outage():
+                logger.warning(
+                    "AudioTee tap lost: target=%s detached for reattach; filling silence to the clock.",
+                    self.device_label,
+                )
+            self._terminate_proc()
+            self._setup_failure_emitted = False
+            self._needs_restart = False
+            self._launch()
+            # A spawn that fails here is retried by the watchdog with backoff.
+            self._needs_restart = self._proc is None
 
     def stop(self) -> None:
+        self._watchdog_stop.set()
+        watchdog = self._watchdog
+        if watchdog is not None and watchdog is not threading.current_thread():
+            watchdog.join(timeout=5.0)
         with self._lock:
-            if self._proc is None:
-                return
+            self._watchdog = None
+            self._terminate_proc()
+            self._needs_restart = False
 
-            proc = self._proc
-            self._stop_event.set()
+    def _terminate_proc(self) -> None:
+        """Stop the subprocess and its reader threads. Caller holds ``_lock``."""
+
+        if self._proc is None:
+            return
+
+        proc = self._proc
+        self._stop_event.set()
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            pass
+
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
             try:
-                proc.terminate()
+                proc.kill()
             except ProcessLookupError:
                 pass
+            proc.wait(timeout=5)
+        finally:
+            self._proc = None
 
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=1)
+            self._reader_thread = None
+        if self._stderr_thread is not None:
+            self._stderr_thread.join(timeout=1)
+            self._stderr_thread = None
+
+        # Close the subprocess pipes after the reader threads have stopped
+        # so the stdout/stderr fds are released promptly instead of lingering
+        # until garbage collection.
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe is not None:
                 try:
-                    proc.kill()
-                except ProcessLookupError:
+                    pipe.close()
+                except OSError:
                     pass
-                proc.wait(timeout=5)
+
+    # -- watchdog ----------------------------------------------------------
+
+    def _ensure_watchdog(self) -> None:
+        """Start the clock watchdog once per run. Caller holds ``_lock``."""
+
+        if self._watchdog is not None and self._watchdog.is_alive():
+            return
+        self._watchdog_stop = threading.Event()
+        self._watchdog = threading.Thread(target=self._watchdog_loop, name="audiotee-watchdog", daemon=True)
+        self._watchdog.start()
+
+    def _watchdog_loop(self) -> None:
+        stop = self._watchdog_stop
+        while not stop.is_set():
+            try:
+                self._watchdog_step()
+            except Exception:
+                logger.warning("AudioTee watchdog step failed; will retry.", exc_info=True)
+            stop.wait(self._watchdog_poll_s)
+
+    def _watchdog_step(self) -> None:
+        """One watchdog pass: fill silence to the clock, restart a dead subprocess.
+
+        Filling never waits on ``_lock``, so a slow stop/start cannot stall the
+        silence. Only the restart needs the lock, and is skipped when it is busy.
+        """
+
+        if self._watchdog_stop.is_set() or not self._track.delivering:
+            return
+        now = self._clock()
+        if not self._track.in_outage and self._track.silent_for(now) > self._stall_threshold_s:
+            if self._track.begin_outage():
+                logger.warning(
+                    "AudioTee tap lost: target=%s no audio for %.1fs; filling silence to the clock.",
+                    self.device_label,
+                    self._track.silent_for(now),
+                )
+        self._track.fill(now)
+        if not self._needs_restart or now < self._next_restart_at:
+            return
+        if not self._lock.acquire(blocking=False):
+            return
+        try:
+            if self._watchdog_stop.is_set() or not self._needs_restart:
+                return
+            self._next_restart_at = now + self._backoff_s
+            self._backoff_s = min(self._backoff_s * 2, self._restart_backoff_max_s)
+            logger.info("Restarting AudioTee tap (%s).", self.device_label)
+            self._terminate_proc()
+            self._needs_restart = False
+            self._restarting = True
+            try:
+                self._launch()
             finally:
-                self._proc = None
-
-            if self._reader_thread is not None:
-                self._reader_thread.join(timeout=1)
-                self._reader_thread = None
-            if self._stderr_thread is not None:
-                self._stderr_thread.join(timeout=1)
-                self._stderr_thread = None
-
-            # Close the subprocess pipes after the reader threads have stopped
-            # so the stdout/stderr fds are released promptly instead of lingering
-            # until garbage collection.
-            for pipe in (proc.stdout, proc.stderr):
-                if pipe is not None:
-                    try:
-                        pipe.close()
-                    except OSError:
-                        pass
+                self._restarting = False
+            if self._proc is None:
+                # The subprocess could not even be spawned: try again after the backoff.
+                self._needs_restart = True
+        finally:
+            self._lock.release()
 
     def read(self) -> np.ndarray | None:
         try:

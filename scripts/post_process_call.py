@@ -2,15 +2,17 @@
 """Post-process a recorded call: diarize + merge + write speaker-labeled transcript.
 
 Chains three stages:
-  1. Transcription  — if no --transcript-json is given, run offline Whisper
-                      via the existing transcribe_file backend to produce
-                      {start, end, text} segments.
-  2. Diarization    — run pyannote on the WAV (whole file, offline) and
-                      extract (start, end, speaker) turns.
+  1. Transcription  — if no --transcript-json is given, run the configured
+                      backend's transcribe_file_segments (whisper.cpp by
+                      default) to produce {start, end, text} segments.
+  2. Diarization    — separate speakers on the WAV (whole file, offline) with
+                      sherpa-onnx (no token) or pyannote (Hugging Face token)
+                      and extract (start, end, speaker) turns.
   3. Merge          — assign each transcript segment to the speaker with the
                       greatest temporal overlap and collapse same-speaker runs.
 
-No GCP, no network beyond the HuggingFace model download on first use.
+No GCP, no network beyond the model download on first use (GitHub releases
+for sherpa-onnx, Hugging Face for pyannote).
 
 Usage:
   python scripts/post_process_call.py recording.wav
@@ -27,10 +29,18 @@ Arguments:
                           Expected shape: {"segments": [{start, end, text}, ...]}
   --output / -o           Output path for the labeled transcript (default:
                           <wav stem>-labeled.txt next to the WAV).
-  --model                 Pyannote model ID.
+  --backend               auto | sherpa | pyannote (default: auto).
+                          auto = sherpa when --num-speakers is 2 or less;
+                          otherwise (3 or more, or not given) pyannote when a
+                          Hugging Face token is available, else sherpa with a
+                          warning.
+  --cluster-threshold     Sherpa clustering threshold (default: 0.8). Sherpa
+                          ignores --num-speakers and clusters by this threshold.
+  --model                 Pyannote model ID (pyannote backend only).
                           Default: pyannote/speaker-diarization-3.1
                           Benchmark option: pyannote/speaker-diarization-community-1
-  --num-speakers          Fix the number of speakers (default: auto-detect).
+  --num-speakers          Fix the number of speakers (pyannote; default: auto-detect).
+                          With auto it also selects the backend.
   --device                Torch device: mps | cuda | cpu (default: auto).
   --hf-token              HuggingFace token. Falls back to HUGGINGFACE_TOKEN
                           env var or cached huggingface-cli login.
@@ -53,20 +63,19 @@ logger = logging.getLogger(__name__)
 
 
 def _transcribe_to_segments(wav_path: Path) -> list[dict]:
-    """Run offline Whisper via the repo's existing backend and return segments.
+    """Run offline transcription via the repo's backend and return segments.
 
-    Returns a list of {start, end, text} dicts with timestamps in seconds.
+    Returns a list of {start, end, text} dicts with timestamps in seconds, from
+    the backend's own ``transcribe_file_segments`` (the post-call path shared
+    with ``scripts/transcribe_postcall.py``). A backend that cannot give
+    timestamped segments raises ``RuntimeError``: a single segment for the whole
+    file would hand every word to one speaker and pass as a success.
     Heavy imports (mlx_whisper / whisper.cpp) are local to this function.
     """
     import asyncio
 
-    # Reuse the internal transcription helpers from transcribe_file.py.
-    # We import from that module rather than duplicating logic.
-    sys.path.insert(0, str(Path(__file__).parent))
-    from transcribe_file import _load_wav_as_float32  # noqa: PLC0415
-
-    from sales_copilot.core.config import TranscriberConfig, load_env  # noqa: PLC0415
-    from sales_copilot.modules.transcriber.backends import create_backend  # noqa: PLC0415
+    from sales_copilot.core.config import TranscriberConfig, load_env
+    from sales_copilot.modules.transcriber.backends import create_backend
 
     load_env()
     cfg = TranscriberConfig.from_env()
@@ -79,23 +88,22 @@ def _transcribe_to_segments(wav_path: Path) -> list[dict]:
         "whisper_cpp_threads": cfg.whisper_cpp_threads,
     })
 
-    audio, sample_rate = _load_wav_as_float32(wav_path)
+    transcribe = getattr(backend, "transcribe_file_segments", None)
+    if transcribe is None:
+        raise RuntimeError(
+            f"Transcription backend {type(backend).__name__} cannot produce "
+            "timestamped segments, so speakers cannot be assigned. Use the "
+            "whisper.cpp or parakeet backend, or pass --transcript-json."
+        )
 
     async def _run() -> list[dict]:
-        await backend.warmup()
         try:
-            # Request structured output including timestamps.  Not all backends
-            # surface per-segment timestamps; we fall back to a single-segment
-            # representation so the merge still works.
-            result = await backend.transcribe_with_segments(audio)
-            if result:
-                return result
-            # Fallback: treat the whole file as one segment.
-            text = await backend.transcribe(audio)
-            duration = len(audio) / float(sample_rate)
-            return [{"start": 0.0, "end": duration, "text": text.strip()}]
+            segments = await transcribe(wav_path)
         finally:
             await backend.stop()
+        if not segments:
+            raise RuntimeError(f"No transcript segments were produced for {wav_path}.")
+        return segments
 
     return asyncio.run(_run())
 
@@ -121,6 +129,14 @@ def _load_segments_from_json(json_path: Path) -> list[dict]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from sales_copilot.modules.reports.diarize_merge import (  # noqa: PLC0415
+        BACKEND_CHOICES,
+        diarize_audio,
+        merge_diarization,
+        render_labeled,
+    )
+    from sales_copilot.modules.reports.diarize_sherpa import DEFAULT_CLUSTER_THRESHOLD  # noqa: PLC0415
+
     parser = argparse.ArgumentParser(
         description="Post-process a recorded call: diarize + merge -> speaker-labeled transcript.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -142,11 +158,28 @@ def main(argv: list[str] | None = None) -> int:
         help="Output path (default: <wav stem>-labeled.txt).",
     )
     parser.add_argument(
+        "--backend",
+        choices=BACKEND_CHOICES,
+        default="auto",
+        help=(
+            "Speaker separation backend (default: auto). auto uses sherpa-onnx when --num-speakers "
+            "is 2 or less; otherwise (3 or more, or not given) pyannote when a Hugging Face token "
+            "is available, else sherpa-onnx with a warning."
+        ),
+    )
+    parser.add_argument(
+        "--cluster-threshold",
+        type=float,
+        default=DEFAULT_CLUSTER_THRESHOLD,
+        metavar="T",
+        help="Sherpa clustering threshold (default: 0.8; sherpa only).",
+    )
+    parser.add_argument(
         "--model",
         default="pyannote/speaker-diarization-3.1",
         metavar="MODEL_ID",
         help=(
-            "Pyannote model ID. "
+            "Pyannote model ID (pyannote backend only). "
             "Default: pyannote/speaker-diarization-3.1. "
             "Community benchmark: pyannote/speaker-diarization-community-1."
         ),
@@ -195,26 +228,26 @@ def main(argv: list[str] | None = None) -> int:
         segments = _load_segments_from_json(json_path)
     else:
         logger.info("Transcribing %s (this may take a while)...", wav_path.name)
-        segments = _transcribe_to_segments(wav_path)
+        try:
+            segments = _transcribe_to_segments(wav_path)
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
 
     logger.info("Transcript: %d segment(s)", len(segments))
 
     # --- Stage 2: Diarization ---
-    logger.info("Diarizing with model=%s (this may take a while)...", args.model)
-    from sales_copilot.modules.reports.diarize_merge import (  # noqa: PLC0415
-        diarize_wav,
-        merge_diarization,
-        render_labeled,
-    )
-
-    turns = diarize_wav(
+    logger.info("Diarizing (backend=%s, this may take a while)...", args.backend)
+    turns, backend_used = diarize_audio(
         wav_path,
+        backend=args.backend,
         hf_token=args.hf_token,
         model_id=args.model,
         num_speakers=args.num_speakers,
         device=args.device,
+        cluster_threshold=args.cluster_threshold,
     )
-    logger.info("Diarization: %d turn(s)", len(turns))
+    logger.info("Diarization (%s): %d turn(s)", backend_used, len(turns))
 
     # --- Stage 3: Merge ---
     turn_tuples = [(t.start, t.end, t.speaker) for t in turns]
@@ -227,7 +260,8 @@ def main(argv: list[str] | None = None) -> int:
 
     speakers = sorted({b.speaker for b in blocks})
     print(
-        f"[post-process] {len(turns)} diarization turns, "
+        f"[post-process] backend: {backend_used}, "
+        f"{len(turns)} diarization turns, "
         f"{len(segments)} transcript segments, "
         f"speakers: {', '.join(speakers)}",
         file=sys.stderr,

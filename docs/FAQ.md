@@ -136,16 +136,25 @@ python scripts/verify_audio.py
 <a id="faq-bluetooth-koptelefoon-werkt-eerst-wel-dan-niet-meer"></a>
 ### Q: Bluetooth headphones work at first, then stop working
 
-**What you see:** You are experiencing: **Bluetooth headphones work at first, then stop working**. This behavior blocks a normal call flow or makes the output unreliable.
-**Why this happens:** Audio routing on macOS is strict: input, output, and permissions all three have to be right.
+**What you see:** Mid-call your Bluetooth headset switches profile, is switched off or disconnects, and your microphone goes quiet.
+**Why this happens:** When a call app takes the headset microphone, Bluetooth earbuds switch from the music profile to the headset profile and the input device pauses or disappears for a few seconds. A headset that is switched off or a USB device that is pulled disappears completely. Without a fix, the recording would have a hole in it and everything after it would land too early.
+**What OnCue does about it:**
+1. The microphone track follows the clock. A pause of more than about 1 second is filled with silence.
+2. When the input device disappears, OnCue notices after about 2 seconds without audio, keeps filling silence in real time and reopens the microphone you configured (by name). If that device is not there, it opens the default input.
+3. On Windows, if the microphone ran on the fallback and the original device is present again, OnCue switches back to it. On macOS it stays on the fallback microphone for the rest of the recording.
+4. On Windows, if the output device vanishes, the system sound track keeps running with silence. OnCue retries every second on the current default output (or on the pinned endpoint once it is back) and warns once per outage.
+5. When you stop a recording, every track that received audio is padded with silence to the call length, so both WAV files end equally long. The padding is recorded per track as `end_padding_ms` in `metadata.json`.
+6. The log shows it: `Mic device lost`, `Mic device reopened` (with `(fallback)` when another microphone took over), `Mic switched back to original device`, and on Windows `WASAPI loopback re-attached`.
+
 **Fix it yourself:**
-1. AudioTee taps the entire system output mix by default (`tap_all`) — no meeting-app selection or audio routing needed; do set your input to your real microphone in macOS Sound. If you use the BlackHole route manually, set output to `OnCue Output`.
-2. Run a full audio check and fix the first FAIL you see first.
-3. Verify it works with:
+1. On macOS, set the input you want in System Settings, Sound, Input before the call. After an outage OnCue reopens the configured microphone or the default input, not a device you pick later.
+2. If the device never comes back, OnCue continues on the default device. Pick the device you want as the default and start a new recording.
+3. If the system sound does not return after a Windows outage, set the replacement output as the Windows default, or pin it with `AUDIO_WASAPI_ENDPOINT_NAME` (see [INSTALL.md](../INSTALL.md)).
+4. Verify the audio setup with:
 ```bash
 python scripts/verify_audio.py
 ```
-**When this does NOT work:** If routing keeps going wrong: follow the audio section in [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+**When this does NOT work:** If no input device exists at all, OnCue keeps retrying every second and the microphone track stays silent in the meantime. If routing keeps going wrong: follow the audio section in [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 <a id="faq-audio-crackles-slechte-kwaliteit-op-blackhole"></a>
 ### Q: Audio crackles / poor quality on BlackHole

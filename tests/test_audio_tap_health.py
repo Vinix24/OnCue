@@ -784,7 +784,7 @@ def test_audiotee_delivering_digital_silence_reports_attached_silent(monkeypatch
 
     pcm = np.zeros(400, dtype=np.int16).tobytes()
     config = _fake_audiotee(monkeypatch, tmp_path, pcm)
-    stream = AudioTeeStream(config, on_warning=lambda _payload: None)
+    stream = AudioTeeStream(config, on_warning=lambda _payload: None, clock=lambda: 0.0)
     stream.start()
     _drain(stream)
 
@@ -802,7 +802,7 @@ def test_audiotee_measures_signal_on_the_normalized_scale(monkeypatch, tmp_path)
 
     pcm = np.full(400, 6000, dtype=np.int16).tobytes()
     config = _fake_audiotee(monkeypatch, tmp_path, pcm)
-    stream = AudioTeeStream(config, on_warning=lambda _payload: None)
+    stream = AudioTeeStream(config, on_warning=lambda _payload: None, clock=lambda: 0.0)
     stream.start()
     _drain(stream)
 
@@ -819,7 +819,7 @@ def test_audiotee_dying_after_delivering_audio_now_warns(monkeypatch, tmp_path) 
     pcm = np.full(400, 6000, dtype=np.int16).tobytes()
     config = _fake_audiotee(monkeypatch, tmp_path, pcm)
     warnings: list[dict] = []
-    stream = AudioTeeStream(config, on_warning=warnings.append)
+    stream = AudioTeeStream(config, on_warning=warnings.append, clock=lambda: 0.0)
     stream.start()
     _drain(stream)
 

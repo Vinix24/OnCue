@@ -95,8 +95,9 @@ detector = [
     # tornado is transitive via semantic-router and aurelio-sdk. 6.5.7 carries
     # three CVEs (GHSA-wwv5-g3v4-889x, GHSA-8423-8fgw-73vq, CVE-2026-82397),
     # fixed in 6.5.8; 6.5.8 carries GHSA-chx6-46f5-w4vp, GHSA-c2m8-h5v5-343r and
-    # GHSA-3hv7-mjh2-fv65, fixed in 6.5.9. Explicit floor so pip-audit gate 5 stays green.
-    "tornado>=6.5.9",
+    # GHSA-3hv7-mjh2-fv65, fixed in 6.5.9; 6.5.10 carries CVE-2026-116577,
+    # CVE-2026-115927 and CVE-2026-116578, fixed in 6.6. Explicit floor so pip-audit gate 5 stays green.
+    "tornado>=6.6",
     # certifi is transitive via httpx and requests. 2026.5.20 carries
     # PYSEC-2026-4320, fixed in 2026.10.19. Explicit floor so pip-audit gate 5
     # stays green.
@@ -107,7 +108,10 @@ detector = [
 # Requires HuggingFace token + accepted model card for pyannote/speaker-diarization-3.1
 # pyannote.audio, torch, and torchaudio are pinned to >=3.1/2.1/2.1 respectively.
 # On Apple Silicon: MPS acceleration is used by default (see DIARIZATION.md).
+# sherpa-onnx is the token-free backend of scripts/post_process_call.py; it needs
+# neither torch nor pyannote at runtime.
 diarization = [
+    "sherpa-onnx>=1.12",
     "pyannote.audio>=3.1",
     "torch>=2.1",
     "torchaudio>=2.1",
@@ -125,6 +129,16 @@ diarization = [
     # is transitive via pyannote.audio directly. 2.6.5 carries PYSEC-2026-3624,
     # fixed in 2.6.6. Explicit floor so pip-audit gate 5 stays green.
     "lightning>=2.6.6",
+]
+
+# === Evaluation only: diarization backend comparison (scripts/eval_diarization.py) ===
+# sherpa-onnx runs the ONNX segmentation + speaker-embedding models; pyannote.metrics
+# scores the result. Never a base dependency; the pyannote backends need the
+# `diarization` extra as well (see docs/DIARIZATION.md).
+diar-eval = [
+    "sherpa-onnx>=1.12",
+    "pyannote.metrics>=3.2",
+    "psutil>=5.9",
 ]
 
 # === MODULE 4: Slide Injector (case database) ===
@@ -158,6 +172,10 @@ gemini = [
     # genai (gemini/vertex) LLM path raises ModuleNotFoundError at the first
     # structured-output call.
     "jsonref>=1.1",
+    # pyasn1 is transitive via google-auth and pyasn1-modules. 0.6.4 carries
+    # CVE-2026-119194, CVE-2026-119195, CVE-2026-119196 and CVE-2026-119197,
+    # fixed in 0.6.5. Explicit floor so pip-audit gate 5 stays green.
+    "pyasn1>=0.6.5",
 ]
 # httpx is also required directly by the WHISPER_BACKEND=groq audio-transcription
 # backend (modules/transcriber/backends/groq_backend.py), which calls the Groq

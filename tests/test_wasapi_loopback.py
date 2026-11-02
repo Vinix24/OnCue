@@ -367,7 +367,7 @@ def test_first_block_shape_mismatch_degrades_with_warning(monkeypatch) -> None:
     stream.stop()
 
 
-def test_device_removed_mid_stream_degrades_with_warning(monkeypatch) -> None:
+def test_device_removed_mid_stream_warns_once_and_keeps_the_clock(monkeypatch) -> None:
     good_block = np.full((4, 2), 0.1, dtype=np.float32)
     recorder_cm = _FakeRecorderCM([good_block], samplerate=16000, blocksize=8)
 
@@ -390,9 +390,14 @@ def test_device_removed_mid_stream_degrades_with_warning(monkeypatch) -> None:
     stream.start()
     assert _wait_until(lambda: len(warnings) > 0)
 
-    assert len(warnings) == 1
-    assert stream.chunks_received == 1  # the one good block delivered before the raise
     stream.stop()
+
+    # One warning for the outage; the good block arrived first, then silence (no endpoint
+    # ever came back here), and the stream is not degraded: it is only waiting.
+    assert len(warnings) == 1
+    assert stream.chunks_received >= 1
+    assert float(stream.read()[0, 0]) == np.float32(0.1)
+    assert stream._degraded is False  # noqa: SLF001
 
 
 # --- downmix + fixed-size chunking + RMS gating -------------------------------
@@ -1054,3 +1059,296 @@ def test_start_gives_up_when_the_open_never_signals_ready(monkeypatch) -> None:
     finally:
         gate.set()
         stream.stop()
+
+
+# --- outage recovery ----------------------------------------------------------
+
+_RECOVERY_CHUNK = 2000  # 0.125 s at 16 kHz: exactly representable, so the fake clock is exact
+_RECOVERY_RETRY = 1.0
+_SILENT_CHUNKS_PER_RETRY = 8
+
+
+class _FakeClock:
+    """A clock that only moves when the reader thread sleeps on it."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+        time.sleep(0.0002)  # yield so the test thread can observe progress
+
+
+class _ScriptedRecorderCM(_FakeRecorderCM):
+    """Replays ``script`` (blocks or exceptions), then ``repeat`` forever."""
+
+    def __init__(self, script, *, repeat: np.ndarray | None = None, on_raise=None) -> None:
+        super().__init__([], samplerate=16000, blocksize=2 * _RECOVERY_CHUNK)
+        self._script = list(script)
+        self._repeat = repeat
+        self._on_raise = on_raise
+        self.reads = 0
+
+    def record(self, numframes: int) -> np.ndarray:
+        self.reads += 1
+        if self._script:
+            item = self._script.pop(0)
+            if isinstance(item, Exception):
+                if self._on_raise is not None:
+                    self._on_raise()
+                raise item
+            return item
+        if self._repeat is not None:
+            time.sleep(0.001)
+            return self._repeat
+        return np.zeros((0, 2), dtype=np.float32)
+
+
+class _SequencedSoundcard(_FakeSoundcardModule):
+    """``get_microphone`` hands out ``mics`` in order; ``None`` (or running out) raises."""
+
+    def __init__(self, mics: list[_FakeMicrophone | None], **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._mics = list(mics)
+        self.opened_ids: list[str] = []
+
+    def get_microphone(self, id, include_loopback: bool = False) -> _FakeMicrophone:  # noqa: A002
+        self.opened_ids.append(id)
+        if not self._mics:
+            raise RuntimeError("endpoint gone")
+        mic = self._mics.pop(0)
+        if mic is None:
+            raise RuntimeError("endpoint gone")
+        return mic
+
+
+def _good(value: float, channels: int = 2) -> np.ndarray:
+    return np.full((_RECOVERY_CHUNK, channels), value, dtype=np.float32)
+
+
+def _mic(cm: _ScriptedRecorderCM) -> _FakeMicrophone:
+    return _FakeMicrophone(cm)
+
+
+def _recovery_stream(monkeypatch, fake_sc, *, warnings=None, **config_overrides):
+    _install_fake_soundcard(monkeypatch, fake_sc)
+    clock = _FakeClock()
+    stream = WasapiLoopbackStream(
+        _config(chunk_size=_RECOVERY_CHUNK, **config_overrides),
+        on_warning=warnings.append if warnings is not None else None,
+        silence_timeout_multiplier=1e9,
+        empty_pull_sleep_s=0.001,
+        recovery_retry_s=_RECOVERY_RETRY,
+        clock=clock.monotonic,
+        sleep=clock.sleep,
+    )
+    return stream, clock
+
+
+def _drain(stream: WasapiLoopbackStream) -> list[np.ndarray]:
+    chunks = []
+    while (chunk := stream.read()) is not None:
+        chunks.append(chunk)
+    return chunks
+
+
+def test_read_error_fills_silence_in_real_time_then_resumes(monkeypatch) -> None:
+    first = _ScriptedRecorderCM([_good(0.1), RuntimeError("endpoint gone")])
+    second = _ScriptedRecorderCM([], repeat=_good(0.2))
+    fake_sc = _SequencedSoundcard([_mic(first), None, None, _mic(second)])
+    stream, clock = _recovery_stream(monkeypatch, fake_sc)
+
+    stream.start()
+    assert _wait_until(lambda: second.reads >= 3, timeout=5.0)
+    stream.stop()
+
+    chunks = _drain(stream)
+    values = [float(c[0, 0]) for c in chunks]
+    # The queue holds 100 chunks, so look at the head only: one real chunk, then the
+    # silence for three retry intervals (attempts at 1s and 2s fail, 3s succeeds).
+    assert values[0] == np.float32(0.1)
+    assert values[1 : 1 + 3 * _SILENT_CHUNKS_PER_RETRY] == [0.0] * (3 * _SILENT_CHUNKS_PER_RETRY)
+    assert values[1 + 3 * _SILENT_CHUNKS_PER_RETRY] == np.float32(0.2)
+    assert all(c.shape == (_RECOVERY_CHUNK, 1) for c in chunks)
+    assert first.exited is True
+    assert stream.chunks_received > 1 + 3 * _SILENT_CHUNKS_PER_RETRY
+    assert stream._degraded is False  # noqa: SLF001
+    assert clock.now >= 3 * _RECOVERY_RETRY
+
+
+def test_one_warning_per_outage_and_a_second_for_a_new_outage(monkeypatch) -> None:
+    first = _ScriptedRecorderCM([_good(0.1), RuntimeError("gone")])
+    second = _ScriptedRecorderCM([_good(0.2), _good(0.2), RuntimeError("gone again")])
+    third = _ScriptedRecorderCM([], repeat=_good(0.3))
+    fake_sc = _SequencedSoundcard([_mic(first), None, None, _mic(second), None, _mic(third)])
+    warnings: list[dict] = []
+    stream, _ = _recovery_stream(monkeypatch, fake_sc, warnings=warnings)
+
+    stream.start()
+    assert _wait_until(lambda: third.reads >= 3, timeout=5.0)
+    stream.stop()
+
+    messages = [w["message"] for w in warnings]
+    assert len(messages) == 2
+    assert all(m.startswith("WASAPI-loopback-apparaat gaf een fout of verdween tijdens opname") for m in messages)
+    assert all("opnieuw verbinden" in m for m in messages)
+
+
+def test_reopen_that_fails_on_its_first_read_is_the_same_outage(monkeypatch) -> None:
+    first = _ScriptedRecorderCM([_good(0.1), RuntimeError("gone")])
+    flaky = _ScriptedRecorderCM([RuntimeError("still gone")])
+    third = _ScriptedRecorderCM([], repeat=_good(0.3))
+    fake_sc = _SequencedSoundcard([_mic(first), _mic(flaky), _mic(third)])
+    warnings: list[dict] = []
+    stream, _ = _recovery_stream(monkeypatch, fake_sc, warnings=warnings)
+
+    stream.start()
+    assert _wait_until(lambda: third.reads >= 3, timeout=5.0)
+    stream.stop()
+
+    assert len(warnings) == 1
+    assert flaky.exited is True
+
+
+def test_retries_are_silent_and_leave_tap_health_alone(monkeypatch) -> None:
+    first = _ScriptedRecorderCM([_good(0.1), RuntimeError("gone")])
+    second = _ScriptedRecorderCM([], repeat=_good(0.2))
+    fake_sc = _SequencedSoundcard([_mic(first), None, None, None, _mic(second)])
+    warnings: list[dict] = []
+    stream, _ = _recovery_stream(monkeypatch, fake_sc, warnings=warnings)
+
+    stream.start()
+    assert _wait_until(lambda: second.reads >= 3, timeout=5.0)
+    stream.stop()
+
+    assert len(warnings) == 1
+    assert len(fake_sc.opened_ids) == 5
+
+
+def test_pinned_endpoint_vanishing_falls_back_to_the_default(monkeypatch) -> None:
+    pinned = _FakeSpeaker("pinned-id", name="Headset Pinned")
+    default = _FakeSpeaker("default-id", name="Speakers Default")
+    all_speakers = [pinned]
+    first = _ScriptedRecorderCM(
+        [_good(0.1), RuntimeError("headset off")],
+        on_raise=lambda: all_speakers.clear(),
+    )
+    second = _ScriptedRecorderCM([], repeat=_good(0.2))
+    fake_sc = _SequencedSoundcard(
+        [_mic(first), _mic(second)],
+        default_speaker_holder=[default],
+        all_speakers_list=all_speakers,
+    )
+    stream, _ = _recovery_stream(monkeypatch, fake_sc, wasapi_endpoint_name="Pinned")
+
+    stream.start()
+    assert _wait_until(lambda: second.reads >= 3, timeout=5.0)
+    stream.stop()
+
+    assert fake_sc.opened_ids == ["pinned-id", "default-id"]
+    assert stream._speaker_label == "Speakers Default"  # noqa: SLF001
+    assert stream.tap_health().target == stream.device_label
+
+
+def test_pinned_endpoint_is_reused_when_it_comes_back(monkeypatch) -> None:
+    pinned = _FakeSpeaker("pinned-id", name="Headset Pinned")
+    default = _FakeSpeaker("default-id", name="Speakers Default")
+    first = _ScriptedRecorderCM([_good(0.1), RuntimeError("headset off")])
+    second = _ScriptedRecorderCM([], repeat=_good(0.2))
+    fake_sc = _SequencedSoundcard(
+        [_mic(first), _mic(second)],
+        default_speaker_holder=[default],
+        all_speakers_list=[pinned],
+    )
+    stream, _ = _recovery_stream(monkeypatch, fake_sc, wasapi_endpoint_name="Pinned")
+
+    stream.start()
+    assert _wait_until(lambda: second.reads >= 3, timeout=5.0)
+    stream.stop()
+
+    assert fake_sc.opened_ids == ["pinned-id", "pinned-id"]
+
+
+def test_endpoint_vanishing_halfway_through_an_open_is_closed_before_the_next_attempt(monkeypatch) -> None:
+    first = _ScriptedRecorderCM([_good(0.1), RuntimeError("gone")])
+    half_open = _ScriptedRecorderCM([], repeat=_good(0.2))
+    good = _ScriptedRecorderCM([], repeat=_good(0.3))
+    fake_sc = _SequencedSoundcard([_mic(first), _mic(half_open), _mic(good)])
+    # The first speaker handed out after the loss has a ``name`` that raises once the
+    # recorder is already open, like an endpoint that disappears during the open.
+    calls = {"n": 0}
+    original = fake_sc.default_speaker
+
+    def _default_speaker():
+        calls["n"] += 1
+        if calls["n"] == 2:
+            return _RaisingNameSpeaker("default-id")
+        return original()
+
+    fake_sc.default_speaker = _default_speaker  # type: ignore[method-assign]
+    stream, _ = _recovery_stream(monkeypatch, fake_sc)
+
+    stream.start()
+    assert _wait_until(lambda: good.reads >= 3, timeout=5.0)
+    stream.stop()
+
+    assert half_open.entered is True
+    assert half_open.exited is True
+
+
+def test_reattach_to_a_different_channel_count_still_yields_mono_chunks(monkeypatch) -> None:
+    first = _ScriptedRecorderCM([_good(0.1, channels=2), RuntimeError("gone")])
+    six = np.zeros((_RECOVERY_CHUNK, 6), dtype=np.float32)
+    six[:, 0] = 0.6
+    second = _ScriptedRecorderCM([], repeat=six)
+    fake_sc = _SequencedSoundcard([_mic(first), _mic(second)])
+    stream, _ = _recovery_stream(monkeypatch, fake_sc)
+
+    stream.start()
+    assert _wait_until(lambda: second.reads >= 3, timeout=5.0)
+    stream.stop()
+
+    chunks = _drain(stream)
+    assert all(c.shape == (_RECOVERY_CHUNK, 1) and c.dtype == np.float32 for c in chunks)
+    assert np.isclose(float(chunks[-1][0, 0]), 0.1)  # 0.6 / 6 channels
+
+
+def test_stop_during_recovery_returns_promptly_and_closes_everything(monkeypatch) -> None:
+    first = _ScriptedRecorderCM([_good(0.1), RuntimeError("gone")])
+    fake_sc = _SequencedSoundcard([_mic(first)])
+    stream, clock = _recovery_stream(monkeypatch, fake_sc)
+
+    stream.start()
+    thread = stream._reader_thread  # noqa: SLF001
+    assert thread is not None
+    assert _wait_until(lambda: clock.now >= 2 * _RECOVERY_RETRY, timeout=5.0)
+
+    stream.stop()
+
+    assert not thread.is_alive()
+    assert stream._reader_thread is None  # noqa: SLF001
+    assert first.exited is True
+    assert stream._degraded is False  # noqa: SLF001
+
+
+def test_bad_first_block_after_reattach_still_degrades_permanently(monkeypatch) -> None:
+    first = _ScriptedRecorderCM([_good(0.1), RuntimeError("gone")])
+    bad = _ScriptedRecorderCM([np.zeros((_RECOVERY_CHUNK,), dtype=np.float32)])
+    fake_sc = _SequencedSoundcard([_mic(first), _mic(bad)])
+    warnings: list[dict] = []
+    stream, _ = _recovery_stream(monkeypatch, fake_sc, warnings=warnings)
+
+    stream.start()
+    thread = stream._reader_thread  # noqa: SLF001
+    assert thread is not None
+    thread.join(timeout=5.0)
+
+    assert not thread.is_alive()
+    assert stream._degraded is True  # noqa: SLF001
+    assert len(warnings) == 2
+    assert warnings[1]["message"].startswith("Onverwachte vorm of samplerate")
+    assert bad.exited is True
+    stream.stop()

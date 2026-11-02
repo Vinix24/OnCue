@@ -112,7 +112,7 @@ def test_audioteestream_reads_pcm_and_drops_oldest(monkeypatch, tmp_path) -> Non
         target_process="Microsoft Teams",
         audiotee_path=str(audiotee_path),
     )
-    stream = AudioTeeStream(config, queue_maxsize=2)
+    stream = AudioTeeStream(config, queue_maxsize=2, clock=lambda: 0.0)
     stream.start()
 
     # Wait briefly for the daemon thread to finish reading.
@@ -807,7 +807,7 @@ def test_audiotee_healthy_tap_never_emits_setup_failure_warning(monkeypatch, tmp
         audiotee_path=str(audiotee_path),
     )
     warnings: list[dict] = []
-    stream = AudioTeeStream(config, on_warning=warnings.append)
+    stream = AudioTeeStream(config, on_warning=warnings.append, clock=lambda: 0.0)
     stream.start()
 
     deadline = time.time() + 1.0

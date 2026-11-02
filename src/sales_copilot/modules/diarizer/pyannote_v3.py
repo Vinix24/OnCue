@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from dataclasses import dataclass, field
 
@@ -9,6 +10,26 @@ import numpy as np
 from sales_copilot.modules.diarizer.protocol import SpeakerSegment
 
 logger = logging.getLogger(__name__)
+
+_PIPELINE_ID = "pyannote/speaker-diarization-3.1"
+_AUTH_ERROR_NAMES = frozenset({"GatedRepoError", "RepositoryNotFoundError"})
+
+
+def _auth_argument(from_pretrained: object) -> str:
+    """Name of the token argument the installed pyannote.audio accepts.
+
+    pyannote.audio 4.x takes `token=`, 3.x takes `use_auth_token=`.
+    """
+    params = inspect.signature(from_pretrained).parameters  # type: ignore[arg-type]
+    return "token" if "token" in params else "use_auth_token"
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    """True for HuggingFace hub errors about a bad token or a gated, unaccepted model."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status in (401, 403):
+        return True
+    return any(cls.__name__ in _AUTH_ERROR_NAMES for cls in type(exc).__mro__)
 
 
 @dataclass
@@ -37,16 +58,56 @@ class PyannoteV3Diarizer:
         try:
             import torch
             from pyannote.audio import Pipeline  # heavy import, lazy
-
-            pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1",
-                use_auth_token=self.hf_token,
+        except ImportError:
+            logger.warning(
+                "PyannoteV3Diarizer: pyannote.audio or torch is not installed "
+                "(install the diarization extra) — diarization disabled for this session",
+                exc_info=True,
             )
+            return
+
+        try:
+            pipeline = Pipeline.from_pretrained(
+                _PIPELINE_ID,
+                **{_auth_argument(Pipeline.from_pretrained): self.hf_token},
+            )
+        except Exception as exc:
+            if _is_auth_error(exc):
+                logger.warning(
+                    "PyannoteV3Diarizer: HuggingFace refused the token or the model card of %s "
+                    "is not accepted (%s) — diarization disabled for this session",
+                    _PIPELINE_ID,
+                    exc,
+                )
+            else:
+                logger.warning(
+                    "PyannoteV3Diarizer: unexpected error while loading %s — "
+                    "diarization disabled for this session",
+                    _PIPELINE_ID,
+                    exc_info=True,
+                )
+            return
+
+        if pipeline is None:
+            logger.warning(
+                "PyannoteV3Diarizer: pipeline %s unavailable (missing or invalid HF token, "
+                "or model card not accepted) — diarization disabled for this session",
+                _PIPELINE_ID,
+            )
+            return
+
+        try:
             pipeline.to(torch.device(self.device))
-            self._pipeline = pipeline
-            logger.info("PyannoteV3Diarizer: model loaded on %s", self.device)
         except Exception:
-            logger.warning("PyannoteV3Diarizer: load failed — diarization disabled for this session", exc_info=True)
+            logger.warning(
+                "PyannoteV3Diarizer: could not move pipeline to device %s — "
+                "diarization disabled for this session",
+                self.device,
+                exc_info=True,
+            )
+            return
+        self._pipeline = pipeline
+        logger.info("PyannoteV3Diarizer: model loaded on %s", self.device)
 
     async def diarize_chunk(self, audio_chunk: bytes, sample_rate: int) -> list[SpeakerSegment]:
         if self._pipeline is None:

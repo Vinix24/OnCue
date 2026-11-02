@@ -2,8 +2,61 @@
 
 ## [Unreleased]
 
+### Added
+
+- Microphone lines that are loudspeaker echo of the other side are dropped from
+  the report and from the after-the-call transcript. Without a headset the
+  microphone picks up the speakers, so every sentence of the other side showed
+  up twice and inflated your talk time. Only microphone lines are ever
+  removed. Set `TRANSCRIPT_ECHO_FILTER` to turn it off; it is on by default
+  (#319).
+- `scripts/eval_diarization.py` compares speaker diarization backends on your
+  own recordings. It is an evaluation tool only; the product does not change
+  (#320).
+- `scripts/post_process_call.py` can separate speakers per person without a
+  Hugging Face token, with sherpa-onnx. `--backend auto` (the default) picks
+  sherpa when `--num-speakers` is 2 or less, and pyannote for a group or an
+  unknown count when a token is available. Without a token it uses sherpa and
+  logs a warning. `sherpa-onnx` is now part of the `diarization` extra (#323).
+
+### Fixed
+
+- `scripts/post_process_call.py` no longer crashes with an AttributeError on a
+  WAV without `--transcript-json`. The default whisper.cpp backend now returns
+  real per-segment timestamps, so speakers can be assigned per segment. A
+  backend that cannot give timestamped segments, or a transcription that
+  fails or returns nothing, stops the script with an error instead of
+  labeling the whole call as one speaker.
+- The live pyannote diarizer loads again on pyannote.audio 4. Before, a
+  TypeError was swallowed and live diarization stayed off without notice. A
+  rejected token, a missing extra and other load failures now log distinct
+  messages (#321).
+- macOS: when the system-sound tap (AudioTee or BlackHole) drops out mid-call,
+  the system track is filled with silence in real time and the tap is restarted
+  or reopened with backoff. The system track stays on the call's timeline like
+  the microphone (#316) and the Windows loopback (#317) (#322).
+- Microphone: a pause of more than about 1 second (for example Bluetooth
+  earbuds switching to the headset profile in a call) is filled with silence,
+  so the track stays on the call's timeline. When the input device disappears
+  (headset off, USB pulled), OnCue notices after about 2 seconds, fills silence
+  in real time and reopens the configured microphone, else the default input.
+  On Windows it switches back to the original once that is present again;
+  on macOS it stays on the fallback (#316).
+- Windows: when the output device vanishes mid-call, the system sound track no
+  longer stops. It fills silence in real time, retries every second on the
+  current default output (or the pinned endpoint once it is back) and warns once
+  per outage (#317).
+- Recorder: at stop, every track that received audio is padded with silence to
+  the call length, so both WAV files end equally long. The padding is recorded
+  per track as `end_padding_ms` in `metadata.json`. A track without any audio
+  is not padded, so an empty recording still shows the warning (#315).
+
 ### Changed
 
+- Docs: the licensing section of `docs/DIARIZATION.md` is corrected. The
+  pyannote models are MIT or CC-BY-4.0, not non-commercial, and CC-BY-4.0
+  requires attribution. `THIRD_PARTY_LICENSES.md` lists the models downloaded at
+  runtime (#323).
 - Docs: Windows is now described as supported instead of experimental
   (`INSTALL.md`, `docs/FAQ.md`, `docs/WINDOWS_TESTPLAN.md`, `KNOWN_ISSUES.md`).
   The README and `docs/DIARIZATION.md` now say what speaker diarization does:
@@ -12,6 +65,13 @@
 
 ### Security
 
+- pyasn1 0.6.4 to 0.6.5 (CVE-2026-119194, CVE-2026-119195, CVE-2026-119196,
+  CVE-2026-119197, fixed in 0.6.5). pyasn1 is a transitive dependency of
+  google-auth via pyasn1-modules; the `gemini` extra now requires
+  `pyasn1>=0.6.5`.
+- tornado 6.5.10 to 6.6 (CVE-2026-116577, CVE-2026-115927, CVE-2026-116578,
+  fixed in 6.6). tornado is a transitive dependency of semantic-router and
+  aurelio-sdk; the `detector` extra now requires `tornado>=6.6`.
 - msgpack 1.2.1 to 1.2.4 (CVE-2026-114613). msgpack is a transitive
   dependency of cachecontrol (pip-audit) and librosa (parakeet extra).
 - litellm 1.88.6 to 1.103.9 (GHSA-g5ff-637f-6q2m, fixed in 1.95.0). The `llm`

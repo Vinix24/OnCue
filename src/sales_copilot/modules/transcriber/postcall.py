@@ -16,6 +16,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
+from sales_copilot.core.speaker_bleed import BleedSegment, drop_speaker_bleed
+
 # Map recorder WAV stems (see AudioRecorder / record_call.py) to display labels.
 DEFAULT_LABELS = {
     "prospect": "PROSPECT",
@@ -23,6 +25,8 @@ DEFAULT_LABELS = {
     "system": "PROSPECT",
     "mic": "JIJ",
 }
+_MIC_CHANNELS = ("self", "mic")
+_SYSTEM_CHANNELS = ("prospect", "system")
 
 
 class _SegmentBackend(Protocol):
@@ -34,15 +38,27 @@ def merge_labeled_segments(channels: dict[str, list[dict]]) -> list[dict]:
 
     ``channels`` maps a channel label (WAV stem) to its ``[{start, end, text}]``
     segments. Returns ``[{start, label, text}]`` sorted by start time (stable, so
-    equal-start segments keep channel insertion order). Empty-text segments drop.
+    equal-start segments keep channel insertion order). Empty-text segments drop, and so do
+    microphone lines that are loudspeaker echo of the system channel (``speaker_bleed``).
     """
     merged: list[dict] = []
+    bleed: list[BleedSegment] = []
     for label, segments in channels.items():
         for seg in segments:
             text = str(seg.get("text", "")).strip()
             if not text:
                 continue
-            merged.append({"start": float(seg.get("start", 0.0) or 0.0), "label": label, "text": text})
+            start = float(seg.get("start", 0.0) or 0.0)
+            end = float(seg.get("end", start) or start)
+            entry = {"start": start, "label": label, "text": text}
+            merged.append(entry)
+            bleed.append(BleedSegment(label, round(start * 1000), round(end * 1000), text, entry))
+    mic_label = next((c for c in _MIC_CHANNELS if c in channels), None)
+    system_label = next((c for c in _SYSTEM_CHANNELS if c in channels), None)
+    if mic_label and system_label:
+        # The segments here are in seconds; the echo filter works in milliseconds.
+        kept = {id(b.source) for b in drop_speaker_bleed(bleed, mic_label, system_label).kept}
+        merged = [m for m in merged if id(m) in kept]
     merged.sort(key=lambda m: m["start"])
     return merged
 

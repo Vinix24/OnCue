@@ -30,6 +30,7 @@ from sales_copilot.core.i18n import configured_language
 from sales_copilot.core.logging import configure_logging
 from sales_copilot.core.preset import load_preset
 from sales_copilot.core.session_store import SessionStore
+from sales_copilot.core.speaker_bleed import BleedSegment, drop_speaker_bleed
 from sales_copilot.modules.reports import generator
 from sales_copilot.modules.reports.delivery import validate_report_delivery_config
 from sales_copilot.modules.reports.enrichment import (
@@ -253,6 +254,27 @@ async def _batch_transcribe_self_wav(wav_path: Path) -> list[dict[str, object]]:
     finally:
         await backend.stop()
     return entries
+
+
+def _drop_echo_lines(session: TrackerSessionData) -> TrackerSessionData:
+    """Remove microphone lines that are loudspeaker echo of the system side.
+
+    The one point where the report starts from the session transcript, so talk-time, the
+    readable transcript, the summary, the junk counter and the term corrections all see
+    the filtered transcript. Entries without usable timing or text are never removed.
+    """
+    bleed: list[BleedSegment] = []
+    for entry in session.transcript:
+        start_ms, end_ms, text = entry.get("start_ms"), entry.get("end_ms"), entry.get("text")
+        if isinstance(start_ms, (int, float)) and isinstance(end_ms, (int, float)) and isinstance(text, str):
+            bleed.append(BleedSegment(str(entry.get("speaker")), int(start_ms), int(end_ms), text, entry))
+    result = drop_speaker_bleed(bleed, "self", "prospect")
+    if not result.removed:
+        return session
+    dropped = {id(b.source) for b in result.removed}
+    return dataclasses.replace(
+        session, transcript=[e for e in session.transcript if id(e) not in dropped]
+    )
 
 
 async def _run_self_batch_if_needed(
@@ -615,6 +637,7 @@ async def main(
             session,
             recorder.directory if recorder is not None else None,
         )
+        session = _drop_echo_lines(session)
         report_session = _build_generator_session(session)
         # The local copy first, without any LLM step: it is on disk before a report model is
         # called, so neither a slow model nor a SIGTERM during the enrichment can cost it.

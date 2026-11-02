@@ -140,6 +140,12 @@ _STOP_JOIN_TIMEOUT_SECONDS = 2.0
 # holding _lock (which would wedge stop() along with it).
 _OPEN_READY_TIMEOUT_SECONDS = 10.0
 
+# How long the reader thread waits between attempts to re-open a loopback
+# recorder after the render endpoint vanished. The same interval is waited once
+# before the first attempt: Windows needs a moment to promote a new default
+# output device after the old one disappears.
+_RECOVERY_RETRY_SECONDS = 1.0
+
 
 def _describe_speaker(speaker: Any) -> str:
     """Human-readable label for a soundcard speaker, for re-attach log lines."""
@@ -202,8 +208,14 @@ class WasapiLoopbackStream:
         empty_pull_sleep_s: float = 0.01,
         silence_timeout_multiplier: float = 3.0,
         endpoint_poll_seconds: float = DEFAULT_HEARTBEAT_SECONDS,
+        recovery_retry_s: float = _RECOVERY_RETRY_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._config = config
+        self._recovery_retry_s = recovery_retry_s
+        self._clock = clock
+        self._sleep = sleep
         self._on_warning = on_warning
         self._queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=queue_maxsize)
         self._stop_event = threading.Event()
@@ -417,7 +429,7 @@ class WasapiLoopbackStream:
         except Exception:
             logger.warning("WasapiLoopbackStream recorder __exit__ raised", exc_info=True)
 
-    def _open_recorder(self) -> bool:
+    def _open_recorder(self, *, silent: bool = False) -> bool:
         """Resolve the target endpoint and open its WASAPI loopback recorder.
 
         Runs on the reader thread (called from ``_reader_main``), never on
@@ -425,6 +437,11 @@ class WasapiLoopbackStream:
         ``self._recorder``/``self._recorder_cm`` on success; on any failure
         it emits the same operator-facing warning and ``TapHealth`` state
         this used to set from ``start()`` and returns False.
+
+        ``silent=True`` is the outage-recovery variant: a failed attempt emits
+        no warning and leaves ``TapHealth`` and ``_degraded`` alone (the outage
+        was reported once and the loop retries), and a successful one leaves
+        the ``mark_attached`` call to the recovery loop.
         """
 
         sc = self._sc
@@ -434,10 +451,11 @@ class WasapiLoopbackStream:
         if endpoint_name:
             speaker = _find_named_speaker(sc, endpoint_name)
             if speaker is None:
-                self._emit_warning(
-                    f"WASAPI-eindpunt '{endpoint_name}' (AUDIO_WASAPI_ENDPOINT_NAME) niet gevonden; "
-                    "WASAPI-loopback-capture valt terug op het standaard uitvoerapparaat."
-                )
+                if not silent:
+                    self._emit_warning(
+                        f"WASAPI-eindpunt '{endpoint_name}' (AUDIO_WASAPI_ENDPOINT_NAME) niet gevonden; "
+                        "WASAPI-loopback-capture valt terug op het standaard uitvoerapparaat."
+                    )
             else:
                 following_default = False
 
@@ -447,19 +465,21 @@ class WasapiLoopbackStream:
             except Exception:
                 speaker = None
         if speaker is None:
-            self._emit_warning(
-                "Geen standaard audio-uitvoerapparaat gevonden; WASAPI-loopback-capture kan niet starten."
-            )
-            self._degraded = True
-            self._health.mark_attach_failed("geen standaard uitvoerapparaat")
+            if not silent:
+                self._emit_warning(
+                    "Geen standaard audio-uitvoerapparaat gevonden; WASAPI-loopback-capture kan niet starten."
+                )
+                self._degraded = True
+                self._health.mark_attach_failed("geen standaard uitvoerapparaat")
             return False
 
         try:
             microphone = sc.get_microphone(speaker.id, include_loopback=True)
         except Exception:
-            self._emit_warning("Kon geen WASAPI-loopback-apparaat openen voor het standaard uitvoerapparaat.")
-            self._degraded = True
-            self._health.mark_attach_failed("loopback-apparaat kon niet openen")
+            if not silent:
+                self._emit_warning("Kon geen WASAPI-loopback-apparaat openen voor het standaard uitvoerapparaat.")
+                self._degraded = True
+                self._health.mark_attach_failed("loopback-apparaat kon niet openen")
             return False
 
         blocksize = self._config.chunk_size * 2
@@ -467,9 +487,10 @@ class WasapiLoopbackStream:
             recorder_cm = microphone.recorder(samplerate=self._config.sample_rate, blocksize=blocksize)
             recorder = recorder_cm.__enter__()
         except Exception:
-            self._emit_warning("Kon de WASAPI-loopback-recorder niet openen.")
-            self._degraded = True
-            self._health.mark_attach_failed("recorder kon niet openen")
+            if not silent:
+                self._emit_warning("Kon de WASAPI-loopback-recorder niet openen.")
+                self._degraded = True
+                self._health.mark_attach_failed("recorder kon niet openen")
             return False
 
         self._recorder_cm = recorder_cm
@@ -478,8 +499,58 @@ class WasapiLoopbackStream:
         self._speaker_id = getattr(speaker, "id", None)
         self._speaker_label = _describe_speaker(speaker)
         self._degraded = False
-        self._health.mark_attached(self.device_label)
+        if not silent:
+            self._health.mark_attached(self.device_label)
         return True
+
+    def _recover_recorder(self, lost_label: str) -> bool:
+        """Keep the clock running while the endpoint is gone, and re-open it.
+
+        Emits zero chunks at real-time pace (the number due is derived from
+        elapsed time, not from a sleep per chunk, so the silence cannot drift)
+        and retries the normal open every ``_recovery_retry_s``, the first
+        attempt only after one interval. Returns True once a recorder is open
+        again, False when ``stop()`` ended the wait. Whatever a failed attempt
+        partly opened is closed before the next one.
+        """
+
+        chunk_s = self._config.chunk_size / float(self._config.sample_rate)
+        loss_start = self._clock()
+        emitted = 0
+        next_attempt = loss_start + self._recovery_retry_s
+
+        def fill_silence() -> None:
+            nonlocal emitted
+            due = int((self._clock() - loss_start) / chunk_s) - emitted
+            for _ in range(max(due, 0)):
+                self._emit_silence_chunk()
+                emitted += 1
+
+        while not self._stop_event.is_set():
+            fill_silence()
+            now = self._clock()
+            if now >= next_attempt:
+                try:
+                    opened = self._open_recorder(silent=True)
+                except Exception:
+                    opened = False
+                if opened and self._stop_event.is_set():
+                    return False
+                if opened:
+                    fill_silence()
+                    self._health.mark_attached(self.device_label)
+                    logger.info(
+                        "WASAPI loopback re-attached: %s -> %s after %.1fs of silence filled.",
+                        lost_label,
+                        self._speaker_label,
+                        self._clock() - loss_start,
+                    )
+                    return True
+                self._close_recorder()
+                next_attempt = self._clock() + self._recovery_retry_s
+                continue
+            self._sleep(min(chunk_s, max(next_attempt - now, 0.0)))
+        return False
 
     def _check_default_endpoint_drift(self) -> None:
         """Re-attach when the Windows default output endpoint has changed.
@@ -559,6 +630,7 @@ class WasapiLoopbackStream:
         shape_checked = False
         last_emit = time.monotonic()
         last_endpoint_check = time.monotonic()
+        outage_warned = False
         pacing_timeout = (self._config.chunk_size / float(self._config.sample_rate)) * self._silence_timeout_multiplier
 
         while not self._stop_event.is_set():
@@ -570,9 +642,25 @@ class WasapiLoopbackStream:
             try:
                 block = self._recorder.record(numframes=self._config.chunk_size)
             except Exception:
-                self._emit_warning("WASAPI-loopback-apparaat gaf een fout of verdween tijdens opname.")
-                self._degraded = True
-                return
+                # A read error is an outage, not the end of the call: a
+                # vanished endpoint (headset off, USB unplugged) can come back
+                # or be replaced by the new default. One warning per outage;
+                # it re-arms only once a read has returned audio again.
+                if not outage_warned:
+                    outage_warned = True
+                    self._emit_warning(
+                        "WASAPI-loopback-apparaat gaf een fout of verdween tijdens opname; opnieuw verbinden."
+                    )
+                lost_label = self._speaker_label
+                self._health.mark_detached("loopback-apparaat verdween tijdens opname", already_warned=True)
+                self._close_recorder()
+                if not self._recover_recorder(lost_label):
+                    return
+                accum = np.zeros((0,), dtype=np.float32)
+                shape_checked = False
+                last_emit = time.monotonic()
+                last_endpoint_check = last_emit
+                continue
 
             if not shape_checked:
                 shape_checked = True
@@ -588,6 +676,7 @@ class WasapiLoopbackStream:
                 frames = int(block.shape[0]) if isinstance(block, np.ndarray) and block.ndim == 2 else 0
 
                 if frames > 0:
+                    outage_warned = False
                     mono = np.mean(block.astype(np.float32, copy=False), axis=1)
                     accum = np.concatenate([accum, mono])
                     while accum.shape[0] >= self._config.chunk_size:

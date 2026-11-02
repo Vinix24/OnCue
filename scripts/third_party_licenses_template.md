@@ -136,3 +136,16 @@ THE SOFTWARE.
 - **Location:** `presentation/vendor/inter/` (license text in `OFL.txt`)
 - **License:** SIL Open Font License 1.1
 - **Copyright:** 2016 The Inter Project Authors
+
+## Models downloaded at runtime
+
+Speaker-separation models are downloaded on first use and are not part of this repository.
+CC-BY-4.0 requires attribution: credit the model authors, name the licence and link to the source.
+
+| Model | License | Source |
+|---|---|---|
+| `pyannote/speaker-diarization-3.1` | MIT | https://huggingface.co/pyannote/speaker-diarization-3.1 |
+| `pyannote/segmentation-3.0` | MIT | https://huggingface.co/pyannote/segmentation-3.0 |
+| `pyannote/wespeaker-voxceleb-resnet34-LM` | CC-BY-4.0 | https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM |
+| `pyannote/speaker-diarization-community-1` | CC-BY-4.0 | https://huggingface.co/pyannote/speaker-diarization-community-1 |
+| sherpa-onnx WeSpeaker VoxCeleb ResNet34 (`wespeaker_en_voxceleb_resnet34.onnx`) | CC-BY-4.0 (follows the VoxCeleb dataset licence) | https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models |

@@ -48,6 +48,7 @@ class AudioRecorder:
         self._stream_labels: list[str] = []
         self._last_flush_ms: dict[str, int] = {}
         self._frames_written: dict[str, int] = {}
+        self._end_padding_frames: dict[str, int] = {}
         self._started_at = _now_iso()
         self._ended_at: str | None = None
         self._closed = False
@@ -84,6 +85,41 @@ class AudioRecorder:
                 self._flush_label_locked(stream_label)
                 self._last_flush_ms[stream_label] = timestamp_ms
 
+    def pad_track_to(self, stream_label: str, target_ms: float) -> int:
+        """Append digital silence so ``stream_label`` lasts ``target_ms``.
+
+        Never trims: a track already at or past the target is left alone.
+        A track that received no real audio is also left alone, so an empty
+        recording stays visibly empty.
+        The silence is recorded per track and reported as ``end_padding_ms``
+        in the session metadata. Returns the padding added, in milliseconds.
+        """
+        with self._lock:
+            if self._closed:
+                return 0
+            if stream_label not in self._files:
+                return 0
+            have = self._frames_written[stream_label] + sum(
+                len(c) for c in self._buffers[stream_label]
+            )
+            padded = self._end_padding_frames.get(stream_label, 0)
+            if have - padded <= 0:
+                return 0
+            missing = int(round(target_ms * self._sample_rate / 1000.0)) - have
+            if missing <= 0:
+                return 0
+            step = self._sample_rate
+            remaining = missing
+            while remaining > 0:
+                n = min(step, remaining)
+                self._buffers[stream_label].append(np.zeros(n, dtype=np.float32))
+                self._flush_label_locked(stream_label)
+                remaining -= n
+            self._end_padding_frames[stream_label] = (
+                self._end_padding_frames.get(stream_label, 0) + missing
+            )
+            return int(round(missing * 1000 / self._sample_rate))
+
     def finalize(self, *, silent: bool = False) -> Path:
         """Flush, close, and write metadata for this recorder.
 
@@ -115,7 +151,9 @@ class AudioRecorder:
             self._ended_at = _now_iso()
             self._closed = True
             self._write_metadata()
-            total_frames = sum(self._frames_written.values())
+            total_frames = sum(self._frames_written.values()) - sum(
+                self._end_padding_frames.values()
+            )
         if total_frames == 0 and not silent:
             # Recording was enabled and started, but no audio ever arrived --
             # e.g. the mic/system stream never actually attached. Leaving
@@ -179,6 +217,10 @@ class AudioRecorder:
             label: int(round(self._frames_written[label] * 1000 / self._sample_rate))
             for label in self._stream_labels
         }
+        end_padding_ms = {
+            label: int(round(self._end_padding_frames.get(label, 0) * 1000 / self._sample_rate))
+            for label in self._stream_labels
+        }
         max_duration_ms = max(duration_ms_per_label.values(), default=0)
         metadata = {
             "session_id": self._session_id,
@@ -186,6 +228,7 @@ class AudioRecorder:
             "ended_at": self._ended_at,
             "duration_ms": max_duration_ms,
             "duration_ms_per_stream": duration_ms_per_label,
+            "end_padding_ms": end_padding_ms,
             "sample_rate": self._sample_rate,
             "channels": self._channels,
             "stream_labels": list(self._stream_labels),

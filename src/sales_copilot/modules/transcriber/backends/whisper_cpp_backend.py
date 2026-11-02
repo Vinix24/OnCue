@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shlex
 import socket
 import subprocess
@@ -25,6 +26,15 @@ logger = logging.getLogger(__name__)
 
 _GUARD_MODULE = "sales_copilot.modules.transcriber.server_guard"
 _GUARD_EXIT_TIMEOUT_S = 8.0
+_DEFAULT_TIMEOUT: float = object()  # type: ignore[assignment]  # sentinel: use the configured timeout
+_SEGMENT_LINE = re.compile(
+    r"^\s*\[(?P<start>\d+:\d{2}:\d{2}[.,]\d+)\s*-->\s*(?P<end>\d+:\d{2}:\d{2}[.,]\d+)\]\s*(?P<text>.*)$"
+)
+
+
+def _timestamp_to_seconds(stamp: str) -> float:
+    hours, minutes, seconds = stamp.replace(",", ".").split(":")
+    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
 
 class WhisperCppBackend:
@@ -133,6 +143,33 @@ class WhisperCppBackend:
             )
             return ""
         return self._parse_stdout_text(result.stdout)
+
+    async def transcribe_file_segments(self, path: Path) -> list[dict]:
+        """Batch-transcribe a file into timestamped segments (post-call path).
+
+        Runs ``whisper-cli`` once over the whole file and reads the segment
+        timestamps whisper.cpp prints (``[hh:mm:ss.mmm --> hh:mm:ss.mmm] text``).
+        There is no wall-clock bound: a full call legitimately takes far longer
+        than the per-chunk ``whisper_cpp_timeout_s``.
+
+        Returns ``[{"start", "end", "text"}]`` in seconds. Raises ``RuntimeError``
+        when whisper.cpp fails or prints no timestamped segments, so a caller can
+        never mistake an empty result for a transcript.
+        """
+        result = await asyncio.to_thread(self._run_whisper, self._command_for(Path(path)), None)
+        if result is None:
+            raise RuntimeError("whisper.cpp did not run for the file transcription")
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"whisper.cpp file transcription failed ({result.returncode}): {result.stderr.strip()}"
+            )
+        segments = self._parse_stdout_segments(result.stdout)
+        if not segments:
+            raise RuntimeError(
+                "whisper.cpp returned no timestamped segments for "
+                f"{path}; the recording may be silent."
+            )
+        return segments
 
     async def stop(self) -> None:
         await asyncio.to_thread(self._shutdown_server)
@@ -337,25 +374,31 @@ class WhisperCppBackend:
         text = self._parse_stdout_text(result.stdout)
         return text or None
 
-    def _run_whisper(self, command: list[str]) -> subprocess.CompletedProcess[str] | None:
+    def _run_whisper(
+        self,
+        command: list[str],
+        timeout: float | None = _DEFAULT_TIMEOUT,  # type: ignore[assignment]
+    ) -> subprocess.CompletedProcess[str] | None:
         """Run the whisper.cpp binary with a hard wall-clock bound.
 
         Returns ``None`` when the subprocess exceeds ``whisper_cpp_timeout_s`` so a
         wedged transcription degrades to an empty result for that chunk instead of
-        propagating and killing the engine.
+        propagating and killing the engine. Pass ``timeout=None`` explicitly for an
+        unbounded batch run.
         """
+        effective = self._config.whisper_cpp_timeout_s if timeout is _DEFAULT_TIMEOUT else timeout
         try:
             return subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=self._config.whisper_cpp_timeout_s,
+                timeout=effective,
             )
         except subprocess.TimeoutExpired:
             logger.warning(
                 "whisper.cpp timed out after %.1fs — dropping chunk",
-                self._config.whisper_cpp_timeout_s,
+                effective,
             )
             return None
 
@@ -393,6 +436,26 @@ class WhisperCppBackend:
             if candidate:
                 extracted.append(candidate)
         return " ".join(extracted).strip()
+
+    @staticmethod
+    def _parse_stdout_segments(stdout: str) -> list[dict]:
+        """Parse ``[hh:mm:ss.mmm --> hh:mm:ss.mmm] text`` lines into segments."""
+        segments: list[dict] = []
+        for line in stdout.splitlines():
+            match = _SEGMENT_LINE.match(line)
+            if match is None:
+                continue
+            text = match.group("text").strip()
+            if not text:
+                continue
+            segments.append(
+                {
+                    "start": _timestamp_to_seconds(match.group("start")),
+                    "end": _timestamp_to_seconds(match.group("end")),
+                    "text": text,
+                }
+            )
+        return segments
 
     def describe_command(self) -> str:
         return shlex.join(self._command_for(Path("<chunk.wav>")))

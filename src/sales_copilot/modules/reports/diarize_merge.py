@@ -7,23 +7,26 @@ Two layers:
    transcript segment to the speaker with the greatest temporal overlap and
    collapses consecutive same-speaker segments into blocks.
 
-2. Batch diarization helper:
+2. Batch diarization helpers:
    ``diarize_wav(wav_path, ...)`` runs pyannote on a whole WAV offline and
-   returns ``(start, end, speaker)`` turn tuples.  Heavy imports (torch /
-   pyannote) are deferred inside the function so module import stays cheap.
+   returns ``(start, end, speaker)`` turn tuples.  ``diarize_audio(...)`` picks
+   between pyannote (needs a Hugging Face token) and sherpa-onnx (token-free,
+   see ``diarize_sherpa``).  Heavy imports (torch / pyannote / sherpa_onnx) are
+   deferred inside the functions so module import stays cheap.
 
 Both layers together power ``scripts/post_process_call.py``.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import Literal
 
-if TYPE_CHECKING:
-    from pathlib import Path
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -265,3 +268,119 @@ def diarize_wav(
         DiarizationTurn(start=turn.start, end=turn.end, speaker=speaker)
         for turn, _, speaker in annotation.itertracks(yield_label=True)
     ]
+
+
+# ---------------------------------------------------------------------------
+# Backend selection: pyannote (token) or sherpa-onnx (token-free)
+# ---------------------------------------------------------------------------
+
+Backend = Literal["auto", "sherpa", "pyannote"]
+BACKEND_CHOICES: tuple[str, ...] = ("auto", "sherpa", "pyannote")
+
+# Voices in a group on one microphone collapse into one sherpa cluster; pyannote
+# spreads them. At this many speakers and up, or when the count is unknown, ``auto``
+# prefers pyannote if a token is available.
+GROUP_MIN_SPEAKERS = 3
+
+
+def find_hf_token(explicit: str | None = None) -> str | None:
+    """Hugging Face token: argument, ``HUGGINGFACE_TOKEN``, ``HF_TOKEN``, then the cached login.
+
+    The cached login is the file ``huggingface-cli login`` writes
+    (``$HF_TOKEN_PATH``, else ``$HF_HOME/token``, else ``~/.cache/huggingface/token``).
+    Returns ``None`` when none of them holds a non-empty token.
+    """
+    for candidate in (explicit, os.environ.get("HUGGINGFACE_TOKEN"), os.environ.get("HF_TOKEN")):
+        if candidate and candidate.strip():
+            return candidate.strip()
+    token_path = os.environ.get("HF_TOKEN_PATH")
+    if token_path:
+        path = Path(token_path)
+    else:
+        hf_home = os.environ.get("HF_HOME")
+        path = (Path(hf_home) if hf_home else Path.home() / ".cache" / "huggingface") / "token"
+    try:
+        cached = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return cached or None
+
+
+def resolve_backend(
+    backend: Backend,
+    num_speakers: int | None,
+    hf_token: str | None,
+) -> tuple[Literal["sherpa", "pyannote"], str | None]:
+    """The backend that will run and an optional warning for the caller to log.
+
+    ``auto`` decides on the speaker count and the token (see :func:`find_hf_token`):
+
+    - ``num_speakers`` given and 2 or less: sherpa, no warning.
+    - otherwise (3 or more, or not given) with a token: pyannote, no warning.
+    - otherwise (no token): sherpa with a warning. For ``num_speakers`` of 3 or more
+      the warning names the likely group; when the count is not given it says the
+      count is unknown and that sherpa may put several voices under one label.
+    """
+    if backend not in BACKEND_CHOICES:
+        raise ValueError(f"unknown backend {backend!r}; choose from {', '.join(BACKEND_CHOICES)}")
+    if backend != "auto":
+        return backend, None  # type: ignore[return-value]
+    if num_speakers is not None and num_speakers < GROUP_MIN_SPEAKERS:
+        return "sherpa", None
+    if find_hf_token(hf_token):
+        return "pyannote", None
+    if num_speakers is not None:
+        return "sherpa", (
+            "Likely a group (--num-speakers >= 3) but no Hugging Face token: using sherpa-onnx. "
+            "Voices in a group may end up under one label. A token (--hf-token, HUGGINGFACE_TOKEN "
+            "or huggingface-cli login) enables the pyannote group model."
+        )
+    return "sherpa", (
+        "Speaker count unknown and no Hugging Face token: using sherpa-onnx. In a group, sherpa may "
+        "put several voices under one label. --num-speakers 2 or a token (--hf-token, "
+        "HUGGINGFACE_TOKEN or huggingface-cli login) avoids that."
+    )
+
+
+def diarize_audio(
+    wav_path: str | Path,
+    *,
+    backend: Backend = "auto",
+    hf_token: str | None = None,
+    model_id: str = _DEFAULT_MODEL,
+    num_speakers: int | None = None,
+    device: str | None = None,
+    cluster_threshold: float | None = None,
+) -> tuple[list[DiarizationTurn], str]:
+    """Diarize *wav_path* with the backend :func:`resolve_backend` picks.
+
+    Returns ``(turns, backend_used)`` where ``backend_used`` is ``"sherpa"`` or
+    ``"pyannote"``.  The sherpa path clusters by ``cluster_threshold`` (default 0.8)
+    and ignores *num_speakers*: forcing a count made sherpa put nearly all talk time
+    in one cluster on a two-person recording.  The pyannote path is
+    :func:`diarize_wav` unchanged.
+    """
+    chosen, warning = resolve_backend(backend, num_speakers, hf_token)
+    if warning:
+        logger.warning(warning)
+    if chosen == "pyannote":
+        turns = diarize_wav(
+            wav_path, hf_token=hf_token, model_id=model_id, num_speakers=num_speakers, device=device
+        )
+        return turns, "pyannote"
+
+    from sales_copilot.modules.reports.diarize_sherpa import (  # noqa: PLC0415 - optional extra, lazy
+        DEFAULT_CLUSTER_THRESHOLD,
+        diarize_wav_sherpa,
+    )
+
+    if num_speakers is not None:
+        logger.info(
+            "--num-speakers is ignored for sherpa: forcing the speaker count gave a wrong split "
+            "on a two-person recording, so sherpa clusters by threshold"
+        )
+    raw = diarize_wav_sherpa(
+        wav_path,
+        threshold=DEFAULT_CLUSTER_THRESHOLD if cluster_threshold is None else cluster_threshold,
+    )
+    return [DiarizationTurn(start=s, end=e, speaker=spk) for s, e, spk in raw], "sherpa"

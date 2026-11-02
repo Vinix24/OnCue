@@ -387,3 +387,145 @@ def test_engine_fuzzy_telephony_name_excludes_not_includes(
         assert "--include-processes" not in args
     finally:
         prospect.stop()
+
+
+def _wav_frames(path) -> int:
+    import wave
+
+    with wave.open(str(path), "rb") as wf:
+        return wf.getnframes()
+
+
+def _stop_at(monkeypatch: pytest.MonkeyPatch, engine: RecorderEngine, elapsed_s: float) -> object:
+    from sales_copilot.audio import recorder_engine
+
+    start = engine._start_monotonic
+    monkeypatch.setattr(recorder_engine.time, "monotonic", lambda: start + elapsed_s)
+    return engine.stop()
+
+
+def _metadata(directory) -> dict:
+    import json
+
+    return json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
+
+
+def _chunks(n: int) -> list[np.ndarray]:
+    return [np.full(1024, 0.1, dtype=np.float32) for _ in range(n)]
+
+
+def test_stop_pads_short_track_to_elapsed(tmp_path, monkeypatch) -> None:
+    # 16 chunks = 1.024 s for prospect, 4 chunks for self; call lasted 1.024 s.
+    engine = RecorderEngine(
+        out_dir=tmp_path,
+        streams={"prospect": FakeStream(_chunks(16)), "self": FakeStream(_chunks(4))},
+    )
+    engine.start(run_loop=False)
+    engine.pump(0.0)
+    directory = _stop_at(monkeypatch, engine, 1.024)
+
+    assert _wav_frames(directory / "prospect.wav") == 16 * 1024
+    assert _wav_frames(directory / "self.wav") == 16 * 1024
+    padding = _metadata(directory)["end_padding_ms"]
+    assert padding["prospect"] == 0
+    assert padding["self"] == 768
+
+
+def test_stop_drains_remaining_frames_before_padding(tmp_path, monkeypatch) -> None:
+    engine = RecorderEngine(out_dir=tmp_path, streams={"prospect": FakeStream(_chunks(16))})
+    engine.start(run_loop=False)
+    directory = _stop_at(monkeypatch, engine, 1.024)
+
+    assert _wav_frames(directory / "prospect.wav") == 16 * 1024
+    assert _metadata(directory)["end_padding_ms"]["prospect"] == 0
+
+
+def test_steady_streams_get_no_padding(tmp_path, monkeypatch) -> None:
+    engine = RecorderEngine(
+        out_dir=tmp_path,
+        streams={"prospect": FakeStream(_chunks(8)), "self": FakeStream(_chunks(8))},
+    )
+    engine.start(run_loop=False)
+    engine.pump(0.0)
+    directory = _stop_at(monkeypatch, engine, 8 * 1024 / 16000)
+
+    assert _wav_frames(directory / "prospect.wav") == _wav_frames(directory / "self.wav") == 8 * 1024
+    assert _metadata(directory)["end_padding_ms"] == {"prospect": 0, "self": 0}
+
+
+def test_longer_track_is_not_trimmed(tmp_path, monkeypatch) -> None:
+    engine = RecorderEngine(
+        out_dir=tmp_path,
+        streams={"prospect": FakeStream(_chunks(16)), "self": FakeStream(_chunks(2))},
+    )
+    engine.start(run_loop=False)
+    engine.pump(0.0)
+    directory = _stop_at(monkeypatch, engine, 0.5)
+
+    assert _wav_frames(directory / "prospect.wav") == 16 * 1024
+    assert _metadata(directory)["end_padding_ms"]["prospect"] == 0
+
+
+def test_unstarted_stream_is_not_padded(tmp_path, monkeypatch) -> None:
+    engine = RecorderEngine(
+        out_dir=tmp_path,
+        streams={"prospect": FakeStream([], fail_start=True), "self": FakeStream(_chunks(4))},
+    )
+    engine.start(run_loop=False)
+    engine.pump(0.0)
+    directory = _stop_at(monkeypatch, engine, 2.0)
+
+    assert not (directory / "prospect.wav").exists()
+    meta = _metadata(directory)
+    assert "prospect" not in meta["end_padding_ms"]
+    assert meta["end_padding_ms"]["self"] == 2000 - 256
+
+
+def test_padding_is_logged_per_track(tmp_path, monkeypatch, caplog) -> None:
+    engine = RecorderEngine(out_dir=tmp_path, streams={"self": FakeStream(_chunks(1))})
+    engine.start(run_loop=False)
+    engine.pump(0.0)
+    with caplog.at_level("INFO", logger="sales_copilot.audio.recorder_engine"):
+        _stop_at(monkeypatch, engine, 1.0)
+    assert any("Padded track 'self'" in r.getMessage() for r in caplog.records)
+
+
+def test_silent_started_stream_is_not_padded(tmp_path, monkeypatch) -> None:
+    engine = RecorderEngine(
+        out_dir=tmp_path,
+        streams={"prospect": FakeStream([]), "self": FakeStream(_chunks(4))},
+    )
+    engine.start(run_loop=False)
+    engine.pump(0.0)
+    directory = _stop_at(monkeypatch, engine, 2.0)
+
+    assert not (directory / "prospect.wav").exists()
+    meta = _metadata(directory)
+    assert meta["end_padding_ms"].get("prospect", 0) == 0
+    assert meta["duration_ms_per_stream"].get("prospect", 0) == 0
+    assert meta["end_padding_ms"]["self"] == 2000 - 256
+    assert _wav_frames(directory / "self.wav") == 2 * 16000
+
+
+def test_all_silent_started_streams_still_warn_zero_frames(tmp_path, monkeypatch, caplog) -> None:
+    engine = RecorderEngine(
+        out_dir=tmp_path,
+        streams={"prospect": FakeStream([]), "self": FakeStream([])},
+    )
+    engine.start(run_loop=False)
+    engine.pump(0.0)
+    with caplog.at_level("INFO", logger="sales_copilot.audio.recorder"):
+        _stop_at(monkeypatch, engine, 2.0)
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any("zero audio frames" in r.getMessage() for r in warnings)
+
+
+def test_pad_track_to_skips_track_without_real_audio(tmp_path) -> None:
+    from sales_copilot.audio.recorder import AudioRecorder
+
+    recorder = AudioRecorder("s", tmp_path)
+    assert recorder.pad_track_to("self", 1000.0) == 0
+    recorder.write_chunk("prospect", np.full(1000, 0.1, dtype=np.float32), 0)
+    assert recorder.pad_track_to("prospect", 1000.0) == 1000 - round(1000 * 1000 / 16000)
+    assert recorder.pad_track_to("prospect", 1000.0) == 0
