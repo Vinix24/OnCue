@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Label speakers (VINCENT / FRANK) in a transcript and generate a sales summary.
+"""Label speakers (ME / PROSPECT) in a transcript and generate a sales summary.
 
 Usage:
-    python scripts/label_and_summarize.py <transcript.txt> --prospect-name Frank
+    python scripts/label_and_summarize.py <transcript.txt> --prospect-name <name>
 """
 
 from __future__ import annotations
@@ -29,11 +29,11 @@ class LabelingResult(BaseModel):
     turns: list[LabeledTurn]
 
 
-class FrankWish(BaseModel):
+class ProspectWish(BaseModel):
     category: str = Field(description="Short label, e.g. 'CRM', 'Voice capture', 'Lead intelligence'")
-    description: str = Field(description="What Frank wants, in his own words paraphrased")
+    description: str = Field(description="What the prospect wants, in his own words paraphrased")
     quote_timestamp: str = Field(description="A [MM:SS] timestamp where this came up")
-    priority: str = Field(description="HIGH / MEDIUM / LOW based on how Frank discussed it")
+    priority: str = Field(description="HIGH / MEDIUM / LOW based on how the prospect discussed it")
 
 
 class ProposedModule(BaseModel):
@@ -47,12 +47,12 @@ class ProposedModule(BaseModel):
 
 class CallSummary(BaseModel):
     one_paragraph_summary: str = Field(description="3-5 sentences in Dutch describing the call")
-    frank_wishes: list[FrankWish]
+    prospect_wishes: list[ProspectWish]
     proposed_modules: list[ProposedModule]
     total_setup_eur_range: str = Field(description="e.g. '€12.000 - €18.000'")
     total_monthly_eur_range: str = Field(description="e.g. '€350 - €500'")
     recommended_starting_module: str = Field(description="Which module Vincent should propose first and why")
-    risks_or_concerns: list[str] = Field(description="Things Frank brought up that need careful handling")
+    risks_or_concerns: list[str] = Field(description="Things the prospect brought up that need careful handling")
     next_step: str = Field(description="Concrete next step for Vincent")
 
 
@@ -143,7 +143,7 @@ def render_summary(summary: CallSummary, prospect_name: str) -> str:
     out.append(summary.one_paragraph_summary)
     out.append("")
     out.append(f"## Wensen van {prospect_name}\n")
-    for w in summary.frank_wishes:
+    for w in summary.prospect_wishes:
         out.append(f"### {w.category} ({w.priority})")
         out.append(f"_{w.quote_timestamp}_")
         out.append(w.description)
@@ -177,7 +177,7 @@ def render_summary(summary: CallSummary, prospect_name: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Label speakers + summarize a sales call")
     parser.add_argument("transcript", type=Path)
-    parser.add_argument("--prospect-name", default="Frank")
+    parser.add_argument("--prospect-name", default="Prospect")
     parser.add_argument("--model", default="gemini-2.5-flash")
     parser.add_argument(
         "--provider",
@@ -196,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Samenvatten ({args.model})...", file=sys.stderr)
     summary = summarize_for_pitch(labeled, args.prospect_name, args.model, provider)
-    print(f"  {len(summary.frank_wishes)} wensen, {len(summary.proposed_modules)} modules", file=sys.stderr)
+    print(f"  {len(summary.prospect_wishes)} wensen, {len(summary.proposed_modules)} modules", file=sys.stderr)
 
     labeled_text = render_labeled(labeled)
     summary_text = render_summary(summary, args.prospect_name)

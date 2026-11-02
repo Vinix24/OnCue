@@ -43,8 +43,7 @@ onboarding, compliance, kosten
 
 ## Coach
 
-Coaching conversations between a coach and a client. Designed together with
-**Frank (MyOffice Almere)** as design partner for the Coach Pack.
+Coaching conversations between a coach and a client.
 
 **UI labels:** klant / coach
 
