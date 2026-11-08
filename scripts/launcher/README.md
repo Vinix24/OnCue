@@ -2,14 +2,21 @@
 
 ## Starten
 
-### Vanuit het Dock
-Klik op `Start OnCue.app`. Je krijgt een keuze:
+### Na de installatie
+De installer (`scripts/bootstrap.sh`, de regel uit [INSTALL.md](../../INSTALL.md)) zet de app in `~/Applications/OnCue.app`. Open hem via Launchpad of dubbelklik in Finder. Er is geen Gatekeeper-stap: de app wordt op je eigen Mac gebouwd en niets komt via een browser binnen.
 
-- **Meteen opnemen** — alleen opnemen, met twee volume-meters en een meelopende
-  timer, zodat je ziet dat zowel de tegenpartij als je eigen stem binnenkomt.
-  Geen dashboard, geen presentatie. Draait op poort 8780.
-- **Dashboard** — de volledige versie: live transcriptie, detectie, coaching
-  en presentatie. Draait op poort 8760.
+### Vanuit het Dock
+Klik op `OnCue.app` (of `Start OnCue.app` in `scripts/launcher/` bij een checkout). Je krijgt een keuze:
+
+- **Opnemen en uitschrijven** (standaard): neemt beide kanten van het gesprek
+  op, met twee volume-meters en een meelopende timer, zodat je ziet dat zowel de
+  tegenpartij als je eigen stem binnenkomt. Na Stop schrijft OnCue het gesprek
+  lokaal uit naar `transcript.md` in de sessiemap (`data/sessions/<tijdstip>/`),
+  met de regels `[mm:ss] Jij: ...` en `[mm:ss] Ander: ...`. De pagina toont
+  "Open transcript" en op macOS "Toon in Finder". Geen dashboard, geen
+  presentatie. Alles blijft op deze computer. Draait op poort 8780.
+- **Live coach**: de volledige versie van het dashboard: live transcriptie,
+  detectie, coaching en presentatie. Draait op poort 8760.
 
 Beide modi kunnen tegelijk draaien — ze zitten op verschillende poorten. Start
 je de ene terwijl de andere al draait, dan laat de launcher die staan en meldt
@@ -98,7 +105,7 @@ Dubbelklik `scripts/launcher/icon/icon_1024.png` in Finder voor Quick Look (spat
 
 ### Microfoon-permissie
 Bij eerste gebruik vraagt macOS om toestemming voor microfooningang.
-Ga naar **Systeeminstellingen → Privacy & Beveiliging → Microfoon** en zet Terminal (of het .app) op aan.
+Ga naar **Systeeminstellingen → Privacy & Beveiliging → Microfoon** en zet `applet` (de launcher, OnCue.app) op aan. Start je OnCue vanuit Terminal, dan hoort Terminal erbij.
 
 ### Audio-toestemming na herbouw
 Herbouwen (`bash scripts/launcher/build_app.sh`) ondertekent de app opnieuw. Dat geeft een
@@ -123,7 +130,4 @@ pkill -f "record_server.py"          # opname-modus
 Start daarna opnieuw via de launcher.
 
 ### Venv niet gevonden
-Run eerst de setup:
-```bash
-./scripts/setup.sh
-```
+Draai de installatie opnieuw. Voor de meeste mensen is dat de regel uit [INSTALL.md](../../INSTALL.md); in een checkout `bash scripts/install.sh`.

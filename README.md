@@ -8,7 +8,30 @@ OnCue is a local notetaker and a live copilot for conversations. It captures a c
 
 Sales calls are one use, not the definition. Interviews, intake and discovery calls, coaching sessions and internal meetings run through the same pipeline. OnCue captures system audio instead of joining the call, so Teams, Zoom, Meet, Webex or a phone bridge all look the same to it, and no bot joins the meeting.
 
-**Nederlands:** [wat OnCue is, wat er op je computer blijft en hoe je het als notulist probeert](#nederlands).
+## Install on a Mac, no technical knowledge needed
+
+**What you need:** a Mac with an Apple chip (M1 or newer), macOS 14.2 or newer and at least 5 GB of free disk space. The install downloads about 2.8 GB. On a fast connection that took 55 seconds in one measurement. On a normal home connection expect several minutes, up to about 15.
+
+1. Press Cmd+Space, type `Terminal` and press Enter.
+2. Paste this line and press Enter:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Vinix24/OnCue/main/scripts/bootstrap.sh)"
+```
+
+3. Wait until it says `OnCue is installed.` Then open **OnCue** from Launchpad and choose **Opnemen en uitschrijven**.
+
+If your Mac has no Apple developer tools yet, the first install can open an Apple window with an Install button and ask for your Mac password (you do not see it while typing). The Terminal tells you when that happens.
+
+**Prefer to let an AI assistant do it?** Paste this in Claude Code, Codex or Cursor:
+
+```text
+Install OnCue on my Mac. First read https://raw.githubusercontent.com/Vinix24/OnCue/main/docs/INSTALL_WITH_AI.md and follow those steps exactly. Tell me if I have to click something or type my password.
+```
+
+**Windows:** it works. The steps are in [INSTALL.md](INSTALL.md#windows), in English.
+
+**Nederlands:** je hebt een Mac met Apple-chip nodig, macOS 14.2 of nieuwer en 5 GB vrije ruimte. Open Terminal (Cmd+Spatie, typ `Terminal`, Enter), plak dezelfde regel als hierboven en wacht tot het klaar is. Of geef je AI-assistent de opdracht uit het [Nederlandse deel](#nederlands). Daar staat ook wat OnCue is, wat er op je computer blijft en hoe je het als notulist gebruikt.
 
 ---
 
@@ -20,15 +43,22 @@ OnCue is een notulist en een gesprekscoach die op je eigen computer draaien. Het
 
 **Wat je zelf kunt aanzetten.** Een samenvatting met actiepunten vraagt om een taalmodel. Met een taalmodel op je eigen computer blijft de tekst daar. Met de cloudomgeving van je eigen organisatie of een openbare AI-dienst gaat de tekst van het gesprek wel naar buiten. Die keuze maak je per gesprek. Twee andere instellingen halen het geluid van die lokale route af. De eerste stuurt het geluid naar de dienst Groq voor snellere transcriptie. De tweede zet de transcriptieserver open voor andere computers in je netwerk, zonder versleuteling. Beide staan standaard uit.
 
-**Zo probeer je het als notulist.** De stappen hieronder zijn voor een Mac. Je plakt een paar regels in het programma Terminal. Voor Windows staan de stappen in [INSTALL.md](INSTALL.md#windows), in het Engels.
+**Zo probeer je het als notulist.** Je hebt een Mac nodig met een Apple-chip (M1 of nieuwer), macOS 14.2 of nieuwer en minstens 5 GB vrije ruimte. Er wordt ongeveer 2,8 GB gedownload. Op een snelle verbinding duurde het 55 seconden. Op een gewone thuisverbinding zijn het een paar minuten, tot ongeveer 15. Voor Windows staan de stappen in [INSTALL.md](INSTALL.md#windows), in het Engels.
 
-1. Installeer en start OnCue met de stappen onder [Install](#install).
-2. Ga in je browser naar `http://localhost:8760/dashboard`. Dat adres is OnCue op je eigen computer, geen website.
-3. Klik links onder **Presets** op `notetaker`.
-4. Klik op **Start Call** als het gesprek begint en op **Stop & rapport** als het klaar is.
-5. Het hele gesprek staat daarna als tekstbestand (JSON) in de map `data/reports` binnen de OnCue-map.
+1. Open Terminal: druk op Cmd+Spatie, typ `Terminal` en druk op Enter. Plak deze regel en druk op Enter. Wacht tot er `OnCue is installed.` staat.
 
-Een samenvatting erbij laten maken door een taalmodel op je eigen computer: zie [Notetaker](#notetaker). Vertel je gesprekspartners vooraf dat je het gesprek laat uitwerken. De privacy-uitleg met de AVG staat in [docs/PRIVACY.md](docs/PRIVACY.md), in het Engels.
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Vinix24/OnCue/main/scripts/bootstrap.sh)"
+   ```
+
+   Heeft je Mac nog geen ontwikkelhulpmiddelen van Apple, dan kan de eerste installatie een Apple-venster openen met een knop Installeer en om je Mac-wachtwoord vragen. Dat wachtwoord zie je niet terwijl je typt. Terminal meldt het als dat gebeurt.
+2. Of laat je AI-assistent het doen met precies deze opdracht: `Installeer OnCue op mijn Mac. Lees eerst https://raw.githubusercontent.com/Vinix24/OnCue/main/docs/INSTALL_WITH_AI.md en volg die stappen precies. Zeg het me als ik iets moet aanklikken of mijn wachtwoord moet invullen.`
+3. Open OnCue vanuit Launchpad en kies **Opnemen en uitschrijven**. De eerste keer vraagt macOS toestemming voor de microfoon en voor systeemaudio. Klik op Sta toe.
+4. Druk op **REC** als het gesprek begint en op **Stop** als het klaar is. Daarna schrijft OnCue het gesprek uit naar `transcript.md`, met regels als `[00:12] Jij: ...` en `[00:15] Ander: ...`. De pagina toont **Open transcript** en **Toon in Finder**.
+
+Vertel je gesprekspartners vooraf dat je het gesprek opneemt en laat uitwerken. Wil je ook een live dashboard met coaching? Kies dan **Live coach**.
+
+Een samenvatting erbij laten maken door een taalmodel op je eigen computer: zie [Notetaker](#notetaker). De privacy-uitleg met de AVG staat in [docs/PRIVACY.md](docs/PRIVACY.md), in het Engels.
 
 ---
 
@@ -36,30 +66,49 @@ Een samenvatting erbij laten maken door een taalmodel op je eigen computer: zie 
 
 | | Notetaker | Live copilot |
 |---|---|---|
-| During the call | Live transcript of both sides | Live transcript, talk-time coaching and detection cards on a second screen |
-| After the call | The full transcript in a file on your machine | The same file, plus detections and talk-time in the report |
+| How you start it | **Opnemen en uitschrijven**, the default choice when you open OnCue.app | **Live coach** in the same dialog, or `.venv/bin/sales-copilot start` |
+| During the call | Two level meters and a timer: both sides are recorded | Live transcript, talk-time coaching and detection cards on a second screen |
+| After the call | After **Stop**, a readable `transcript.md` (`Jij` / `Ander`, with timestamps) in the session folder `data/sessions/<time>/`, with **Open transcript** and **Toon in Finder** | A report with the transcript, detections and talk-time |
 | Needs an LLM | No. An LLM adds a summary and action items | No. An LLM adds summaries and live suggestions |
 
 Both start from the same install.
 
 ## Install
 
-macOS 13 or newer with [Homebrew](https://brew.sh). Building the local transcriber needs the Xcode command line tools and `cmake`; the installer adds Python 3.11 when it is missing. Windows: see [INSTALL.md](INSTALL.md#windows).
+macOS 14.2 or newer on an Apple chip (M1 or newer), at least 5 GB free. Windows: see [INSTALL.md](INSTALL.md#windows).
+
+**One line, for everyone.** Paste it in Terminal:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Vinix24/OnCue/main/scripts/bootstrap.sh)"
+```
+
+It checks your Mac, downloads OnCue into `~/OnCue`, installs it and puts `OnCue.app` in `~/Applications`. The line is safe to run again: it keeps your `.env` and `data/`. When a release carries prebuilt programs, it downloads those (about 2.8 GB in total, no compiler, no Homebrew, no password). Otherwise it builds from source: that installs Apple's command line tools and Homebrew, which opens an Apple window and asks for your password. The log is `~/Library/Logs/OnCue/install-<timestamp>.log`.
+
+**Or let an AI assistant do it.** Paste this in Claude Code, Codex or Cursor:
+
+```text
+Install OnCue on my Mac. First read https://raw.githubusercontent.com/Vinix24/OnCue/main/docs/INSTALL_WITH_AI.md and follow those steps exactly. Tell me if I have to click something or type my password.
+```
+
+**For developers**, the manual route in a checkout (needs the Xcode command line tools and `cmake`; the installer adds Python 3.11 when it is missing):
 
 ```bash
 xcode-select --install          # skip if already installed
 brew install cmake
 git clone https://github.com/Vinix24/OnCue.git
 cd OnCue
-bash scripts/install.sh         # .venv, dependencies, whisper.cpp and its model, .env with LLM_PROVIDER=none
+bash scripts/install.sh         # .venv, dependencies, whisper.cpp and its model, .env with LLM_PROVIDER=none, OnCue.app
 .venv/bin/sales-copilot start   # starts OnCue on localhost:8760 and opens the browser
 ```
 
-The installer ends by suggesting an LLM API key. Neither route needs one. On first launch the browser may open a setup wizard; you can go straight to `http://localhost:8760/dashboard`. The dashboard is in Dutch by default (`LANGUAGE=nl`); set `LANGUAGE=en` in `.env` for English. Other install paths and troubleshooting: [INSTALL.md](INSTALL.md). Every setting: [docs/CONFIG.md](docs/CONFIG.md).
+Open `~/Applications/OnCue.app` (or Launchpad) and choose **Opnemen en uitschrijven**: the recorder starts, and after **Stop** it writes `transcript.md`. **Live coach** opens the dashboard instead. No LLM key is needed for either. The dashboard is in Dutch by default (`LANGUAGE=nl`); set `LANGUAGE=en` in `.env` for English. Other install paths and troubleshooting: [INSTALL.md](INSTALL.md). Every setting: [docs/CONFIG.md](docs/CONFIG.md).
 
 ---
 
 ## Notetaker
+
+The quickest route is **Opnemen en uitschrijven** in OnCue.app (see [Install](#install)): no dashboard, and `transcript.md` after Stop. The route below is the dashboard with the `notetaker` preset. It has a live transcript and writes a report file with more detail.
 
 1. Open `http://localhost:8760/dashboard`.
 2. Under **Presets**, click `notetaker`. It turns detection and talk-time coaching off, keeps the live transcript and the post-call report on, and transcribes your own microphone as well as the other side.

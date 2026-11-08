@@ -22,7 +22,11 @@ OLD_APP_PATH="$LAUNCHER_DIR/Start Sales Copilot.app"
 ICNS_PATH="$LAUNCHER_DIR/icon/sales-copilot.icns"
 
 command -v osacompile >/dev/null 2>&1 || _fail "osacompile not found — this script only runs on macOS."
-[[ -f "$ICNS_PATH" ]] || _fail "Icon not found at $ICNS_PATH — run 'python3 scripts/launcher/icon/generate_icon.py' first."
+HAVE_ICON=true
+if [[ ! -f "$ICNS_PATH" ]]; then
+    HAVE_ICON=false
+    _warn "Icon not found at $ICNS_PATH — building the app with the default applet icon. Run 'python3 scripts/launcher/icon/generate_icon.py' to get the OnCue icon."
+fi
 
 TMP_SCRIPT="$(mktemp -t oncue_launcher_source)"
 trap 'rm -f "$TMP_SCRIPT"' EXIT
@@ -35,15 +39,15 @@ on run
 	try
 		set userChoice to button returned of (display dialog "Wat wil je doen?
 
-Meteen opnemen — alleen opnemen, met twee volume-meters en een timer. Je ziet direct of beide kanten binnenkomen. Geen dashboard.
+Opnemen en uitschrijven: neemt beide kanten van het gesprek op en geeft je daarna een leesbaar transcript. Alles blijft op deze computer.
 
-Dashboard — de volledige versie: live transcriptie, detectie, coaching en presentatie." buttons {"Annuleer", "Dashboard", "Meteen opnemen"} default button "Meteen opnemen" with title "OnCue")
+Live coach: de volledige versie van het dashboard met live transcriptie, detectie en coaching." buttons {"Annuleer", "Live coach", "Opnemen en uitschrijven"} default button "Opnemen en uitschrijven" with title "OnCue")
 
 		if userChoice is "Annuleer" then
 			return
 		end if
 
-		if userChoice is "Dashboard" then
+		if userChoice is "Live coach" then
 			set launchMode to "dashboard"
 		else
 			set launchMode to "record"
@@ -118,8 +122,10 @@ osacompile -l AppleScript -o "$APP_PATH" "$TMP_SCRIPT"
 _blue "Setting CFBundleName to OnCue ..."
 /usr/libexec/PlistBuddy -c "Set :CFBundleName OnCue" "$APP_PATH/Contents/Info.plist"
 
-_blue "Installing icon ..."
-cp "$ICNS_PATH" "$APP_PATH/Contents/Resources/applet.icns"
+if [[ "$HAVE_ICON" == true ]]; then
+    _blue "Installing icon ..."
+    cp "$ICNS_PATH" "$APP_PATH/Contents/Resources/applet.icns"
+fi
 touch "$APP_PATH"
 
 _blue "Re-signing bundle (ad-hoc) ..."

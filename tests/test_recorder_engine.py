@@ -112,7 +112,7 @@ def test_engine_falls_back_to_tap_all_for_telephony_in_free_tier(
         feature_policy=_FakePolicy(),
         pid_watcher=ProcessWatcher("avconferenced"),
     )
-    streams = dict(engine._build_streams())  # noqa: SLF001
+    streams = dict(engine._build_streams())
 
     assert streams["prospect"].device_label == "audiotee:all"
 
@@ -130,7 +130,7 @@ def test_engine_uses_targeted_tap_for_telephony_in_pro_tier(
         feature_policy=_FakePolicy({FEATURE_CALLTAP}),
         pid_watcher=ProcessWatcher("avconferenced"),
     )
-    streams = dict(engine._build_streams())  # noqa: SLF001
+    streams = dict(engine._build_streams())
 
     assert streams["prospect"].device_label == "audiotee:avconferenced"
 
@@ -142,7 +142,7 @@ def test_engine_ignores_tier_for_non_telephony_process(tmp_path) -> None:
         audiotee_path=_fake_audiotee(tmp_path),
         feature_policy=_FakePolicy(),
     )
-    streams = dict(engine._build_streams())  # noqa: SLF001
+    streams = dict(engine._build_streams())
 
     assert streams["prospect"].device_label == "audiotee:Google Chrome"
 
@@ -195,7 +195,7 @@ def test_engine_free_tier_excludes_avconferenced_in_tap_all_fallback(
         feature_policy=_FakePolicy(),
         pid_watcher=ProcessWatcher("avconferenced"),
     )
-    streams = dict(engine._build_streams())  # noqa: SLF001
+    streams = dict(engine._build_streams())
     prospect = streams["prospect"]
 
     prospect.start()
@@ -229,7 +229,7 @@ def test_engine_free_tier_excludes_telephony_even_without_target(
         audiotee_path=_fake_audiotee(tmp_path),
         feature_policy=_FakePolicy(),
     )
-    streams = dict(engine._build_streams())  # noqa: SLF001
+    streams = dict(engine._build_streams())
     prospect = streams["prospect"]
 
     prospect.start()
@@ -274,7 +274,7 @@ def test_engine_toctou_exclusion_resolved_at_tap_start(
         feature_policy=_FakePolicy(),
         pid_watcher=ProcessWatcher("avconferenced"),
     )
-    streams = dict(engine._build_streams())  # noqa: SLF001
+    streams = dict(engine._build_streams())
     prospect = streams["prospect"]
 
     prospect.start()
@@ -310,7 +310,7 @@ def test_engine_wasapi_short_circuits_before_telephony_guard(
         pid_watcher=ProcessWatcher("avconferenced"),
         capture_method="wasapi",
     )
-    streams = dict(engine._build_streams())  # noqa: SLF001
+    streams = dict(engine._build_streams())
 
     assert streams["prospect"].device_label == "wasapi:loopback"
     assert streams["self"].device_label == "default"
@@ -328,7 +328,7 @@ def test_engine_wasapi_capture_method_normalizes_on_win32(
     monkeypatch.setattr(re_mod.sys, "platform", "win32")
 
     engine = RecorderEngine(out_dir=tmp_path, streams=None)
-    streams = dict(engine._build_streams())  # noqa: SLF001
+    streams = dict(engine._build_streams())
 
     assert streams["prospect"].device_label == "wasapi:loopback"
 
@@ -345,7 +345,7 @@ def test_engine_macos_audiotee_selection_unchanged_with_explicit_capture_method(
         feature_policy=_FakePolicy(),
         capture_method="audiotee",
     )
-    streams = dict(engine._build_streams())  # noqa: SLF001
+    streams = dict(engine._build_streams())
 
     assert streams["prospect"].device_label == "audiotee:all"
 
@@ -376,7 +376,7 @@ def test_engine_fuzzy_telephony_name_excludes_not_includes(
         audiotee_path=_fake_audiotee(tmp_path),
         feature_policy=_FakePolicy(),
     )
-    streams = dict(engine._build_streams())  # noqa: SLF001
+    streams = dict(engine._build_streams())
     prospect = streams["prospect"]
 
     prospect.start()
@@ -529,3 +529,115 @@ def test_pad_track_to_skips_track_without_real_audio(tmp_path) -> None:
     recorder.write_chunk("prospect", np.full(1000, 0.1, dtype=np.float32), 0)
     assert recorder.pad_track_to("prospect", 1000.0) == 1000 - round(1000 * 1000 / 16000)
     assert recorder.pad_track_to("prospect", 1000.0) == 0
+
+
+class _FlakyStream(FakeStream):
+    """Fails the first ``fail_times`` start() calls, then comes up and delivers frames."""
+
+    def __init__(self, frames: list[np.ndarray], *, fail_times: int) -> None:
+        super().__init__(frames)
+        self._fail_times = fail_times
+        self.start_calls = 0
+
+    def start(self) -> None:
+        self.start_calls += 1
+        if self.start_calls <= self._fail_times:
+            raise OSError("Invalid sample rate")
+        self.started = True
+
+
+def test_failed_stream_is_logged_and_other_track_records(tmp_path, caplog) -> None:
+    engine = RecorderEngine(
+        out_dir=tmp_path,
+        streams={"prospect": FakeStream(_chunks(4)), "self": FakeStream([], fail_start=True)},
+    )
+    with caplog.at_level("ERROR", logger="sales_copilot.audio.recorder_engine"):
+        engine.start(run_loop=False)
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1
+    assert "'self'" in errors[0].getMessage()
+    assert "RuntimeError: no device" in errors[0].getMessage()
+
+    engine.pump(engine._start_monotonic)
+    by = {s.label: s for s in engine.snapshot().streams}
+    assert by["self"].started is False
+    assert by["self"].error == "RuntimeError: no device"
+    assert by["prospect"].started is True and by["prospect"].error is None
+    directory = engine.stop()
+    assert (directory / "prospect.wav").exists()
+
+
+def test_late_stream_is_retried_and_padded_to_equal_length(tmp_path, monkeypatch, caplog) -> None:
+    flaky = _FlakyStream(_chunks(4), fail_times=1)
+    engine = RecorderEngine(
+        out_dir=tmp_path,
+        streams={"prospect": FakeStream(_chunks(4)), "self": flaky},
+    )
+    engine.start(run_loop=False)
+    t0 = engine._start_monotonic
+    engine.pump(t0 + 1.0)  # before the first retry is due
+    assert flaky.start_calls == 1
+    with caplog.at_level("INFO", logger="sales_copilot.audio.recorder_engine"):
+        engine.pump(t0 + 6.0)
+        engine.pump(t0 + 6.1)
+    assert flaky.start_calls == 2
+    assert sum("recovered" in r.getMessage() for r in caplog.records) == 1
+    snap = {s.label: s for s in engine.snapshot().streams}
+    assert snap["self"].started is True and snap["self"].error is None
+
+    directory = _stop_at(monkeypatch, engine, 8.0)
+    assert _wav_frames(directory / "prospect.wav") == _wav_frames(directory / "self.wav") == 8 * 16000
+    meta = _metadata(directory)
+    assert meta["late_start_ms"]["self"] == 6000
+    assert "failed_streams" not in meta
+
+
+def test_retry_backs_off_while_stream_keeps_failing(tmp_path) -> None:
+    flaky = _FlakyStream([], fail_times=99)
+    engine = RecorderEngine(out_dir=tmp_path, streams={"self": flaky}, retry_initial_s=5.0, retry_max_s=12.0)
+    engine.start(run_loop=False)
+    t0 = engine._start_monotonic
+    engine.pump(t0 + 5.0)
+    engine.pump(t0 + 6.0)  # next retry only due at +15 (delay doubled to 10)
+    assert flaky.start_calls == 2
+    engine.pump(t0 + 15.0)
+    assert flaky.start_calls == 3
+    engine.stop()
+
+
+def test_never_started_stream_is_written_to_metadata(tmp_path, monkeypatch) -> None:
+    engine = RecorderEngine(
+        out_dir=tmp_path,
+        streams={"prospect": FakeStream(_chunks(4)), "self": FakeStream([], fail_start=True)},
+    )
+    engine.start(run_loop=False)
+    engine.pump(engine._start_monotonic)
+    directory = _stop_at(monkeypatch, engine, 1.0)
+
+    meta = _metadata(directory)
+    assert meta["failed_streams"] == {"self": "RuntimeError: no device"}
+    assert meta["stream_labels"] == ["prospect"]
+
+
+def test_record_server_snapshot_includes_error(tmp_path) -> None:
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "record_server_under_test", Path(__file__).resolve().parent.parent / "scripts" / "record_server.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    engine = RecorderEngine(
+        out_dir=tmp_path,
+        streams={"prospect": FakeStream([]), "self": FakeStream([], fail_start=True)},
+    )
+    engine.start(run_loop=False)
+    payload = module._snapshot_dict(engine.snapshot())
+    engine.stop()
+
+    by = {s["label"]: s for s in payload["streams"]}
+    assert by["self"]["started"] is False
+    assert by["self"]["error"] == "RuntimeError: no device"
+    assert by["prospect"]["error"] is None

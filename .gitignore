@@ -80,6 +80,8 @@ claudedocs/
 scripts/launcher/*.app/
 scripts/launcher/icon/*
 !scripts/launcher/icon/generate_icon.py
+# The icon is tracked so a fresh clone can build the app without Pillow.
+!scripts/launcher/icon/sales-copilot.icns
 sbom.json
 
 # Personal/throwaway analysis scripts — not product code

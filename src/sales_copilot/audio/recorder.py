@@ -51,6 +51,8 @@ class AudioRecorder:
         self._end_padding_frames: dict[str, int] = {}
         self._started_at = _now_iso()
         self._ended_at: str | None = None
+        self._failed_streams: dict[str, str] = {}
+        self._late_start_ms: dict[str, int] = {}
         self._closed = False
         self._dir.mkdir(parents=True, exist_ok=True)
         self._dir.chmod(stat.S_IRWXU)
@@ -84,6 +86,16 @@ class AudioRecorder:
             if timestamp_ms - last >= self._flush_ms:
                 self._flush_label_locked(stream_label)
                 self._last_flush_ms[stream_label] = timestamp_ms
+
+    def note_failed_stream(self, stream_label: str, reason: str) -> None:
+        """Record that a stream never started, so metadata.json explains a missing track."""
+        with self._lock:
+            self._failed_streams[stream_label] = reason
+
+    def note_late_start(self, stream_label: str, offset_ms: int) -> None:
+        """Record that a stream came up ``offset_ms`` into the call (leading silence)."""
+        with self._lock:
+            self._late_start_ms[stream_label] = offset_ms
 
     def pad_track_to(self, stream_label: str, target_ms: float) -> int:
         """Append digital silence so ``stream_label`` lasts ``target_ms``.
@@ -233,6 +245,10 @@ class AudioRecorder:
             "channels": self._channels,
             "stream_labels": list(self._stream_labels),
         }
+        if self._failed_streams:
+            metadata["failed_streams"] = dict(self._failed_streams)
+        if self._late_start_ms:
+            metadata["late_start_ms"] = dict(self._late_start_ms)
         metadata_path = self._dir / "metadata.json"
         metadata_path.write_text(
             json.dumps(metadata, indent=2), encoding="utf-8"

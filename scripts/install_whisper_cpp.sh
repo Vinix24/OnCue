@@ -20,8 +20,9 @@ cmake -S "$VENDOR_DIR" -B "$BUILD_DIR" -DWHISPER_METAL=ON
 cmake --build "$BUILD_DIR" --config Release --target whisper-cli whisper-server
 
 bash "$VENDOR_DIR/models/download-ggml-model.sh" large-v3-turbo
-"$BIN_PATH" --help >/dev/null
-"$SERVER_PATH" --help >/dev/null
+# --help writes to stderr: silence both streams, the exit status is the sanity check.
+"$BIN_PATH" --help >/dev/null 2>&1
+"$SERVER_PATH" --help >/dev/null 2>&1
 
 if [ ! -f "$SERVER_PATH" ]; then
   echo "ERROR: expected whisper-server not found at $SERVER_PATH" >&2

@@ -24,13 +24,20 @@ jobs:
       - name: Prepare cached venv (self-hosted)
         if: vars.CI_RUNNER == 'self-hosted'
         env:
+          # Homebrew verzet `python3` bij een upgrade (op 2026-11-05 naar 3.15) en de lock
+          # begrenst onder 3.15. Daarom een vaste, geversioneerde interpreter.
+          SELF_HOSTED_PYTHON: python3.13
           BASE_TOOLS: 'pip>=26.2 setuptools>=84.1.0'
           EXTRAS: 'full,dev'
         run: |
           set -euo pipefail
           ROOT="$HOME/actions-runner/_venvs"
           mkdir -p "$ROOT"
-          KEY=$( { cat pyproject.toml constraints.txt; python3 --version; printf '%s\n%s\n' "$BASE_TOOLS" "$EXTRAS"; } | shasum -a 256 | cut -c1-16 )
+          if ! command -v "$SELF_HOSTED_PYTHON" >/dev/null 2>&1; then
+            echo "interpreter $SELF_HOSTED_PYTHON ontbreekt op de runner (brew install python@3.13)" >&2
+            exit 1
+          fi
+          KEY=$( { cat pyproject.toml constraints.txt; "$SELF_HOSTED_PYTHON" --version; printf '%s\n%s\n' "$BASE_TOOLS" "$EXTRAS"; } | shasum -a 256 | cut -c1-16 )
           VENV="$ROOT/sales-copilot-$KEY"
           BUILDING="$ROOT/.building-sales-copilot-$KEY"
           if [ -d "$VENV" ]; then
@@ -44,7 +51,7 @@ jobs:
                 rm -rf "$stale"
               fi
             done
-            python3 -m venv "$BUILDING"
+            "$SELF_HOSTED_PYTHON" -m venv "$BUILDING"
             read -r -a UPGRADE_SPECS <<< "$BASE_TOOLS"
             "$BUILDING/bin/python" -m pip install --upgrade "${UPGRADE_SPECS[@]}"
             "$BUILDING/bin/python" -m pip install -e ".[$EXTRAS]" -c constraints.txt

@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 
 from sales_copilot.core.autostart_monitor import (
+    TRIGGER_TELEPHONY,
     AutostartMonitorConfig,
     RuntimeAutostartMonitor,
     run_autostart_monitor_loop,
@@ -32,21 +33,33 @@ _autostart_stop_event: asyncio.Event | None = None
 # "sales" preset is the same default the sample-aha replay uses.
 _AUTOSTART_DEFAULT_PRESET = "sales"
 
+# Prospect source for a telephony-triggered auto-arm: the process tap on the
+# macOS telephony daemon, the only route that captures phone/FaceTime audio.
+_TELEPHONY_PROSPECT_SOURCE = "audiotee_call"
 
-def _build_autostart_call_config() -> dict[str, Any]:
+
+def _build_autostart_call_config(trigger: str | None = None) -> dict[str, Any]:
     """Build the start-call config for a runtime auto-armed session.
 
     ``consent`` is marked ``asked=True, given=True`` here deliberately: reaching
     this point already required the user's explicit per-call confirm-consent
     tick (``RuntimeAutostartMonitor.confirm_consent()``), so this *is* the fresh
     consent signal for this call, not a silent bypass of it.
+
+    ``trigger`` picks the prospect audio source. A telephony trigger sets
+    ``prospect_source = "audiotee_call"`` (the phone-call tap); a video trigger
+    (or unknown) sets nothing, so the configured ``PROSPECT_SOURCE`` applies
+    exactly as before.
     """
 
-    return {
+    config: dict[str, Any] = {
         "preset_name": _AUTOSTART_DEFAULT_PRESET,
         "install_code": "",
         "consent": {"asked": True, "given": True},
     }
+    if trigger == TRIGGER_TELEPHONY:
+        config["prospect_source"] = _TELEPHONY_PROSPECT_SOURCE
+    return config
 
 
 def _make_autostart_monitor() -> RuntimeAutostartMonitor:
@@ -59,11 +72,25 @@ def _make_autostart_monitor() -> RuntimeAutostartMonitor:
         )
 
     def _on_session_arm(process_name: str) -> None:
-        logger.info("Runtime auto-arm: session-arm triggered by '%s'.", process_name)
+        # Read the trigger now: it is only guaranteed set while confirm_consent()
+        # is still on the stack, not when the scheduled task runs.
+        trigger = monitor.active_trigger
+        logger.info("Runtime auto-arm: session-arm triggered by '%s' (%s).", process_name, trigger)
 
         async def _arm() -> None:
-            config = _build_autostart_call_config()
+            config = _build_autostart_call_config(trigger)
             missing = hub_core.missing_entitlements(config)
+            if missing and "prospect_source" in config:
+                # The only feature the per-trigger source adds is the phone-call
+                # tap. Without it do not block the session: fall back to the
+                # configured prospect source and re-check the plain config.
+                logger.warning(
+                    "Runtime auto-arm: phone call detected but the license lacks %s; "
+                    "falling back to the configured prospect source.",
+                    ", ".join(missing),
+                )
+                config = _build_autostart_call_config(None)
+                missing = hub_core.missing_entitlements(config)
             if missing:
                 # Defense in depth: the monitor already gated on FEATURE_AUTOSTART
                 # before surfacing the prompt, but the start-call entitlement
@@ -77,11 +104,12 @@ def _make_autostart_monitor() -> RuntimeAutostartMonitor:
 
         asyncio.create_task(_arm())
 
-    return RuntimeAutostartMonitor(
+    monitor = RuntimeAutostartMonitor(
         config=AutostartMonitorConfig.from_env(),
         on_consent_required=_on_consent_required,
         on_session_arm=_on_session_arm,
     )
+    return monitor
 
 
 @asynccontextmanager

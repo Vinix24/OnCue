@@ -22,9 +22,10 @@ What I give back: a free license key for the Pro features, early access to new f
 
 **Hardware and OS:**
 
-- macOS 14.4 or newer recommended for video calls: the copilot taps the entire system output mix through a process tap (AudioTee, `tap_all`), with no audio routing and no matter which or how many apps are open. On older macOS versions (13.0+) you use the manual BlackHole route
-- macOS 14.2 or newer required for telephony capture (`PROSPECT_SOURCE=audiotee_call`, iPhone/FaceTime via process tap); this is a Sales Pro feature
-- Apple Silicon required: M1, M2, M3, or M4
+- macOS 14.2 or newer is required (AudioTee needs it). On 14.4 and newer the permission is called Audio Recording. The copilot taps the entire system output mix through a process tap (AudioTee, `tap_all`), with no audio routing and no matter which or how many apps are open
+- Telephony capture (`PROSPECT_SOURCE=audiotee_call`, iPhone/FaceTime via process tap) is a Sales Pro feature
+- Apple Silicon required: M1, M2, M3, or M4. Intel Macs are not supported
+- At least 5 GB of free disk space
 - 16 GB RAM minimum, 24 GB recommended
 - The built-in microphone is sufficient, an external USB microphone gives better results
 
@@ -32,7 +33,7 @@ What I give back: a free license key for the Pro features, early access to new f
 
 - Google Meet, Zoom, or Teams for your calls — no extra audio routing needed; the .app taps the entire system output mix, regardless of which app you use
 - BlackHole 2ch (free) — only needed as a fallback, see the installation section below
-- No Python knowledge needed, the .app handles everything
+- No Python knowledge needed, the one-line install and the app handle everything
 
 **Broadband connection:**
 
@@ -43,38 +44,31 @@ What I give back: a free license key for the Pro features, early access to new f
 
 ## Installation in 3 steps
 
-### Step 1: Download the .app
+### Step 1: Paste one line in Terminal
 
-Download `Start OnCue.app` via the personal download link I sent you.
+Press Cmd+Space, type `Terminal` and press Enter. Paste this line and press Enter:
 
-Drag the .app into your `/Applications` folder or leave it in your Downloads folder - both work.
-
-### Step 2: Start the app (macOS Gatekeeper)
-
-The first time, macOS shows a warning: "Apple could not verify the developer." This is normal for software that doesn't come from the App Store.
-
-Do this the first time:
-
-1. Don't double-click the app - right-click it instead (or Control-click)
-2. Choose "Open" from the menu
-3. The warning appears again, but now with an "Open" button
-4. Click "Open"
-
-On later launches a normal double-click is enough. macOS remembers that you trust the app.
-
-If you prefer to go through System Settings: Settings > Privacy & Security > click "Open Anyway" next to the notice about OnCue.
-
-### Step 3: Dashboard opens in your browser
-
-OnCue starts a local server and automatically opens your browser at:
-
-```
-http://localhost:8760/dashboard
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Vinix24/OnCue/main/scripts/bootstrap.sh)"
 ```
 
-In the top right of the dashboard you'll see a status indicator. Wait until it says "Status: connected" - that usually takes 10 to 30 seconds the first time.
+Wait until it says `OnCue is installed.` and the status block shows `Transcriber OK`, `Audio capture OK` and `App OK`. The download is about 2.8 GB: on a fast connection under a minute, on a home connection several minutes, up to about 15. If your Mac has no Apple developer tools yet, an Apple window opens with an Install button and the installer asks for your Mac password (you do not see it while typing). The Terminal says when that happens. Prefer an AI assistant? Give it the prompt in [INSTALL.md](../INSTALL.md#one-line-for-everyone).
 
-**Verification:** Speak a sentence into your microphone. If the transcript panel responds, everything works. If you don't see a transcript, go to the audio routing section below.
+The app ends up in `~/Applications/OnCue.app`. Because nothing is downloaded through a browser, macOS shows no "Apple could not verify the developer" warning and you do not have to right-click anything.
+
+### Step 2: Open OnCue and choose "Opnemen en uitschrijven"
+
+Open OnCue from Launchpad (or `~/Applications/OnCue.app`). A dialog asks what you want to do. **Opnemen en uitschrijven** is the default: it records both sides of the call and writes a readable `transcript.md` after you press Stop. **Live coach** is the full dashboard with detection and coaching.
+
+The first time, macOS asks for permission for the microphone and for system-audio recording. Click Allow.
+
+### Step 3: Record and read the transcript
+
+Press **REC** when the conversation starts and **Stop** when it ends. After Stop, OnCue writes the conversation out and the page shows **Open transcript** and **Toon in Finder**. The file is `data/sessions/<time>/transcript.md` inside the OnCue folder (`~/OnCue`). Tell the other participants that you record and transcribe the call.
+
+For the dashboard (**Live coach**) the page is `http://localhost:8760/dashboard`. In the top right you see a status indicator. Wait until it says "Status: connected": that usually takes 10 to 30 seconds the first time.
+
+**Verification:** both level meters move when you speak and when the other side is audible. If the system meter stays flat, go to the audio section below.
 
 ---
 
@@ -88,7 +82,6 @@ If you'd rather have fixed, manual routing, you can choose BlackHole (see below)
 
 **When you need BlackHole yourself:**
 
-- Your Mac runs macOS older than 14.4 (the AudioTee process tap doesn't work then)
 - The AudioTee process tap doesn't get audio recording permission on your Mac
 - You deliberately want fixed, manual routing
 
@@ -144,7 +137,7 @@ Within 3 to 8 seconds you'll see a notification appear in the right panel.
 
 **1. Dashboard doesn't open**
 
-Check whether the app is still starting up. The terminal window behind the dashboard shows the status. Wait 60 seconds. If there's still nothing after 60 seconds, close everything and restart the app.
+Wait 60 seconds. Then read the last lines of `~/OnCue/data/logs/launcher-record.log` (record mode) or `~/OnCue/data/logs/launcher-dashboard.log` (Live coach). If there's still nothing, run the one-line install again: it is safe to repeat and keeps your files.
 
 **2. No transcript visible**
 
@@ -152,11 +145,11 @@ AudioTee taps the entire system output mix, so first check whether system audio 
 
 **3. Pain points aren't detected**
 
-The LLM API key is missing or expired. Open `.env` in the project folder (hidden file, use Finder > Go > Go to Folder and type in the path). If you configured a provider, check whether the matching key (for example `GROQ_API_KEY` or `GEMINI_API_KEY`) is filled in. Groq and Gemini both offer a free tier.
+The LLM API key is missing or expired. Open `.env` in the OnCue folder (`~/OnCue`, a hidden file: use Finder > Go > Go to Folder and type `~/OnCue`). This is only needed for LLM features; recording and transcribing work without it. If you configured a provider, check whether the matching key (for example `GROQ_API_KEY` or `GEMINI_API_KEY`) is filled in. Groq and Gemini both offer a free tier.
 
-**4. .app won't start, "damaged" message**
+**4. The app won't start, "damaged" message**
 
-macOS Gatekeeper is blocking the app. Use right-click > Open for the first time. If that doesn't work: System Settings > Privacy & Security > click "Open Anyway."
+This should not happen with the one-line install, because nothing is downloaded through a browser. If you copied the app from somewhere else, run the one-line install again to rebuild it in `~/Applications/OnCue.app`. Do not turn off Gatekeeper.
 
 **5. Tool responds slowly (transcript lags behind)**
 
@@ -168,7 +161,7 @@ Fill in the waitlist form for a free beta key. The link is in the accompanying e
 
 **7. Transcript is there, but stutters or drops**
 
-Microphone access may be limited. Go to System Settings > Privacy & Security > Microphone and check whether OnCue is listed there with access on.
+Microphone access may be limited. Go to System Settings > Privacy & Security > Microphone and check whether `OnCue` or `applet` is listed there with access on.
 
 **8. No more sound in the meeting (BlackHole fallback)**
 
@@ -176,7 +169,7 @@ This only applies if you're on the BlackHole fallback. The Multi-Output Device i
 
 **9. Tool crashes unexpectedly**
 
-Open the log file at `data/logs/copilot.log`. The first 50 lines are the most informative. Include them in your feedback email or bug report. I can almost always trace the cause from the log.
+Open the log file at `~/OnCue/data/logs/copilot.log`. The first 50 lines are the most informative. Include them in your feedback email or bug report. I can almost always trace the cause from the log.
 
 **10. A feature doesn't work as expected**
 
@@ -188,7 +181,7 @@ That's exactly the information I need. Describe what you expected and what happe
 
 Audio is processed locally on your Apple Silicon chip via whisper.cpp (the default backend; mlx-whisper is an experimental option). Your conversation audio does not go to an external server unless you switch on `WHISPER_BACKEND=groq`. Setting `WHISPER_CPP_SERVER_HOST` to a network address opens an unencrypted listener on your network. Both are off by default, neither filters personal data from audio, and a client's privacy ceiling refuses both.
 
-Transcripts are stored locally on your Mac in `data/sessions/`. I don't see those files unless you send them to me yourself.
+Transcripts are stored locally on your Mac in `data/sessions/` inside the OnCue folder. I don't see those files unless you send them to me yourself.
 
 LLM features work differently: no LLM is configured by default. If you configure a provider, text goes to it per task: detection windows, a rolling summary, live suggestions and, after the call, the whole transcript for the report. That's text, not audio. Without a provider, or with Ollama, nothing leaves the machine.
 

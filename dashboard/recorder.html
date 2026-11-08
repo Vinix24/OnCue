@@ -50,15 +50,29 @@
     .bar { height: 14px; background: #0f1218; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
     .fill { height: 100%; width: 0%; background: var(--green); border-radius: 6px; transition: width .08s linear; }
     .fill.silent { background: var(--amber); }
+    .fill.dead { background: var(--red); width: 100% !important; opacity: .35; }
+    .db.dead { color: var(--red); font-weight: 600; }
     .badge { color: var(--amber); font-size: 11px; margin-left: 8px; }
     .saved { margin-top: 20px; font-size: 13px; color: var(--muted); word-break: break-all; }
     .saved code { color: var(--green); }
+    .consent { color: var(--muted); font-size: 12px; margin: -12px 0 22px; }
+    .result { margin-top: 20px; display: none; }
+    .result.show { display: block; }
+    .result .msg { font-size: 13px; margin-bottom: 10px; }
+    .result .msg.failed { color: var(--red); }
+    .result .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn {
+      background: #0f1218; color: var(--text); border: 1px solid var(--line);
+      border-radius: 9px; padding: 9px 14px; font-size: 14px; cursor: pointer;
+    }
+    .btn:hover { border-color: var(--green); }
+    .rec-btn:disabled { opacity: .5; cursor: default; transform: none; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Call Recorder</h1>
-    <div class="sub">Lokale opname. Twee schone sporen naar <code>data/sessions/</code>.</div>
+    <div class="sub">Lokale opname en transcript. Alles blijft op deze computer, in <code>data/sessions/</code>.</div>
 
     <label for="mic">Microfoon (jouw stem)</label>
     <select id="mic"></select>
@@ -70,6 +84,7 @@
         <div class="timer" id="timer">00:00</div>
       </div>
     </div>
+    <div class="consent">Vertel je gesprekspartners dat je het gesprek opneemt en uitschrijft.</div>
 
     <div class="meters">
       <div class="meter">
@@ -83,6 +98,14 @@
     </div>
 
     <div class="saved" id="saved"></div>
+
+    <div class="result" id="result">
+      <div class="msg" id="result-msg"></div>
+      <div class="actions">
+        <button class="btn" id="open-transcript">Open transcript</button>
+        <button class="btn" id="reveal" hidden>Toon in Finder</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -91,7 +114,14 @@
     const stateEl = document.getElementById("state");
     const timerEl = document.getElementById("timer");
     const savedEl = document.getElementById("saved");
+    const resultEl = document.getElementById("result");
+    const resultMsg = document.getElementById("result-msg");
+    const openBtn = document.getElementById("open-transcript");
+    const revealBtn = document.getElementById("reveal");
     let recording = false;
+    let phase = "idle";
+    let latestSession = null;
+    let canReveal = false;
     let ws = null;
 
     function fmt(sec) {
@@ -121,9 +151,20 @@
       } catch (e) { stateEl.textContent = "Kon devices niet laden"; }
     }
 
+    const DEAD_TEXT = { self: "Microfoon niet gestart", prospect: "Systeemgeluid niet gestart" };
+
     function setMeter(label, s) {
       const fill = document.getElementById("fill-" + label);
       const db = document.getElementById("db-" + label);
+      const dead = recording && s && s.started === false;
+      fill.classList.toggle("dead", !!dead);
+      db.classList.toggle("dead", !!dead);
+      if (dead) {
+        fill.classList.remove("silent");
+        db.textContent = DEAD_TEXT[label] + (s.error ? " (" + s.error + ")" : "") + " · opnieuw proberen";
+        db.title = s.error || "";
+        return;
+      }
       const silent = s ? s.silent : true;
       const val = s ? s.db : null;
       fill.style.width = dbPct(val) + "%";
@@ -134,6 +175,7 @@
     }
 
     function onLevel(msg) {
+      if (!recording) return;
       timerEl.textContent = fmt(msg.elapsed_s);
       const byLabel = {};
       for (const s of msg.streams) byLabel[s.label] = s;
@@ -141,18 +183,59 @@
       setMeter("self", byLabel["self"]);
     }
 
+    function showResult(text, failed, withButtons) {
+      resultEl.classList.add("show");
+      resultMsg.textContent = text;
+      resultMsg.classList.toggle("failed", failed);
+      openBtn.hidden = !withButtons;
+      revealBtn.hidden = !withButtons || !canReveal;
+    }
+
+    function onState(msg) {
+      phase = msg.phase;
+      canReveal = !!msg.can_reveal;
+      recording = phase === "recording";
+      latestSession = msg.session;
+      recBtn.classList.toggle("recording", recording);
+      recBtn.textContent = recording ? "■ Stop" : "● REC";
+      recBtn.disabled = false;
+      if (recording) savedEl.textContent = "";
+      resultEl.classList.remove("show");
+      if (recording) {
+        stateEl.innerHTML = '<span class="dot">●</span> Opname loopt';
+        timerEl.textContent = fmt(msg.elapsed_s);
+        if (msg.transcribing) {
+          showResult("Een eerdere opname wordt nog uitgeschreven.", false, false);
+        }
+        return;
+      }
+      setMeter("prospect", null); setMeter("self", null);
+      if (phase === "transcribing") {
+        stateEl.textContent = "Bezig met uitschrijven";
+        showResult("Bezig met uitschrijven, dit duurt een paar minuten. Je kunt dit venster open laten.", false, false);
+      } else if (phase === "ready") {
+        stateEl.textContent = "Transcript klaar";
+        showResult("Het transcript staat klaar.", false, true);
+      } else if (phase === "failed") {
+        stateEl.textContent = "Uitschrijven mislukt";
+        showResult("Uitschrijven mislukt: " + (msg.reason || "onbekende fout"), true, !!msg.session);
+        openBtn.hidden = true;
+      } else {
+        stateEl.textContent = "Klaar om op te nemen";
+        timerEl.textContent = "00:00";
+      }
+    }
+
     function connect() {
       ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
       ws.onmessage = (ev) => {
         const msg = JSON.parse(ev.data);
         if (msg.type === "level") onLevel(msg);
-        else if (msg.type === "stopped") {
-          recording = false;
-          recBtn.classList.remove("recording");
-          recBtn.textContent = "● REC";
-          stateEl.textContent = "Opname opgeslagen";
+        else if (msg.type === "state") onState(msg);
+        else if (msg.type === "error") {
+          stateEl.textContent = "Opname starten mislukt: " + msg.reason;
+        } else if (msg.type === "stopped") {
           if (msg.directory) savedEl.innerHTML = "Opgeslagen in <code>" + msg.directory + "</code>";
-          setMeter("prospect", null); setMeter("self", null);
         }
       };
       ws.onclose = () => { stateEl.textContent = "Verbinding gesloten"; };
@@ -163,15 +246,31 @@
       if (!recording) {
         const mic = micSel.value === "" ? null : Number(micSel.value);
         ws.send(JSON.stringify({ action: "start", mic }));
-        recording = true;
-        recBtn.classList.add("recording");
-        recBtn.textContent = "■ Stop";
-        stateEl.innerHTML = '<span class="dot">●</span> Opname loopt';
-        savedEl.textContent = "";
       } else {
         ws.send(JSON.stringify({ action: "stop" }));
+        recBtn.disabled = true;
         stateEl.textContent = "Afronden...";
       }
+    });
+
+    openBtn.addEventListener("click", () => {
+      if (!latestSession) return;
+      window.open("/transcript?session=" + encodeURIComponent(latestSession), "_blank");
+    });
+
+    revealBtn.addEventListener("click", async () => {
+      if (!latestSession) return;
+      try {
+        const res = await fetch("/reveal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session: latestSession }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          showResult(body.detail || "Finder openen mislukt", true, true);
+        }
+      } catch (e) { showResult("Finder openen mislukt: " + e, true, true); }
     });
 
     loadDevices();

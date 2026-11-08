@@ -97,6 +97,8 @@ class RuntimeAutostartMonitor:
     user has explicitly ticked consent for this call -- this is where a caller
     actually starts the call (equivalent to a manual Start-Call click, so the
     same entitlement/consent gates in the runtime start-call path still apply).
+    The callback receives the detected process name; the trigger that produced
+    it is readable as ``active_trigger`` while the callback runs.
 
     Two independent ``DetectFn`` sources (video, telephony) are polled every
     tick, each with its own present/absent streak so one source's flapping
@@ -201,6 +203,19 @@ class RuntimeAutostartMonitor:
         if self.on_consent_required is not None:
             self.on_consent_required(process_name)
         return True
+
+    @property
+    def active_trigger(self) -> str | None:
+        """Which source (``TRIGGER_VIDEO`` / ``TRIGGER_TELEPHONY``) drives the current detection.
+
+        Set before ``on_consent_required`` fires and still set while
+        ``on_session_arm`` runs from ``confirm_consent()``, so the session-arm
+        callback can read it to pick the right prospect audio source. ``None``
+        while idle. Exposed as a property so the existing one-argument
+        ``on_session_arm(process_name)`` callback signature stays unchanged.
+        """
+
+        return self._active_trigger
 
     def _active_absent_streak(self) -> int:
         if self._active_trigger == TRIGGER_TELEPHONY:

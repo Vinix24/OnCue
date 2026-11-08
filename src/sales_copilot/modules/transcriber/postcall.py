@@ -13,6 +13,7 @@ helpers are pure and unit-tested; ``transcribe_session`` is the async glue.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Protocol
 
@@ -29,6 +30,20 @@ _MIC_CHANNELS = ("self", "mic")
 _SYSTEM_CHANNELS = ("prospect", "system")
 
 
+# whisper.cpp prints silence and non-speech as "***", "[BLANK_AUDIO]", "[MUSIC]" or
+# "(stilte)". Bracket groups without digits are markers; "(3)" is real text.
+_MARKER_RE = re.compile(r"\[[^\]\d]*\]|\([^)\d]*\)")
+
+
+def has_words(text: str) -> bool:
+    """True when the segment holds at least one letter or digit outside a marker.
+
+    ``***``, ``...``, ``[BLANK_AUDIO]`` and ``(stilte)`` carry no words. Text that
+    merely contains an asterisk or a marker next to real words is kept as is.
+    """
+    return any(ch.isalnum() for ch in _MARKER_RE.sub(" ", text))
+
+
 class _SegmentBackend(Protocol):
     async def transcribe_file_segments(self, path: Path) -> list[dict]: ...
 
@@ -38,15 +53,16 @@ def merge_labeled_segments(channels: dict[str, list[dict]]) -> list[dict]:
 
     ``channels`` maps a channel label (WAV stem) to its ``[{start, end, text}]``
     segments. Returns ``[{start, label, text}]`` sorted by start time (stable, so
-    equal-start segments keep channel insertion order). Empty-text segments drop, and so do
-    microphone lines that are loudspeaker echo of the system channel (``speaker_bleed``).
+    equal-start segments keep channel insertion order). Segments without words
+    (empty, ``***``, ``[BLANK_AUDIO]``) drop, and so do microphone lines that are
+    loudspeaker echo of the system channel (``speaker_bleed``).
     """
     merged: list[dict] = []
     bleed: list[BleedSegment] = []
     for label, segments in channels.items():
         for seg in segments:
             text = str(seg.get("text", "")).strip()
-            if not text:
+            if not has_words(text):
                 continue
             start = float(seg.get("start", 0.0) or 0.0)
             end = float(seg.get("end", start) or start)

@@ -12,7 +12,7 @@ An honest snapshot of what works and what doesn't right now. If you're in the pi
 
 ## Known limitations
 
-- **Windows install has no script.** The macOS `scripts/install.sh` doesn't run on Windows; every dependency and binary must be installed by hand. The steps that worked on real hardware are documented in [INSTALL.md](INSTALL.md#windows).
+- **Windows has its own installer.** The macOS scripts (`bootstrap.sh`, `install.sh`) do not run on Windows. Use `scripts\install.ps1`, described in [INSTALL.md](INSTALL.md#windows).
 - **Pain-point detection is unverified on Windows in a live call.** Capture and transcription work on real hardware ([#148](https://github.com/Vinix24/OnCue/issues/148)), but detection hasn't been tested with a real conversation and an active LLM provider on Windows yet.
 - **Corporate TLS inspection breaks model downloads.** Machines behind a TLS-terminating proxy (enterprise AV, corporate middlebox) can hit `CERTIFICATE_VERIFY_FAILED` or `CRYPT_E_NO_REVOCATION_CHECK` errors when curl, pip, or the embedding-model downloader tries to fetch models. The workaround that worked is documented in [#148](https://github.com/Vinix24/OnCue/issues/148).
 - **Phone/FaceTime-relay capture as a process-isolated tap is macOS-only.** The Apple Continuity path needs the `avconferenced` process tap, which has no Windows equivalent — Windows has no way to exclude telephony audio from the rest of the system mix. Whether Windows can capture telephony audio *at all*, through OnCue's whole-endpoint WASAPI tap, is a separate and still-open question: measured 2026-09-07, the relayed audio is recordable via Stereo Mix, but whether that audio ever reaches the render pipeline WASAPI loopback taps — and whether OnCue's own tap catches it — is unconfirmed. See [INSTALL.md](INSTALL.md#windows) ("Telephony capture") for the mechanism and the one test that would resolve it.
@@ -22,7 +22,7 @@ An honest snapshot of what works and what doesn't right now. If you're in the pi
 
 ## Deliberately not built yet (pilot)
 
-**No install wizard.** This is a pilot. Setup means a terminal, manual steps, and reading [INSTALL.md](INSTALL.md). A packaged installer with a GUI is planned but not yet built. The priority right now is making sure the core pipeline works reliably on real calls.
+**No signed or notarized app yet.** On a Mac, setup is one line pasted into Terminal (see [INSTALL.md](INSTALL.md)), or an AI assistant that follows [docs/INSTALL_WITH_AI.md](docs/INSTALL_WITH_AI.md). It ends with `~/Applications/OnCue.app`, a launcher that is signed ad-hoc on your own Mac. There is no `.app` or `.dmg` download that is signed and notarized by Apple, and no graphical installer. While no release carries the prebuilt programs, the line takes the build route: it installs Apple's command line tools and Homebrew, which means an Apple window and your Mac password. A release with prebuilt programs removes both.
 
 ## How to report something
 

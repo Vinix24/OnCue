@@ -30,10 +30,10 @@ def _parse_log_level(value: str | None) -> int:
     return levels[normalized]
 
 
-def configure_logging(*, log_dir: Path | None = None) -> Path:
+def configure_logging(*, log_dir: Path | None = None, file_name: str = LOG_FILE_NAME) -> Path:
     target_dir = log_dir or Path(env("LOG_DIR") or resolve_app_path("data/logs"))
     target_dir.mkdir(parents=True, exist_ok=True)
-    log_path = target_dir / LOG_FILE_NAME
+    log_path = target_dir / file_name
 
     root_logger = logging.getLogger()
     root_logger.setLevel(_parse_log_level(env("LOG_LEVEL", "INFO")))

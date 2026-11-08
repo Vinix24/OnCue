@@ -237,7 +237,7 @@ See also FAQ: [My work Mac refuses the installation (corporate MDM)](FAQ.md#faq-
 1. Ask IT for temporary or permanent permission for:
    - Homebrew packages/casks
    - Audio driver install (BlackHole)
-   - Microphone + Screen Recording permissions for Terminal/iTerm
+   - Microphone and Audio Recording permissions for `OnCue` (`applet`) or Terminal/iTerm
 2. Have IT run the installer together with you
 **Why this happens:** MDM/security policies block local developer-like behavior on managed devices.
 

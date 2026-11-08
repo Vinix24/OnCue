@@ -2,8 +2,92 @@
 
 ## [Unreleased]
 
+## [1.0.0-rc.6] — 2026-11-08
+
+### Documentation
+
+- Install docs for non-developers. `README.md` opens with a short Dutch and English block: what a Mac needs (Apple chip, macOS 14.2, 5 GB free), the one line to paste in Terminal, and a prompt for an AI assistant. The Dutch section and the English `## Install` section follow the same flow, and the "Two ways to use it" table now names **Opnemen en uitschrijven** and `transcript.md`.
+- New `docs/INSTALL_WITH_AI.md`: a self-contained guide an AI assistant follows to install OnCue. It covers the preflight, which route runs and what the human must do (password and Apple window on the build route only), verification, first launch with the macOS permissions, a 30-second test recording, troubleshooting and hard rules.
+- `INSTALL.md` starts with the one-line install and the measured release-route numbers (about 2.8 GB downloaded, 55 seconds on a fast connection, 4.2 GB on disk). The ZIP route (Path 3) is removed: no release has an asset. macOS 14.2 is the minimum everywhere, and the Gatekeeper steps are gone for the one-line route.
+- `KNOWN_ISSUES.md` replaces "No install wizard" with the current state: a one-line installer, and no signed or notarized app or dmg yet. `docs/BETA_TESTER_GUIDE.md`, `docs/SETUP_EXPECTATIONS.md`, `docs/FAQ.md`, `docs/TROUBLESHOOTING.md` and `scripts/launcher/README.md` follow the same facts.
+- The two option lines of the launch dialog in `scripts/launcher/build_app.sh` use a colon instead of an em-dash. Button names and behaviour are unchanged.
+
+### Changed
+
+- `scripts/install.sh` requires macOS 14.2 or newer (what AudioTee needs), checks for
+  the real command line tools (the `git` and `swift` shims on a Mac without them
+  passed the old check) and accepts only Python 3.11, the version CI tests.
+- `scripts/install_whisper_cpp.sh` no longer prints the `--help` text of whisper-cli
+  and whisper-server.
+
+### Fixed
+
+- Self-hosted CI builds its venv with a pinned `python3.13` (`SELF_HOSTED_PYTHON`)
+  instead of the bare `python3`. A Homebrew upgrade moved `python3` to 3.15, which
+  broke dependency resolution on every run since 2026-11-07. The step now fails
+  with one clear line when the interpreter is missing. The Security audit workflow
+  now uses the same pin.
+- Browser recorder: a mic or system-audio stream that fails to open is now logged
+  (`data/logs/recorder.log`), retried in the background with backoff, shown in red
+  in the recorder page ("Microfoon niet gestart") and written to `metadata.json`
+  (`failed_streams`, `late_start_ms`). A late track is padded with leading silence
+  so both tracks keep the same length.
+
 ### Added
 
+- The one-line install needs no Apple command line tools, no Homebrew and no password
+  by default. `scripts/bootstrap.sh` now takes a release route: it downloads the
+  latest release of Vinix24/OnCue (or `ONCUE_RELEASE=<tag>`), verifies the prebuilt
+  `oncue-macos-arm64.tar.gz` against its `.sha256` and places whisper-cli,
+  whisper-server and audiotee where the code looks for them. Python 3.11 and the
+  packages come from a private uv (pinned version) kept in `<ONCUE_DIR>/.tools`: no
+  shell profile or PATH change, and removing the OnCue folder removes everything.
+  `scripts/install.sh --prebuilt` then verifies the programs, downloads the speech
+  model with curl and builds the app. An existing git checkout keeps the build route;
+  a release without prebuilt programs, or a failed download, falls back to it with
+  one line. `ONCUE_ROUTE=release|build` forces a route. A re-run with the same tag
+  downloads nothing; a newer tag unpacks next to the install, carries over `.env`,
+  `data/` and `.tools` and keeps the old version as `<ONCUE_DIR>.previous`. A
+  checksum mismatch stops the install and changes nothing.
+- Record-and-transcribe is now the default OnCue launch choice. The launcher
+  dialog offers "Opnemen en uitschrijven" (default) and "Live coach". After Stop
+  the recorder page (`scripts/record_server.py`) transcribes the session in the
+  background with the backend `.env` selects (whisper.cpp by default) and writes
+  `transcript.md` into the session folder with a header and `[mm:ss] Jij:` /
+  `[mm:ss] Ander:` lines (`You` / `Other` when `LANGUAGE=en`). Transcriptions
+  queue and run one at a time, a failure is logged to `recorder.log` and shown
+  on the page, and the page offers "Open transcript" and, on macOS, "Toon in
+  Finder". Every connected page now sees the live levels and state, so
+  refreshing during a recording no longer freezes the meters and the timer.
+- One-line Mac install: paste `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Vinix24/OnCue/main/scripts/bootstrap.sh)"`
+  in Terminal. `scripts/bootstrap.sh` checks the Mac (Apple Silicon, macOS 14.2 or
+  newer), installs Apple's command line tools and Homebrew when missing, downloads
+  OnCue into `~/OnCue` (or `ONCUE_DIR`), runs `scripts/install.sh` and logs
+  everything to `~/Library/Logs/OnCue/install-<timestamp>.log`. Re-running updates
+  the checkout with a fast-forward pull and leaves `.env` and `data/` alone.
+  `--dry-run` prints every step and changes nothing.
+- The installer ends with an installed app: `scripts/install.sh` builds the launcher
+  and copies it to `~/Applications/OnCue.app`, and records the checkout in
+  `~/.oncue/repo-path`. It also installs `cmake` (needed for the whisper.cpp
+  transcriber), prints `[n/9]` step counters with the expected time and size per long
+  step, keeps compiler and download output in the log, and closes with a status block
+  for transcriber, audio capture and app.
+- `scripts/launcher/icon/sales-copilot.icns` is now tracked, so a fresh clone builds
+  the app with the OnCue icon without Pillow. `build_app.sh` falls back to the default
+  applet icon with a warning when the file is missing.
+- Release build of the native Mac programs. `scripts/build_macos_binaries.sh <out_dir>`
+  builds `whisper-cli`, `whisper-server` (whisper.cpp, static, Metal embedded, not tuned
+  to the build machine's CPU) and `audiotee` for Apple Silicon, checks that they link
+  only system libraries, are signed and transcribe `jfk.wav`, and packs them as
+  `oncue-macos-arm64.tar.gz` with a `.sha256`. The `release-macos-binaries` workflow runs
+  it on a GitHub-hosted runner and attaches both files to each published release.
+  Installing from these files needs no compiler on the user's Mac.
+- Runtime auto-arm picks the prospect audio source from its trigger. A phone or
+  FaceTime call starts the session on the phone-call tap (`audiotee_call`), so a
+  call placed from the Mac via the iPhone is captured without editing
+  `PROSPECT_SOURCE`. A video call keeps the configured source. Without the
+  `audio.calltap` license the session still starts on the configured source and
+  logs one warning.
 - Microphone lines that are loudspeaker echo of the other side are dropped from
   the report and from the after-the-call transcript. Without a headset the
   microphone picks up the speakers, so every sentence of the other side showed

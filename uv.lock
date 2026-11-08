@@ -1995,7 +1995,7 @@ wheels = [
 
 [[package]]
 name = "live-sales-copilot"
-version = "1.0.0rc5"
+version = "1.0.0rc6"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

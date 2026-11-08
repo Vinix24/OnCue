@@ -22,12 +22,9 @@ Step-by-step diagnosis and fix: [TROUBLESHOOTING.md — BlackHole does not appea
 **What you see:** You are experiencing: **Homebrew command asks for a password (is that safe?)**. This behavior blocks a normal call flow or makes the output unreliable.
 **Why this happens:** This is usually a combination of macOS security, dependency installation, or permissions on your machine.
 **Fix it yourself:**
-1. Restart from the project root with `bash scripts/first-run.sh` and read the first real error line.
-2. Fix the specific dependency/permission problem and then run exactly the same step again.
-3. Verify it works with:
-```bash
-bash scripts/first-run.sh --dry-run
-```
+1. Only the build route (the fallback of the one-line install) asks for your Mac password, once, for Homebrew. The release route asks for none. The password is the one you log in with, and you do not see it while typing.
+2. The installer is Apple's and Homebrew's own: the Terminal shows which one asks. Do not type your password anywhere else, and never give it to an AI assistant.
+3. Run the one-line install again after an error: it is safe to repeat. See [INSTALL.md](../INSTALL.md#one-line-for-everyone).
 **When this does NOT work:** Look at [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md). If it's a managed work Mac: email `info@vincentvandeth.nl`.
 
 <a id="faq-python-3-11-not-found-tijdens-setup"></a>
@@ -880,7 +877,7 @@ There are two, and they are not interchangeable.
   want in almost every case.
 - **`data/logs/runtime.log`** is only the captured stdout of the backend
   process, and only when you started it with `bash scripts/start.sh` or through
-  the launchd autostart agent. Start OnCue by double-clicking `Start OnCue.app`
+  the launchd autostart agent. Start OnCue by opening `~/Applications/OnCue.app`
   and this file is never written at all, so an empty or months-old
   `runtime.log` is normal rather than a symptom.
 - **`data/logs/mcp-bridge.log`** exists once you have used the MCP bridge (Pro).

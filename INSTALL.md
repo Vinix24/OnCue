@@ -1,12 +1,44 @@
 # OnCue — Installation Guide
 
-Three install paths for macOS (the stable, primary platform), plus a Windows path (supported — see [Windows](#windows) below).
+For macOS (the stable, primary platform): the one-line install for everyone, a developer route (Path 2) and a pipx route (Path 1). Windows has its own path, see [Windows](#windows) below.
 
-**System requirements (macOS, Paths 1-3):**
-- macOS 13 (Ventura) or newer for video calls; macOS 14.2 or newer required for telephony capture (`PROSPECT_SOURCE=audiotee_call`, a Sales Pro feature)
-- Apple Silicon (M1/M2/M3/M4) — Intel Macs work but MLX transcription is unavailable
+**System requirements (macOS):**
+- macOS 14.2 (Sonoma) or newer. AudioTee, the system-audio tap, needs it (`vendor/audiotee/Package.swift`). Telephony capture (`PROSPECT_SOURCE=audiotee_call`, a Sales Pro feature) also needs 14.2
+- Apple Silicon (M1/M2/M3/M4). Intel Macs are not supported: the speech engine `mlx-whisper` is a required dependency and does not run on Intel, and the installer refuses an Intel Mac
+- At least 5 GB free disk space (the install folder measured 4.2 GB)
 - 8 GB RAM minimum, 16 GB recommended
-- BlackHole 2ch for system audio capture (free), only needed if you use the manual `blackhole` fallback — the default AudioTee tap needs no virtual device
+- BlackHole 2ch for system audio capture (free), only needed if you use the manual `blackhole` fallback. The default AudioTee tap needs no virtual device
+
+---
+
+## One line, for everyone
+
+Open Terminal (Cmd+Space, type `Terminal`, Enter), paste this line and press Enter:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Vinix24/OnCue/main/scripts/bootstrap.sh)"
+```
+
+It checks your Mac, downloads OnCue into `~/OnCue`, installs it, and ends with a status block and the app `~/Applications/OnCue.app`. Everything it prints is also written to `~/Library/Logs/OnCue/install-<timestamp>.log`. The line is idempotent: run it again after an interruption or to update. `.env` and `data/` stay as they are.
+
+Add `--dry-run` after the closing quote (`... )" bash --dry-run`) to see every step and which route would run, without changing anything.
+
+**Two routes, chosen for you:**
+
+| Route | When | What it does | What you do |
+|---|---|---|---|
+| **Release** (default) | The latest GitHub release carries the prebuilt programs | Downloads the release source, the checksum-verified prebuilt speech and audio programs, and a private Python (`uv`) kept inside `~/OnCue/.tools`. Nothing is compiled | Nothing. No password, no Apple window, no Homebrew |
+| **Build** (fallback) | The release has no prebuilt programs or they cannot be downloaded, or `~/OnCue` is a git checkout | Installs Apple's command line tools and Homebrew when missing, clones the repo and compiles whisper.cpp and AudioTee | Click "Install" in Apple's window and type your Mac password for Homebrew. Terminal says when this route is taken |
+
+**What the release route downloads (measured once on one Mac, fast connection):** OnCue source about 19 MB and the prebuilt programs 2.5 MB from the GitHub release, `uv` 0.9.0 from astral.sh, Python 3.11 about 18 MB via uv, the Python packages about 1.3 GB from the Python package index, and the speech model 1.5 GB from Hugging Face. About 2.8 GB in total. That install took 55 seconds. The download dominates, so on a slower home connection expect several minutes, up to about 15. A second run downloads nothing and takes about 6 seconds. The install folder measured 4.2 GB with `du -sh`; on APFS the real use is lower. Keep at least 5 GB free. The build route takes about 5 to 15 minutes the first time.
+
+**Gatekeeper.** The one-line route has no Gatekeeper step. Nothing is downloaded through a browser, so macOS puts no quarantine mark on it. There is no "right-click > Open" and no "Open Anyway". The app is ad-hoc signed on your own Mac, not notarized by Apple.
+
+**First launch.** Open `~/Applications/OnCue.app` (or Launchpad). Choose **Opnemen en uitschrijven**. macOS asks for the microphone and for system-audio recording: click Allow. Press **REC**, and after **Stop** OnCue writes `transcript.md` into `~/OnCue/data/sessions/<time>/`. **Live coach** opens the dashboard instead.
+
+**An AI assistant can do this for you.** Give it this prompt: `Install OnCue on my Mac. First read https://raw.githubusercontent.com/Vinix24/OnCue/main/docs/INSTALL_WITH_AI.md and follow those steps exactly. Tell me if I have to click something or type my password.` The guide it follows is [docs/INSTALL_WITH_AI.md](docs/INSTALL_WITH_AI.md).
+
+**Remove OnCue.** Delete the folder `~/OnCue` (the release route keeps uv, its cache and Python in `~/OnCue/.tools`), `~/Applications/OnCue.app`, `~/.oncue` and, if you want, `~/Library/Logs/OnCue`. That deletes your transcripts in `~/OnCue/data/sessions` too, so copy them out first. The build route also installed Apple's command line tools and Homebrew; those stay.
 
 ---
 
@@ -51,9 +83,9 @@ pipx uninstall live-sales-copilot
 
 ---
 
-## Path 2: Beta-tester (one-shot script)
+## Path 2: Developers (git clone + install.sh)
 
-Best for technical sales coaches and recruiters who are comfortable with a terminal. The script is idempotent — safe to run twice.
+For people who want a git checkout. The script is idempotent, so it is safe to run twice. It needs Apple's command line tools (a real toolchain: `git` and `swift` alone are not enough) and Homebrew, and it builds whisper.cpp and AudioTee locally. The one-line install above runs this same script when it takes the build route.
 
 ```bash
 git clone https://github.com/Vinix24/OnCue.git
@@ -61,31 +93,24 @@ cd OnCue
 bash scripts/install.sh
 ```
 
-The installer checks and installs:
-1. macOS version (13+)
-2. Homebrew
-3. Python 3.11+ (installs via Homebrew if missing)
-4. git (Xcode command line tools)
-5. Virtual environment at `.venv/`
-6. All Python dependencies (`pip install -e .[smart] -c constraints.txt`), pinned to the versions CI tests
-7. whisper.cpp backend — binary compiled from the vendored submodule + its GGML model (large-v3-turbo, ~800 MB)
-8. `.env` from `.env.example` if not already present
-9. Local data directories
+The installer prints `[n/9]` steps and writes the detail to `~/Library/Logs/OnCue/install-<timestamp>.log`. It checks and installs:
+1. macOS 14.2 or newer on Apple Silicon
+2. Apple command line tools (it stops with the command `xcode-select --install` when they are missing)
+3. Homebrew (offers to install it)
+4. Python 3.11 (only 3.11, the version CI tests) and `cmake`, through Homebrew when missing
+5. Virtual environment at `.venv/` and all Python dependencies (`pip install -e .[smart] -c constraints.txt`), pinned to the versions CI tests
+6. AudioTee, built from the vendored Swift source into `bin/audiotee`
+7. whisper.cpp backend: binary compiled from the vendored source plus its GGML model (large-v3-turbo, about 1.5 GB)
+8. `.env` from `.env.example` if not already present, and the local data directories
+9. The app `~/Applications/OnCue.app`, with `~/.oncue/repo-path` pointing at this checkout
 
-The installer builds the AudioTee binary locally from the OSS-vendored Swift
-source at `vendor/audiotee/` (requires Xcode command line tools; `xcode-select --install`
-if missing). If the build is skipped or fails, system-audio capture falls back
-to BlackHole (see the BlackHole section below). Telephony/per-process capture
-(`PROSPECT_SOURCE=audiotee_call`) uses the same binary but is a Sales Pro feature.
+It ends with a status block (`Transcriber`, `Audio capture`, `App`), each `OK` or `NOT OK` with the fix.
 
-After the script finishes, optionally add an LLM provider and its API key (OnCue runs the live cues without one; see [Choosing an LLM provider](#choosing-an-llm-provider)):
+If the AudioTee build fails, the status block says so. Audio capture can then use BlackHole instead (see the BlackHole section below). Telephony/per-process capture (`PROSPECT_SOURCE=audiotee_call`) uses the same AudioTee binary but is a Sales Pro feature.
 
-```bash
-nano .env
-# Optional: LLM_PROVIDER=gemini and GEMINI_API_KEY=your_key_here
-```
+Nothing else is required. OnCue runs without an LLM and without editing `.env`. Only when you want summaries or live suggestions, add an LLM provider to `.env` (see [Choosing an LLM provider](#choosing-an-llm-provider)).
 
-Then start:
+Then open `~/Applications/OnCue.app`, or start from the terminal:
 
 ```bash
 .venv/bin/sales-copilot start
@@ -95,25 +120,7 @@ Then start:
 
 ---
 
-## Path 3: Non-technical user (ZIP download)
-
-Best for sales coaches and recruiters who do not use a terminal. No Python knowledge needed. A Terminal window opens once during setup to show install progress — you don't type anything into it.
-
-**Download**
-
-Get the latest release ZIP from GitHub Releases (link provided in the beta invitation). The ZIP contains everything you need, including both installer and launcher apps.
-
-The default AudioTee tap needs no audio setup. If you use the manual `blackhole` fallback, the step-by-step setup is in the **Optional fallback: BlackHole audio routing** section below.
-
-**Quick steps:**
-
-1. Download and unzip the release file
-2. Move the unzipped folder to your Desktop or Documents (not iCloud Drive)
-3. Right-click `Setup OnCue.app` > **Open** > **Open** (Gatekeeper bypass, one-time only)
-4. A Terminal window opens showing install progress — leave it open and wait 3-5 minutes for it to finish (you don't type anything into it)
-5. (Optional) The default AudioTee tap needs no audio setup. Only if you use the manual BlackHole fallback, follow the **Optional fallback: BlackHole audio routing** section below
-6. (Optional) Add an LLM provider and its API key to `.env`. Without one, the live cues run fully local. Example: a free Gemini key from aistudio.google.com/app/apikey
-7. Double-click `Start OnCue.app` to launch
+## Checking your setup
 
 **Checking your setup before a real call.** From a checkout of the repo you can
 run the preflight, which changes nothing and starts nothing:
@@ -131,10 +138,6 @@ next call, and whether the logs are writable. Anything that is not OK comes
 with the command that fixes it. `bash scripts/oncue_chain.sh up` runs the same
 checks and then starts what is missing, so the only step left is starting the
 call.
-
-**Updating:**
-
-Download the new release ZIP from GitHub Releases and replace the existing folder.
 
 ---
 
@@ -381,6 +384,8 @@ pipx reinstall live-sales-copilot
 `pipx upgrade` short-circuits on an unchanged version number and then installs
 nothing at all — see [Path 1](#path-1-power-user-pipx) above.
 
+**One-line install:** run the line again. A newer release is installed next to the old one, `.env`, `data/` and `.tools` are carried over, and the old version stays as `~/OnCue.previous`. A git checkout in `~/OnCue` is updated with a fast-forward pull.
+
 **Path 2 (git clone):**
 ```bash
 cd OnCue
@@ -389,9 +394,6 @@ bash scripts/install.sh
 ```
 The second step is not optional bookkeeping. `git pull` updates the source; only
 the reinstall writes the `bin/` wrappers for commands the new version declares.
-
-**Path 3 (.app):**
-Download the new release zip from GitHub Releases and replace the existing .app.
 
 **Checking that an update actually landed:** from a checkout,
 `bash scripts/oncue_chain.sh check` compares the commands declared in
@@ -412,7 +414,7 @@ source ~/.zshrc
 
 **Microphone permission denied**
 
-macOS requires explicit permission. Go to **System Settings > Privacy & Security > Microphone** and enable it for Terminal (or whichever app you use).
+macOS requires explicit permission. Go to **System Settings > Privacy & Security > Microphone** and enable it for `OnCue` or `applet` (the launcher), or for Terminal when you start OnCue from there. Without the system-audio permission (**Privacy & Security > Audio Recording**, or "System Audio Recording Only" on newer macOS) the other side of the call is silent without an error.
 
 **"BlackHole not found" on startup**
 
