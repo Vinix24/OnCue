@@ -14,7 +14,7 @@ on:
 
 jobs:
   pip-audit:
-    runs-on: ${{ vars.CI_RUNNER == 'self-hosted' && 'self-hosted' || 'macos-14' }}
+    runs-on: ${{ vars.CI_RUNNER == 'self-hosted' && 'self-hosted' || 'macos-15' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:

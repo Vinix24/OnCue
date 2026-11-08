@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The GitHub-hosted macOS jobs (release binaries, CI, Security audit) run on `macos-15` because GitHub retired `macos-14` on 2026-11-02. Binaries still target macOS 14.2.
+
 ## [1.0.0-rc.6] — 2026-11-08
 
 ### Documentation

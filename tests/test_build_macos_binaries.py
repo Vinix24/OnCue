@@ -44,7 +44,7 @@ def test_workflow_triggers_runner_and_permissions() -> None:
     assert "tag" in triggers["workflow_dispatch"]["inputs"]
     assert doc["permissions"] == {"contents": "write"}
     jobs = doc["jobs"]
-    assert all(job["runs-on"] == "macos-14" for job in jobs.values())
+    assert all(job["runs-on"] == "macos-15" for job in jobs.values())
     assert "self-hosted" not in text
     assert "CI_RUNNER" not in text
 
