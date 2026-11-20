@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 
 import numpy as np
 
@@ -266,14 +267,46 @@ def test_reads_failing_after_a_good_open_still_reach_no_tap_with_one_warning(mon
     rig.spk._script = [_good(0.1)] + [RuntimeError("read failed")] * 200  # noqa: SLF001
     rig.spk._repeat = None  # noqa: SLF001
     # After the first block every read raises, while opening keeps succeeding.
+    #
+    # NO_TAP may not be observed by polling tap_health() from this thread: the reader
+    # advances the fake clock only from its own loop, so the whole 200-failure script
+    # (worth ~200 s of fake time) burns in a few real milliseconds. Every successful
+    # re-open flips the state back to ATTACHED before the next read raises again, and
+    # once the script is exhausted the reader gets empty pulls that sleep on the real
+    # clock without advancing the fake one, leaving it attached forever. Whether a
+    # 5 ms poll lands on one of the microsecond-long NO_TAP windows depends purely on
+    # thread interleaving, so no wall-clock timeout can make it deterministic.
+    #
+    # Instead the reader is held inside the first re-open after the 10 s grace, and
+    # the assertions read the state while it is parked: no polling, no interleaving.
+    seen: list[tuple[float, bool, TapSignalState, int]] = []
+    parked = threading.Event()
+    release = threading.Event()
+    real_get = rig.sc.get_microphone
+
+    def get(id, include_loopback=False):  # noqa: A002
+        outage = rig.stream._outage_start is not None  # noqa: SLF001
+        seen.append((rig.clock.now, outage, rig.stream.tap_health().state, len(rig.warnings)))
+        if rig.clock.now >= 10.0 and not parked.is_set():
+            parked.set()
+            # Only a deadlock guard: the reader reaches 10 s of fake time in milliseconds.
+            release.wait(30.0)
+        return real_get(id, include_loopback=include_loopback)
+
+    rig.sc.get_microphone = get
     rig.stream.start()
-    # Wall-clock wait: the reader thread must run 10 s of injected outage grace, and under
-    # heavy load 5 s was too short (measured load 20-11 during a local .dmg build). A real
-    # bug still fails, because no_tap then never comes.
-    assert _wait_until(lambda: rig.stream.tap_health().state == TapSignalState.NO_TAP, timeout=30.0)
-    rig.stream.stop()
-    assert len(rig.warnings) == 1
-    assert rig.clock.now >= 10.0
+    try:
+        assert parked.wait(30.0), "the reader never reached the post-grace re-open"
+        assert rig.stream.tap_health().state == TapSignalState.NO_TAP
+        assert rig.clock.now >= 10.0
+        assert len(rig.warnings) == 1
+    finally:
+        release.set()
+        rig.stream.stop()
+
+    # Within the grace period the reader saw the tap attached and raised no warning.
+    before = [(state, warned) for t, outage, state, warned in seen if outage and t < 10.0]
+    assert before and all(state != TapSignalState.NO_TAP and warned == 0 for state, warned in before)
 
 
 def test_broken_call_app_list_is_logged_once_across_polls(monkeypatch, caplog) -> None:

@@ -73,13 +73,16 @@ def test_exact_zeros_are_lost_at_the_threshold_not_before(tmp_path) -> None:
     t0 = engine._start_monotonic
     _run(engine, prospect, mic, t0, 29, ZEROS)
     assert engine.snapshot(t0 + 29).tap_state == "ok"
-    # The first zero frame arrived at t0+2, so the run reaches 30 s at t0+32.
+    # The first zero frame arrived at t0+2, so the run reaches 30 s at t0+32. Pump just
+    # past that boundary, not exactly on it: t0 is a real monotonic value, and
+    # (t0+32)-(t0+2) can round a few ULP below 30.0 depending on t0's magnitude, which
+    # made this assertion fail on some hosts while the product behaved correctly.
     prospect.frame, mic.frame = ZEROS, _noise_floor()
-    engine.pump(t0 + 31.9)
-    assert engine.snapshot(t0 + 31.9).tap_state == "ok"
+    engine.pump(t0 + 31.999)
+    assert engine.snapshot(t0 + 31.999).tap_state == "ok"
     prospect.frame, mic.frame = ZEROS, _noise_floor()
-    engine.pump(t0 + 32)
-    assert engine.snapshot(t0 + 32).tap_state == "lost"
+    engine.pump(t0 + 32.001)
+    assert engine.snapshot(t0 + 32.001).tap_state == "lost"
 
 
 def test_a_quiet_but_non_zero_system_track_is_not_lost(tmp_path) -> None:
