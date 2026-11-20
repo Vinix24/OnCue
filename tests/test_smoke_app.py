@@ -13,7 +13,10 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "smoke_app.sh"
 
 SERVER = """\
-import http.server, os, sys, threading
+import sys, time
+# Before the imports and the bind: app.log then shows how far a failed start got.
+print(f"fake server starting at {time.time():.3f}", file=sys.stderr, flush=True)
+import http.server, os, threading
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         body = b'{"phase": "idle"}' if self.path == "/status" else b"<html>recorder</html>"
@@ -23,7 +26,18 @@ class H(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
     def log_message(self, *a):
         pass
-srv = http.server.HTTPServer(("127.0.0.1", int(os.environ["RECORDER_PORT"])), H)
+import socketserver
+class Server(http.server.HTTPServer):
+    # HTTPServer.server_bind() resolves the bound address with socket.getfqdn(), a
+    # reverse DNS lookup. On a GitHub-hosted macOS runner that lookup stalls for
+    # longer than the smoke timeout, while the socket is already bound but not yet
+    # listening, so a connect times out instead of being refused. Nothing here uses
+    # the resolved name, so bind and listen without the lookup.
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+srv = Server(("127.0.0.1", int(os.environ["RECORDER_PORT"])), H)
+print(f"fake server listening on 127.0.0.1:{os.environ['RECORDER_PORT']}", file=sys.stderr, flush=True)
 threading.Timer(25, srv.shutdown).start()
 srv.serve_forever()
 """
@@ -61,6 +75,43 @@ def _run(app: Path, port: int, tmpdir: Path | None = None, keep: bool = False) -
     return subprocess.run(
         ["bash", str(SCRIPT), str(app), "15"], capture_output=True, text=True, env=env, timeout=60, check=False
     )
+
+
+def test_fake_server_binds_without_resolving_the_bound_address(tmp_path: Path) -> None:
+    """http.server.HTTPServer.server_bind() calls socket.getfqdn(), a reverse DNS
+    lookup that on a GitHub-hosted macOS runner stalls past the smoke timeout: the
+    socket is bound but not yet listening, so the connect times out (curl 28) instead
+    of being refused. The fake server must bind without that lookup."""
+    server = tmp_path / "server.py"
+    server.write_text(SERVER, encoding="utf-8")
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import runpy, socket, sys\n"
+        "def refuse(host):\n"
+        "    sys.stderr.write(f'getfqdn called for {host!r}\\n')\n"
+        "    raise SystemExit(3)\n"
+        "socket.getfqdn = refuse\n"
+        "runpy.run_path(sys.argv[1], run_name='__main__')\n",
+        encoding="utf-8",
+    )
+    env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "RECORDER_PORT": str(_free_port())}
+    try:
+        result = subprocess.run(
+            [sys.executable, str(probe), str(server)],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=10,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stderr = exc.stderr or ""
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", "replace")
+    else:
+        pytest.fail(f"the fake server stopped before serving (getfqdn?) instead of starting: {result.stderr}")
+    assert "fake server listening" in stderr
+    assert "getfqdn called" not in stderr
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="smoke_app.sh targets macOS")

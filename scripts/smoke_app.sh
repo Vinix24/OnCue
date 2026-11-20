@@ -104,6 +104,42 @@ if [[ -n "$(listeners)" ]]; then
     exit 1
 fi
 
+# Everything below explains a failed wait. It only writes to stderr and never changes the
+# exit code, so the FAIL messages and exit codes stay what the tests assert on.
+diagnose_failure() {
+    local state="dead"
+    if kill -0 "$PID" 2>/dev/null; then state="alive"; fi
+    echo "diagnostics: app pid $PID is $state" >&2
+
+    # $PID and every descendant, one ps line per process. pgrep -P lists the direct
+    # children; the loop walks down from there.
+    echo "diagnostics: ps for the app and its children (pid,ppid,stat,etime,command):" >&2
+    local pids=("$PID") i=0 kid
+    while (( i < ${#pids[@]} )); do
+        while IFS= read -r kid; do
+            [[ -n "$kid" ]] && pids+=("$kid")
+        done < <(pgrep -P "${pids[$i]}" 2>/dev/null || true)
+        i=$((i + 1))
+    done
+    ps -o pid,ppid,stat,etime,command -p "$(IFS=,; echo "${pids[*]}")" >&2 || true
+
+    echo "diagnostics: listeners on port $PORT:" >&2
+    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >&2 || true
+
+    # A final curl with its stderr kept: a refused or timed-out connection reads
+    # differently from a server that answers with an error status.
+    echo "diagnostics: last curl error for http://127.0.0.1:$PORT/status:" >&2
+    local curl_status=0
+    curl -m 2 --no-progress-meter "http://127.0.0.1:$PORT/status" \
+        >/dev/null 2>"$WORK/curl-diagnostic.err" || curl_status=$?
+    if [[ -s "$WORK/curl-diagnostic.err" ]]; then
+        sed 's/^/diagnostics: /' "$WORK/curl-diagnostic.err" >&2
+    else
+        echo "diagnostics: curl: (no stderr output)" >&2
+    fi
+    echo "diagnostics: curl exit code: $curl_status" >&2
+}
+
 # True when $1 is the app process $PID or one of its descendants.
 is_app_process() {
     local candidate="$1"
@@ -127,8 +163,8 @@ PID=$!
 
 deadline=$((SECONDS + TIMEOUT))
 until curl -fsS -m 2 "http://127.0.0.1:$PORT/status" >"$WORK/status.json" 2>/dev/null; do
-    kill -0 "$PID" 2>/dev/null || { echo "FAIL: app exited early" >&2; tail -n 30 "$WORK/app.log" >&2; exit 1; }
-    ((SECONDS < deadline)) || { echo "FAIL: no /status within ${TIMEOUT}s" >&2; tail -n 30 "$WORK/app.log" >&2; exit 1; }
+    kill -0 "$PID" 2>/dev/null || { echo "FAIL: app exited early" >&2; tail -n 30 "$WORK/app.log" >&2; diagnose_failure; exit 1; }
+    ((SECONDS < deadline)) || { echo "FAIL: no /status within ${TIMEOUT}s" >&2; tail -n 30 "$WORK/app.log" >&2; diagnose_failure; exit 1; }
     sleep 1
 done
 kill -0 "$PID" 2>/dev/null || { echo "FAIL: app exited before /status was checked" >&2; tail -n 30 "$WORK/app.log" >&2; exit 1; }

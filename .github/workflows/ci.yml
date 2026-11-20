@@ -5,6 +5,15 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, feat/cold-call-objections]
+  # Manual runs pick the runner without touching the repo variable, so a GitHub-hosted
+  # label can be tested from a branch: gh workflow run CI --ref <branch> -f runner=macos-15
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner label for the test job (empty = the CI_RUNNER default)'
+        required: false
+        type: string
+        default: ''
 
 # A new push to a pull request supersedes the run in progress. Runs on main and
 # develop are never cancelled: cancel-in-progress is true for pull_request only.
@@ -14,21 +23,22 @@ concurrency:
 
 jobs:
   test:
-    # Apple Silicon for mlx-whisper compatibility
-    runs-on: ${{ vars.CI_RUNNER == 'self-hosted' && 'self-hosted' || 'macos-15' }}
+    # Apple Silicon for mlx-whisper compatibility. A dispatched run can override the
+    # label; normal push/pull_request runs resolve exactly as before.
+    runs-on: ${{ inputs.runner || (vars.CI_RUNNER == 'self-hosted' && 'self-hosted' || 'macos-15') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        if: vars.CI_RUNNER != 'self-hosted'
+        if: vars.CI_RUNNER != 'self-hosted' || (inputs.runner != '' && inputs.runner != 'self-hosted')
         with:
           python-version: '3.11'
       # Self-hosted: de venv leeft buiten de werkmap en is gekeyd op de inhoud, zodat
       # actions/checkout (clean: true) hem niet bij elke run wegvaagt en opnieuw bouwt.
       # .venv in de werkmap is een symlink; git clean volgt geen symlinks naar mappen.
       - name: Prepare cached venv (self-hosted)
-        if: vars.CI_RUNNER == 'self-hosted'
+        if: inputs.runner == 'self-hosted' || (inputs.runner == '' && vars.CI_RUNNER == 'self-hosted')
         env:
           # Homebrew verzet `python3` bij een upgrade (op 2026-11-05 naar 3.15) en de lock
           # begrenst onder 3.15. Daarom een vaste, geversioneerde interpreter.
@@ -85,7 +95,7 @@ jobs:
           done
           du -sh "$ROOT"
       - name: Install dependencies
-        if: vars.CI_RUNNER != 'self-hosted'
+        if: vars.CI_RUNNER != 'self-hosted' || (inputs.runner != '' && inputs.runner != 'self-hosted')
         run: |
           python3 -m venv .venv
           source .venv/bin/activate
