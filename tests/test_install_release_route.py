@@ -37,6 +37,20 @@ from tests.test_install_scripts import (
 
 TAG = "v9.0.0"
 ARCHIVE = "oncue-macos-arm64.tar.gz"
+BAR = "OnCue Bar.app"
+
+
+def _bar_bundle(parent: Path, version: str) -> Path:
+    """A recording-bar bundle as the release build leaves it (fake executable)."""
+    app = parent / BAR
+    _executable(app / "Contents" / "MacOS" / "OnCueBar", "#!/bin/sh\nexit 0\n")
+    (app / "Contents" / "Info.plist").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>\n'
+        "<key>CFBundleIdentifier</key><string>nl.vnxdigital.oncue.bar</string>\n"
+        f"<key>CFBundleVersion</key><string>{version}</string>\n"
+        "</dict></plist>\n"
+    )
+    return app
 BUILD_APP = SCRIPTS / "launcher" / "build_app.sh"
 
 # Commands that are shims on a Mac without Apple's command line tools: calling one
@@ -75,7 +89,7 @@ def _api_json(tag: str, assets: tuple[str, ...]) -> str:
 class Release:
     """A fake OnCue release laid out as file:// URL bases."""
 
-    def __init__(self, tmp_path: Path) -> None:
+    def __init__(self, tmp_path: Path, template: Release | None = None) -> None:
         self.root = tmp_path / "fixture"
         self.api = self.root / "api"
         self.sources = self.root / "sources"
@@ -83,10 +97,20 @@ class Release:
         self.uv_calls = tmp_path / "uv-calls.log"
         self.repo = tmp_path / "release-source"
         self.env = _base_env(tmp_path)
-        for d in (self.api / "releases" / "tags", self.sources, self.assets):
-            d.mkdir(parents=True, exist_ok=True)
-        _make_source_repo_tree(self.repo, self.env)
         self.fake_uv = self.root / "fake-uv"
+        if template is None:
+            for d in (self.api / "releases" / "tags", self.sources, self.assets):
+                d.mkdir(parents=True, exist_ok=True)
+            _make_source_repo_tree(self.repo, self.env)
+        else:
+            # A cheap copy of the module's built release: no git init, no archive.
+            shutil.copytree(template.root, self.root)
+            shutil.copytree(template.repo, self.repo)
+        self._write_helper_scripts()
+
+    def _write_helper_scripts(self) -> None:
+        """The fake uv and its installer embed this fixture's own log path, so a
+        copied fixture rewrites them instead of sharing the template's."""
         _executable(
             self.fake_uv,
             "#!/bin/sh\n"
@@ -155,11 +179,12 @@ class Release:
         for name in ("whisper-cli", "whisper-server", "audiotee"):
             _executable(stage / name, f"#!/bin/sh\n# fake {name} {tag}\nexit 0\n")
         (stage / "BUILD_INFO.txt").write_text(f"fake build for {tag}\n")
+        _bar_bundle(stage, tag.lstrip("v"))
         asset_dir = self.assets / tag
         asset_dir.mkdir(exist_ok=True)
         archive = asset_dir / ARCHIVE
         with tarfile.open(archive, "w:gz") as tar:
-            for name in ("whisper-cli", "whisper-server", "audiotee", "BUILD_INFO.txt"):
+            for name in ("whisper-cli", "whisper-server", "audiotee", BAR, "BUILD_INFO.txt"):
                 if name == omit:
                     continue
                 tar.add(stage / name, arcname=name)
@@ -188,11 +213,23 @@ def _make_source_repo_tree(repo: Path, env: dict[str, str]) -> None:
     _git(repo, "commit", "-q", "-m", "seed", env=env)
 
 
+@pytest.fixture(scope="module")
+def _release_template(tmp_path_factory: pytest.TempPathFactory) -> Release:
+    """The expensive part (git init, commit, `git archive`, tarballs) built once."""
+    template = Release(tmp_path_factory.mktemp("release-template"))
+    template.publish()
+    return template
+
+
 @pytest.fixture
-def release(tmp_path: Path) -> Release:
-    rel = Release(tmp_path)
-    rel.publish()
-    return rel
+def release(tmp_path: Path, _release_template: Release) -> Release:
+    return Release(tmp_path, template=_release_template)
+
+
+def _fast_sleep_shim(shims: Path) -> None:
+    """The scripts poll a background step with `sleep 1`, so every logged step costs
+    a full second even when it is instant. Only that one-second poll is shortened."""
+    _executable(shims / "sleep", '#!/bin/sh\nif [ "$1" = 1 ]; then exec /bin/sleep 0.1; fi\nexec /bin/sleep "$@"\n')
 
 
 def _release_env(rel: Release, tmp_path: Path, **extra: str) -> dict[str, str]:
@@ -205,6 +242,7 @@ def _release_env(rel: Release, tmp_path: Path, **extra: str) -> dict[str, str]:
     shims = tmp_path / "shims"
     for name in FORBIDDEN_COMMANDS:
         _executable(shims / name, f'#!/bin/sh\necho "{name} $*" >> "{tmp_path / "shim-calls.log"}"\nexit 1\n')
+    _fast_sleep_shim(shims)
     env.update(
         PATH=f"{shims}:{env['PATH']}",
         TMPDIR=str(tmp),
@@ -392,6 +430,7 @@ def test_first_install_needs_no_command_line_tools(release: Release, tmp_path: P
     ):
         path = install / rel_path
         assert path.is_file() and path.stat().st_mode & stat.S_IEXEC, rel_path
+    assert (install / "bin" / BAR / "Contents" / "MacOS" / "OnCueBar").stat().st_mode & stat.S_IEXEC
     assert (install / ".oncue-binaries").read_text().strip() == TAG
     assert (install / "bin" / "BUILD_INFO.txt").is_file()
     # No staging leftovers next to the install.
@@ -526,6 +565,48 @@ def test_missing_programs_are_fetched_again_for_the_same_tag(release: Release, t
     assert result.returncode == 0, _out(result)
     assert (install / "bin" / "audiotee").is_file()
     assert _marker(install) == TAG
+
+
+@darwin_only
+def test_a_bar_of_an_older_release_counts_as_not_current(release: Release, tmp_path: Path) -> None:
+    env = _release_env(release, tmp_path)
+    install = tmp_path / "oncue"
+    assert _bootstrap(env).returncode == 0
+    plist = install / "bin" / BAR / "Contents" / "Info.plist"
+    plist.write_text(plist.read_text().replace("9.0.0", "8.9.0"))
+    (release.sources / f"{TAG}.tar.gz").unlink()
+
+    result = _bootstrap(env)
+
+    assert result.returncode == 0, _out(result)
+    assert "9.0.0" in plist.read_text() and "8.9.0" not in plist.read_text()
+    assert _marker(install) == TAG
+
+
+@darwin_only
+def test_a_missing_bar_is_placed_again(release: Release, tmp_path: Path) -> None:
+    env = _release_env(release, tmp_path)
+    install = tmp_path / "oncue"
+    assert _bootstrap(env).returncode == 0
+    (install / "bin" / BAR / "Contents" / "MacOS" / "OnCueBar").chmod(0o644)
+    (release.sources / f"{TAG}.tar.gz").unlink()
+
+    result = _bootstrap(env)
+
+    assert result.returncode == 0, _out(result)
+    assert (install / "bin" / BAR / "Contents" / "MacOS" / "OnCueBar").stat().st_mode & stat.S_IEXEC
+
+
+@darwin_only
+def test_programs_archive_without_the_bar_refuses(tmp_path: Path) -> None:
+    rel = Release(tmp_path)
+    rel.publish(omit=BAR)
+
+    result = _bootstrap(_release_env(rel, tmp_path))
+
+    assert result.returncode != 0
+    assert f"{BAR} is missing" in _out(result)
+    assert not (tmp_path / "oncue").exists()
 
 
 @darwin_only
@@ -681,7 +762,7 @@ def test_build_route_explains_a_release_install_it_cannot_update(release: Releas
 # ── install.sh --prebuilt ────────────────────────────────────────────────────
 
 
-def _prebuilt_tree(tmp_path: Path) -> Path:
+def _prebuilt_tree(tmp_path: Path, with_bar: bool = True) -> Path:
     """A copy of the scripts plus what bootstrap's release route leaves behind."""
     tree = tmp_path / "tree"
     shutil.copytree(SCRIPTS, tree / "scripts", ignore=shutil.ignore_patterns("*.app", "__pycache__"))
@@ -693,6 +774,9 @@ def _prebuilt_tree(tmp_path: Path) -> Path:
         "bin/audiotee",
     ):
         _executable(tree / rel_path, "#!/bin/sh\nexit 0\n")
+    (tree / "pyproject.toml").write_text('[project]\nname = "fixture"\nversion = "9.0.0"\n')
+    if with_bar:
+        _bar_bundle(tree / "bin", "9.0.0")
     return tree
 
 
@@ -701,6 +785,7 @@ def _prebuilt_env(tmp_path: Path, model: Path | None) -> dict[str, str]:
     shims = tmp_path / "shims"
     for name in FORBIDDEN_COMMANDS:
         _executable(shims / name, f'#!/bin/sh\necho "{name} $*" >> "{tmp_path / "shim-calls.log"}"\nexit 1\n')
+    _fast_sleep_shim(shims)
     env["PATH"] = f"{shims}:{env['PATH']}"
     env["ONCUE_MODEL_URL"] = f"file://{model}" if model else f"file://{tmp_path}/no-such-model.bin"
     return env
@@ -730,6 +815,43 @@ def test_prebuilt_install_verifies_and_finishes_without_command_line_tools(tmp_p
     for label in ("Transcriber", "Audio capture", "App"):
         assert re.search(rf"{label}\s+OK", out), out
     assert "OnCue is installed." in out
+    assert _shim_calls(tmp_path) == ""
+
+
+@darwin_only
+def test_prebuilt_install_verifies_the_bar_and_runs_no_build(tmp_path: Path) -> None:
+    tree = _prebuilt_tree(tmp_path)
+    env = _prebuilt_env(tmp_path, None)
+
+    result = _run(["bash", str(tree / "scripts" / "install.sh"), "--auto-yes", "--prebuilt"], env, timeout=180)
+
+    out = _out(result)
+    assert result.returncode == 0, out
+    assert "Recording bar verified: bin/OnCue Bar.app" in out
+    assert _shim_calls(tmp_path) == ""
+
+
+@darwin_only
+@pytest.mark.parametrize("state", ["missing", "old_version", "not_executable"])
+def test_prebuilt_install_without_a_current_bar_says_so_once_and_still_succeeds(
+    state: str, tmp_path: Path
+) -> None:
+    tree = _prebuilt_tree(tmp_path, with_bar=state == "not_executable" or state == "old_version")
+    if state == "old_version":
+        (tree / "bin" / BAR / "Contents" / "Info.plist").write_text(
+            (tree / "bin" / BAR / "Contents" / "Info.plist").read_text().replace("9.0.0", "8.9.0")
+        )
+    if state == "not_executable":
+        (tree / "bin" / BAR / "Contents" / "MacOS" / "OnCueBar").chmod(0o644)
+    env = _prebuilt_env(tmp_path, None)
+
+    result = _run(["bash", str(tree / "scripts" / "install.sh"), "--auto-yes", "--prebuilt"], env, timeout=180)
+
+    out = _out(result)
+    assert result.returncode == 0, out
+    assert out.count("OnCue works without the recording bar") == 1
+    assert "the recording page in the browser stays the full control" in out
+    assert "Recording bar verified" not in out
     assert _shim_calls(tmp_path) == ""
 
 

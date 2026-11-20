@@ -29,8 +29,12 @@ _APP_SUPPORT_DIR_NAME = "SalesCopilot"
 
 
 def is_frozen_app() -> bool:
-    """Return ``True`` when running inside a py2app/frozen ``.app`` bundle."""
-    return getattr(sys, "frozen", False) is True
+    """Return ``True`` when running inside a py2app/frozen ``.app`` bundle.
+
+    py2app sets ``sys.frozen`` to the string ``"macosx_app"``, other freezers to ``True``;
+    any value but ``False``/``None``/empty means frozen.
+    """
+    return bool(getattr(sys, "frozen", False))
 
 
 def _bundle_resources_dir() -> Path:

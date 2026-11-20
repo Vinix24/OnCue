@@ -53,8 +53,8 @@ and broadcasts it to module processes (and the dashboard itself) on `/ws/config`
       "post_call_report": true
     },
     "llm": {
-      "provider": "gemini",
-      "model": "gemini-2.5-flash"
+      "provider": "openrouter",
+      "model": "anthropic/claude-haiku-4.5"
     },
     "prospect": {
       "company": "Acme BV",
@@ -175,6 +175,40 @@ to `[NAAM]` there is not corrected. With `REPORT_REDACT_PII=true`, `source`,
 `target` and `reason` are redacted on disk like the rest of the report. The
 dashboard's `report_enriched` event carries only the counts.
 
+## Auto-stop on silence
+
+A recording stops by itself when both tracks (the other side's system audio and your microphone)
+have been quiet for `RECORDER_AUTOSTOP_SILENCE_SECONDS`, so a forgotten STOP does not leave the
+recorder running for hours. The notetaker (recorder page and bar) defaults to 120 seconds; the
+copilot recorder (`scripts/record_call.py`) defaults to off. `0` switches it off, and the value
+should be at least 90. Both recorders read the `RECORDER_AUTOSTOP_*` settings from `.env`; no shell export is needed.
+
+- The clock starts at the first audible chunk, so silence before the call begins never stops a recording.
+- A pause suspends the clock, and audio during a pause does not count as speech.
+- One track talking is enough to keep the recording alive.
+- "Quiet" is a level in dBFS, the unit of the recorder's level meter: `RECORDER_AUTOSTOP_PROSPECT_DB`
+  (default -50) for the system audio and `RECORDER_AUTOSTOP_SELF_DB` (default -40) for the
+  microphone, where room noise sits higher. The defaults come from 22 real recordings: speech on
+  the system track sits above -42 dBFS (5th percentile) and on the microphone above -49, while the
+  microphone's room noise after the hang-up stays under -38 (99th percentile) and the system track
+  after the call is digital silence. The longest quiet stretch inside a call was about 2 minutes
+  on the microphone, but never on both tracks at once for as long as the window.
+- A stop by silence is visible: the recorder page and the bar show "stopped after N s of silence",
+  `metadata.json` gets an `auto_stop` entry, and the transcript ends with a line at the stop point.
+
+## Tap warnings in the notetaker
+
+The notetaker watches the system track (the other side). Exact zeros after the track carried signal
+mean the tap is lost: the recorder page and the bar warn at once, it reattaches up to 3 times per
+dropout (a later, independent dropout gets 3 attempts of its own), and the transcript gets a line
+at the lost and the reattached moment. The thresholds are `AUDIO_TAP_SIGNAL_LOST_WARN_SECONDS`
+(default 30) and `AUDIO_TAP_HEARTBEAT_SECONDS`.
+
+A system track that is exact zero from the very start while the microphone carries signal for
+`AUDIO_TAP_NO_SYSTEM_AUDIO_WARN_SECONDS` (default 120) gets a calm `no_system_audio` note: the call may not
+play through this computer. It is warning only, never a reattach, is logged once in `recorder.log`
+and recorded in `tap_events` of `metadata.json`, and clears at the first real system signal.
+
 ## Model pick, report wording and word lists
 
 An empty model pick in the dashboard ("Select a model") sends no override: `LLM_PROVIDER` and
@@ -189,6 +223,30 @@ it names none) and tells the model to write the summary in `CALL_LANGUAGE`.
 way the rest of the app finds its files, whatever the working directory: a copy in the app
 support folder first, then the bundled one (checkout, pip/pipx install, packaged app). An
 absolute `WHISPER_VOCABULARY_CONFIG` is used as given.
+
+### A vocabulary file per customer
+
+Copy `config/transcription_vocabulary.yaml`, replace the `terms` with the customer's product
+names, systems and jargon, and point `WHISPER_VOCABULARY_CONFIG` at the copy. Only list terms
+Whisper gets wrong: proper nouns, acronyms, compound jargon.
+
+The budget is hard. Whisper reserves 223 tokens for the prompt (the framing `prompt_prefix`
+plus all terms), and a Dutch proper noun costs about 4 tokens, so the ceiling is roughly 55
+terms. whisper.cpp keeps the last tokens and drops the head, framing sentence included, without
+a log line. Check a file before use:
+
+```bash
+python scripts/render_vocabulary.py path/to/customer.yaml
+```
+
+It prints the exact prompt, the token count (the multilingual tokenizer Whisper uses, offline)
+and the margin. Over budget it exits 1 and names the trailing terms past the budget. At startup
+the whisper.cpp and mlx backends log a WARNING with the same numbers when the configured file
+is over budget.
+
+To find terms from a corrected call, run
+`python scripts/vocabulary_candidates.py <raw transcript> <corrected transcript>`: it lists the
+words and phrases the correction changed (case-insensitive, word level), ranked by count.
 
 ## One model per task
 
@@ -220,6 +278,17 @@ report stays one call. When they differ, the report step makes two calls, and
 the term correction only runs when the call has candidate terms. A failing or
 refused part never costs the other. The measured recommendation (Sonnet 5.5 for
 `report_terms`, a faster model for `report`) is in `.env.example`.
+
+### OpenRouter fallback models
+
+For tasks on `openrouter`, `<TASK>_LLM_FALLBACK_MODELS` (`INSIGHT_LLM_FALLBACK_MODELS` for
+`insight`) or the global `LLM_FALLBACK_MODELS` lists models to try, comma-separated and empty
+by default. The task's list wins; `report_terms` reads `REPORT_LLM_FALLBACK_MODELS` first.
+With a list set, the SDK does not retry a failing model and the `LLM_TIMEOUT_MS` budget is split equally over the attempts (the overall live cap is unchanged); without a list nothing changes.
+A 5xx, 429, timeout or connection error sends the same request to the next model; any other
+4xx does not fall back. A stream falls back only before its first chunk. When every model fails,
+the last error surfaces. Each attempt passes the privacy ceiling, each switch is logged as a
+warning, and other providers ignore the list. OpenRouter's `models` / `allow_fallbacks` fields are not sent.
 
 ## Related References
 

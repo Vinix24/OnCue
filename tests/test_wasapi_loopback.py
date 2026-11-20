@@ -728,11 +728,11 @@ def test_recorder_open_failure_returns_synchronously_with_matching_tap_health(mo
     assert elapsed < 1.0  # synchronous open: start() does not hang on the reader thread
     assert stream._reader_thread is None  # noqa: SLF001
     assert len(warnings) == 1
-    assert warnings[0]["message"] == "Kon de WASAPI-loopback-recorder niet openen."
+    assert warnings[0]["message"] == "Could not open the WASAPI loopback recorder."
 
     health = stream.tap_health()
     assert health.attach_state.value == "attach_failed"
-    assert health.detail == "recorder kon niet openen"
+    assert health.detail == "recorder could not be opened"
     assert health.warning_emitted is True
 
     stream.stop()  # idempotent no-op: nothing was ever attached
@@ -1193,8 +1193,10 @@ def test_one_warning_per_outage_and_a_second_for_a_new_outage(monkeypatch) -> No
 
     messages = [w["message"] for w in warnings]
     assert len(messages) == 2
-    assert all(m.startswith("WASAPI-loopback-apparaat gaf een fout of verdween tijdens opname") for m in messages)
-    assert all("opnieuw verbinden" in m for m in messages)
+    assert all(
+        m.startswith("The WASAPI loopback device raised an error or disappeared during recording") for m in messages
+    )
+    assert all("reconnecting" in m for m in messages)
 
 
 def test_reopen_that_fails_on_its_first_read_is_the_same_outage(monkeypatch) -> None:
@@ -1349,6 +1351,6 @@ def test_bad_first_block_after_reattach_still_degrades_permanently(monkeypatch) 
     assert not thread.is_alive()
     assert stream._degraded is True  # noqa: SLF001
     assert len(warnings) == 2
-    assert warnings[1]["message"].startswith("Onverwachte vorm of samplerate")
+    assert warnings[1]["message"].startswith("Unexpected shape or sample rate")
     assert bad.exited is True
     stream.stop()

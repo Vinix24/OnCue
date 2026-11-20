@@ -4,9 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OnCue Dashboard</title>
-    <link rel="stylesheet" href="css/dashboard.css?v=2.0.3" />
+    <link rel="icon" type="image/svg+xml" href="assets/oncue-mark.svg" />
+    <link rel="stylesheet" href="css/dashboard.css?v=2.0.4" />
+    <link rel="stylesheet" href="css/oncue-loader.css?v=1.0.0" />
   </head>
   <body>
+    <template id="oncue-loader-template">
+      <svg class="oncue-loader" viewBox="0 0 64 64" aria-hidden="true">
+        <rect class="oncue-loader-tile" x="2" y="2" width="60" height="60" rx="14" />
+        <circle class="oncue-loader-ring" cx="29" cy="36" r="14" />
+        <line class="oncue-loader-baton" x1="24" y1="41" x2="46" y2="19" />
+        <circle class="oncue-loader-dot" cx="48" cy="17" r="4.6" />
+      </svg>
+    </template>
     <div class="app">
 
       <!-- License banner — hidden by default, shown on license_grace / license_expired WS event -->
@@ -32,8 +42,8 @@
       >
         <span class="degrade-banner-text">
           <span data-i18n="degrade.banner_intro">Je Pro-licentie is niet meer actief. De app blijft gratis werken:</span>
-          <strong data-i18n="degrade.banner_active_features">live transcript, samenvatting en post-call diagnose</strong> <span data-i18n="degrade.banner_active_suffix">blijven actief.</span>
-          <span data-i18n="degrade.banner_disabled_features">Live coaching, slide-injectie, autostart en centrale audit zijn uitgeschakeld.</span>
+          <strong data-i18n="degrade.banner_active_features">live transcript, live coaching, samenvatting en post-call diagnose</strong> <span data-i18n="degrade.banner_active_suffix">blijven actief.</span>
+          <span data-i18n="degrade.banner_disabled_features">Slide-injectie, autostart en centrale audit zijn uitgeschakeld.</span>
         </span>
         <div class="degrade-banner-actions">
           <a
@@ -678,6 +688,10 @@
                   <p id="report-keywords" class="report-summary-text"></p>
                   <h3 class="report-subtitle" data-i18n="report.action_items_title">Action items</h3>
                   <div id="report-action-items" class="report-list"></div>
+                  <div id="report-open-questions-block" style="display:none">
+                    <h3 class="report-subtitle" data-i18n="report.open_questions_title">Open questions</h3>
+                    <div id="report-open-questions" class="report-list"></div>
+                  </div>
                 </div>
 
                 <div class="report-block" id="report-term-corrections-block" style="display:none">
@@ -699,6 +713,9 @@
                   </button>
                   <button id="report-download-markdown" class="report-download" type="button" data-i18n="report.download_markdown">
                     Download Report (Markdown)
+                  </button>
+                  <button id="report-download-pdf" class="report-download" type="button" data-i18n="report.download_pdf">
+                    Download PDF
                   </button>
                 </div>
 

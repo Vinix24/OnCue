@@ -23,6 +23,7 @@ def _make_classifier(provider: str, monkeypatch: pytest.MonkeyPatch) -> WindowCl
         llm_model="test-model",
         pain_points_config="config/pain_points.yaml",
         objections_config="config/objections.yaml",
+        call_language="nl",  # the Dutch base sales preset these tests assert on
     )
     return WindowClassifier(config, provider)
 

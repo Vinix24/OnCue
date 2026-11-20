@@ -139,12 +139,39 @@ def _tee(monkeypatch, tmp_path, **kwargs):
     return stream, popen, clock, warnings
 
 
+def _delivered(stream: AudioTeeStream) -> int:
+    with stream._track.lock:  # noqa: SLF001
+        return stream._track._delivered  # noqa: SLF001
+
+
 def _feed(stream: AudioTeeStream, proc: _Proc, clock: _Clock, at: float, count: int = 1) -> None:
     for i in range(count):
-        before = stream.chunks_received
+        # ``chunks_received`` is bumped before the reader queues the chunk, so wait
+        # on the track's delivered count, read under the lock that push holds
+        # across any padding and the put, so it never shows a half-finished push.
+        before = _delivered(stream)
         clock.now = round(at + i * CHUNK_S, 6)
         proc.stdout.feed(PCM)
-        _wait(lambda before=before: stream.chunks_received == before + 1)
+        _wait(lambda before=before: _delivered(stream) > before)
+
+
+def test_audiotee_gap_fill_is_exact_when_the_reader_queues_a_chunk_late(monkeypatch, tmp_path) -> None:
+    """The reader counts a chunk before it queues it; ``_feed`` must wait for the queue."""
+    stream, popen, clock, _ = _tee(monkeypatch, tmp_path)
+    real_push = stream._track.push  # noqa: SLF001
+
+    def slow_push(frame, threshold):  # noqa: ANN001, ANN202
+        time.sleep(0.05)
+        return real_push(frame, threshold)
+
+    monkeypatch.setattr(stream._track, "push", slow_push)  # noqa: SLF001
+    _feed(stream, popen.procs[0], clock, 0.1, 10)
+    popen.procs[0].die()
+    _wait(lambda: stream._needs_restart)  # noqa: SLF001
+    clock.now = 2.0
+    stream._watchdog_step()  # noqa: SLF001
+    assert len(_drain(stream)) == 10 + 10
+    stream.stop()
 
 
 def test_audiotee_gap_is_filled_to_within_one_chunk_of_the_clock(monkeypatch, tmp_path, caplog) -> None:
@@ -186,7 +213,7 @@ def test_audiotee_only_one_loss_warning_per_outage(monkeypatch, tmp_path) -> Non
     popen.procs[0].die()
     _wait(lambda: stream._needs_restart)  # noqa: SLF001
     assert len(warnings) == 1
-    assert "automatisch opnieuw gestart" in warnings[0]["message"]
+    assert "restarted automatically" in warnings[0]["message"]
     stream.stop()
 
 
@@ -282,7 +309,7 @@ def test_audiotee_that_never_delivered_is_not_filled_and_keeps_its_setup_failure
     stream, popen, clock, warnings = _tee(monkeypatch, tmp_path)
     popen.procs[0].die()
     _wait(lambda: len(warnings) == 1)
-    assert "Systeeminstellingen" in warnings[0]["message"]
+    assert "System Settings" in warnings[0]["message"]
 
     clock.now = 30.0
     stream._watchdog_step()  # noqa: SLF001

@@ -59,6 +59,19 @@ def test_provider_and_key_variables_are_stripped_from_each_test() -> None:
     assert leftovers == {}
 
 
+def test_vertex_project_variables_are_stripped_from_each_test() -> None:
+    """A checkout ``.env`` carrying ``GCP_PROJECT`` must not reach a test (PR #428).
+
+    ``litellm`` calls ``load_dotenv()`` with no path at import time; python-dotenv walks up
+    from litellm's site-packages directory and finds the checkout's ``.env``. That project id
+    then made the vertex summary test green locally while CI (no ``.env``) failed on the
+    removed default. The autouse fixture deletes both variables, so vertex tests must set
+    ``GCP_PROJECT`` themselves.
+    """
+    assert "GCP_PROJECT" not in os.environ
+    assert "GCP_LOCATION" not in os.environ
+
+
 def test_provider_variable_from_the_shell_does_not_reach_the_test(monkeypatch: pytest.MonkeyPatch) -> None:
     """A test that wants a provider sets it itself; the default stays ``none``."""
     assert DetectorConfig.from_env().llm_provider == "none"

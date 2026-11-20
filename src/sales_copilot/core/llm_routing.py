@@ -13,6 +13,9 @@ Sources, per field, first hit wins:
   model:    ``<TAAK>_LLM_MODEL``     -> the conversation's ``llm_model``
   timeout:  ``<TAAK>_LLM_TIMEOUT_MS`` -> ``TASK_DEFAULT_TIMEOUT_MS[task]`` -> ``LLM_TIMEOUT_MS``
   output:   ``<TAAK>_LLM_MAX_OUTPUT_TOKENS`` -> ``TASK_DEFAULT_MAX_OUTPUT_TOKENS[task]``
+  fallback: ``<TAAK>_LLM_FALLBACK_MODELS`` -> ``LLM_FALLBACK_MODELS`` (comma-separated, openrouter only)
+
+``fallback`` is only set when the resolved provider is ``openrouter`` (see ``LLMClient``).
 
 The ``insight`` task keeps its existing variables (``INSIGHT_PROVIDER``, ``INSIGHT_MODEL``,
 ``INSIGHT_LLM_TIMEOUT_MS``, read by ``InsightConfig``) instead of ``INSIGHT_LLM_*``: they
@@ -154,6 +157,7 @@ class ResolvedLLM:
     max_output_tokens: int
     privacy: str | None
     client_slug: str | None = None
+    fallback_models: tuple[str, ...] = ()
 
     def output_limit(self, thinking: ThinkingPolicy | None = None) -> int:
         """The ``max_tokens`` of one call: the task's limit, with a reasoning budget on top.
@@ -186,6 +190,28 @@ def task_env_keys(task: str) -> tuple[str, str, str]:
         return _INSIGHT_ENV_KEYS
     prefix = task.upper()
     return (f"{prefix}_LLM_PROVIDER", f"{prefix}_LLM_MODEL", f"{prefix}_LLM_TIMEOUT_MS")
+
+
+def task_fallback_models_key(task: str) -> str:
+    """The environment variable of ``task``'s fallback model list (``<TAAK>_LLM_FALLBACK_MODELS``)."""
+    _require_task(task)
+    return f"{task.upper()}_LLM_FALLBACK_MODELS"
+
+
+def _parse_model_list(raw: str | None) -> tuple[str, ...]:
+    """A comma-separated model list without blanks and duplicates, order kept."""
+    names = [part.strip() for part in (raw or "").split(",")]
+    return tuple(dict.fromkeys(name for name in names if name))
+
+
+def task_fallback_models(task: str) -> tuple[str, ...]:
+    """``task``'s fallback models: its own list, its parent's, else ``LLM_FALLBACK_MODELS``."""
+    _require_task(task)
+    for level in _task_chain(task):
+        models = _parse_model_list(env(task_fallback_models_key(level)))
+        if models:
+            return models
+    return _parse_model_list(env("LLM_FALLBACK_MODELS"))
 
 
 def task_max_output_tokens_key(task: str) -> str:
@@ -316,6 +342,7 @@ def resolve_llm(
             f"{provider_key}={provider} wijkt af van {model_owner_key}={model_owner}; "
             f"zet ook {model_key}: {model_name} {model!r} hoort bij een andere provider"
         )
+    fallback_models = tuple(m for m in task_fallback_models(task) if m != model) if provider == "openrouter" else ()
     return ResolvedLLM(
         task=task,
         provider=provider,
@@ -324,6 +351,7 @@ def resolve_llm(
         max_output_tokens=task_max_output_tokens(task),
         privacy=config.privacy,
         client_slug=config.client_slug,
+        fallback_models=fallback_models,
     )
 
 
@@ -336,6 +364,7 @@ def build_llm_client(resolved: ResolvedLLM, *, prompt_cache: bool = True) -> LLM
         privacy=resolved.privacy,
         task=resolved.task,
         client_slug=resolved.client_slug,
+        fallback_models=resolved.fallback_models,
     )
 
 

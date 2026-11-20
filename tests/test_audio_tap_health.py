@@ -32,6 +32,12 @@ from sales_copilot.audio.tap_health import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _dutch_catalog(monkeypatch):
+    """These tests pin the nl wording; the en wording is covered in test_tap_texts_i18n.py."""
+    monkeypatch.setenv("LANGUAGE", "nl")
+
+
 class _Clock:
     """Injectable monotonic clock so every timing assertion is deterministic."""
 
@@ -1213,8 +1219,8 @@ def test_reattach_is_attempted_when_tap_is_lost_and_peer_carries_signal() -> Non
     )
 
     assert lost_stream.reattach_calls == 1
-    # No warning yet: the attempt gets a chance before the operator is told.
-    assert events == []
+    # The operator hears about the dropout at once, before the attempt's outcome is known.
+    assert [e["tap_event"] for e in events] == ["lost"]
 
 
 def test_reattach_that_restores_signal_settles_back_to_attached_signal() -> None:
@@ -1243,7 +1249,7 @@ def test_reattach_that_restores_signal_settles_back_to_attached_signal() -> None
 
     assert lost_stream.reattach_calls == 1
     assert lost.snapshot().state is TapSignalState.ATTACHED_SIGNAL
-    assert events == []
+    assert [e["tap_event"] for e in events] == ["lost", "recovered"]
 
 
 def test_reattach_stops_after_three_failed_attempts_then_warns() -> None:
@@ -1268,9 +1274,10 @@ def test_reattach_stops_after_three_failed_attempts_then_warns() -> None:
 
     assert lost_stream.reattach_calls == 3
     warnings = [e for e in events if e["type"] == "audio_warning"]
-    assert len(warnings) == 1
-    assert warnings[0]["stream"] == "prospect"
-    assert warnings[0]["tap_state"] == TapSignalState.ATTACHED_SIGNAL_LOST.value
+    assert [w["tap_event"] for w in warnings] == ["lost", "gave_up"]
+    assert all(w["stream"] == "prospect" for w in warnings)
+    assert warnings[1]["attempts"] == 3
+    assert warnings[1]["tap_state"] == TapSignalState.ATTACHED_SIGNAL_LOST.value
 
 
 def test_reattach_is_not_attempted_when_both_sides_are_silent() -> None:
@@ -1361,10 +1368,10 @@ def test_reattach_marker_broadcast_on_each_attempt() -> None:
 
     asyncio.run(_run())
 
-    assert len(markers) == 1
-    marker = markers[0]
+    # The signal_lost marker now comes first, at the moment of the lost warning.
+    assert [m["marker"] for m in markers] == ["audio_signal_lost", "audio_tap_reattached"]
+    marker = markers[1]
     assert marker["type"] == TRANSCRIPT_MARKER_TYPE
-    assert marker["marker"] == "audio_tap_reattached"
     assert marker["stream"] == "prospect"
     assert "poging 1/3" in marker["text"]
 
@@ -1497,3 +1504,166 @@ def test_micstream_reports_itself_as_microphone() -> None:
     from sales_copilot.audio.capture import MicStream
 
     assert MicStream(AudioConfig()).tap_health().is_microphone is True
+
+
+# --- warn first: lost -> reattach -> recovered / gave_up -------------------
+
+
+def _run_ordered(lost_stream, alive, *, beats: int, log: list[str]) -> list[dict]:
+    """Drive the monitor with one shared call-order log for warnings, markers and reattach."""
+
+    events: list[dict] = []
+
+    async def _broadcast(payload: dict) -> None:
+        events.append(payload)
+        log.append(f"warning:{payload['tap_event']}")
+
+    async def _marker(payload: dict) -> None:
+        log.append(f"marker:{payload['marker']}")
+
+    async def _run() -> None:
+        await monitor_tap_health(
+            [(lost_stream, "prospect"), (_FakeTapStream(alive), "self")],
+            _broadcast,
+            asyncio.Event(),
+            interval_seconds=0.001,
+            max_beats=beats,
+            no_frames_warn_seconds=10.0,
+            silent_warn_seconds=120.0,
+            broadcast_marker=_marker,
+        )
+
+    asyncio.run(_run())
+    return events
+
+
+def test_lost_warning_and_marker_come_before_the_first_reattach() -> None:
+    _clock, lost, alive = _lost_and_healthy_pair()
+    log: list[str] = []
+    stream = _ReattachableFakeStream(lost, on_reattach=lambda n: log.append(f"reattach:{n}"))
+
+    events = _run_ordered(stream, alive, beats=1, log=log)
+
+    assert log.index("warning:lost") < log.index("marker:audio_signal_lost") < log.index("reattach:1")
+    assert events[0] == {
+        "type": "audio_warning",
+        "stream": "prospect",
+        "tap_state": TapSignalState.ATTACHED_SIGNAL_LOST.value,
+        "tap_event": "lost",
+        "attempts": 0,
+        "message": events[0]["message"],
+    }
+    assert events[0]["message"]
+
+
+def test_signal_back_after_one_attempt_gives_exactly_one_recovered_and_no_gave_up() -> None:
+    _clock, lost, alive = _lost_and_healthy_pair()
+    stream = _ReattachableFakeStream(lost, on_reattach=lambda _n: lost.observe(_loud()))
+
+    events = _run_ordered(stream, alive, beats=8, log=[])
+
+    assert [e["tap_event"] for e in events] == ["lost", "recovered"]
+    assert events[1]["attempts"] == 1
+    assert events[1]["tap_state"] == TapSignalState.ATTACHED_SIGNAL.value
+
+
+def test_attempts_spent_gives_exactly_one_gave_up_and_no_second_lost() -> None:
+    _clock, lost, alive = _lost_and_healthy_pair()
+    stream = _ReattachableFakeStream(lost)
+
+    events = _run_ordered(stream, alive, beats=12, log=[])
+
+    assert [e["tap_event"] for e in events] == ["lost", "gave_up"]
+    assert events[1]["attempts"] == 3
+    assert stream.reattach_calls == 3
+
+
+def test_a_second_dropout_after_a_recovery_warns_lost_again() -> None:
+    clock, lost, alive = _lost_and_healthy_pair()
+    stream = _ReattachableFakeStream(lost, on_reattach=lambda _n: lost.observe(_loud()))
+
+    events: list[dict] = []
+
+    async def _broadcast(payload: dict) -> None:
+        events.append(payload)
+
+    async def _run() -> None:
+        stop = asyncio.Event()
+        await monitor_tap_health(
+            [(stream, "prospect"), (_FakeTapStream(alive), "self")],
+            _broadcast,
+            stop,
+            interval_seconds=0.001,
+            max_beats=3,
+            no_frames_warn_seconds=10.0,
+            silent_warn_seconds=120.0,
+            already_reported=None,
+        )
+
+    asyncio.run(_run())
+    assert [e["tap_event"] for e in events] == ["lost", "recovered"]
+
+    # A second, independent dropout: the same stream, a fresh run of zeros.
+    for _ in range(600):
+        clock.advance(0.1)
+        lost.observe(_digital_silence())
+        alive.observe(_loud())
+    asyncio.run(_run_second(stream, alive, events))
+
+    assert [e["tap_event"] for e in events][2:3] == ["lost"]
+
+
+async def _run_second(stream, alive, events: list[dict]) -> None:  # noqa: ANN001
+    async def _broadcast(payload: dict) -> None:
+        events.append(payload)
+
+    await monitor_tap_health(
+        [(stream, "prospect"), (_FakeTapStream(alive), "self")],
+        _broadcast,
+        asyncio.Event(),
+        interval_seconds=0.001,
+        max_beats=1,
+        no_frames_warn_seconds=10.0,
+        silent_warn_seconds=120.0,
+    )
+
+
+def test_a_failing_lost_broadcast_does_not_stop_the_reattach(caplog) -> None:
+    _clock, lost, alive = _lost_and_healthy_pair()
+    stream = _ReattachableFakeStream(lost)
+
+    async def _broadcast(payload: dict) -> None:
+        raise RuntimeError("hub down")
+
+    async def _run() -> None:
+        await monitor_tap_health(
+            [(stream, "prospect"), (_FakeTapStream(alive), "self")],
+            _broadcast,
+            asyncio.Event(),
+            interval_seconds=0.001,
+            max_beats=1,
+            no_frames_warn_seconds=10.0,
+            silent_warn_seconds=120.0,
+        )
+
+    with caplog.at_level(logging.WARNING, logger="sales_copilot.audio.tap_health"):
+        asyncio.run(_run())
+
+    assert stream.reattach_calls == 1
+    assert [r for r in caplog.records if "Failed to broadcast tap_health lost warning" in r.getMessage()]
+
+
+def test_stream_without_reattach_keeps_the_old_single_warning() -> None:
+    _clock, lost, alive = _lost_and_healthy_pair()
+
+    events: list[dict] = []
+    _run_monitor(
+        [(_FakeTapStream(lost), "prospect"), (_FakeTapStream(alive), "self")],
+        beats=3,
+        events=events,
+        no_frames_warn_seconds=10.0,
+        silent_warn_seconds=120.0,
+    )
+
+    assert len(events) == 1
+    assert "tap_event" not in events[0]

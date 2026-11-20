@@ -131,6 +131,9 @@ async def test_detector_main_does_not_open_summary_channel_when_disabled(
         def __init__(self) -> None:
             self.routes: list[object] = []
 
+        def warm_up(self) -> bool:
+            return True
+
     class _FakeCaseDB:
         def __init__(self, _path: str) -> None:
             return
@@ -176,11 +179,12 @@ async def test_detector_main_does_not_open_summary_channel_when_disabled(
     assert all(not url.endswith("/ws/summary") for url in urls)
 
 
-def test_summary_llm_client_builds_vertex_client_without_error() -> None:
+def test_summary_llm_client_builds_vertex_client_without_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression: summary.py previously raised ValueError for vertex provider."""
     fake_genai_client = MagicMock()
     fake_patched = MagicMock()
     fake_patched.chat.completions.create = MagicMock()
+    monkeypatch.setenv("GCP_PROJECT", "proj-x")
 
     fake_genai_module = MagicMock()
     fake_genai_module.Client.return_value = fake_genai_client
@@ -200,7 +204,7 @@ def test_summary_llm_client_builds_vertex_client_without_error() -> None:
     # BYO-tenant kwargs as a subset rather than an exact match.
     client_kwargs = fake_genai_module.Client.call_args.kwargs
     assert client_kwargs["vertexai"] is True
-    assert client_kwargs["project"] == "vnx-sales-copilot"
+    assert client_kwargs["project"] == "proj-x"
     assert client_kwargs["location"] == "europe-west4"
     assert "http_options" in client_kwargs
     fake_instructor.from_genai.assert_called_once_with(
@@ -211,8 +215,10 @@ def test_summary_llm_client_builds_vertex_client_without_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_summary_llm_client_vertex_call_omits_temperature() -> None:
+async def test_summary_llm_client_vertex_call_omits_temperature(monkeypatch: pytest.MonkeyPatch) -> None:
     """Vertex path must not pass temperature= kwarg (unsupported by genai SDK)."""
+    # vertex has no private default project any more: build_client raises without this.
+    monkeypatch.setenv("GCP_PROJECT", "proj-x")
     fake_create = MagicMock(return_value=ConversationSummary(text="ok", key_moments=[]))
     fake_genai_client = MagicMock()
     fake_patched = MagicMock()

@@ -22,6 +22,7 @@ const STORED = {
   overview: "Eerst de pijn, daarna de planning.",
   keywords: ["offertes", "planning"],
   action_items: ["Offerte sturen", "Demo plannen"],
+  open_questions: ["Wat kost de koppeling?"],
   term_corrections: [
     { segment_index: 0, source: "Team Leader", occurrence: 1, target: "Teamleader", reason: "" },
   ],
@@ -47,6 +48,8 @@ async function bootReport({ fetchImpl } = {}) {
     "report-overview",
     "report-keywords",
     "report-action-items",
+    "report-open-questions-block",
+    "report-open-questions",
     "report-term-corrections-block",
     "report-term-corrections",
     "report-term-corrections-note",
@@ -190,7 +193,7 @@ test("the Markdown export carries the enriched fields", async () => {
   assert.match(markdown, /## Korte samenvatting\n\nKlant wil sneller offreren/);
   assert.match(markdown, /## Overzicht\n\nEerst de pijn/);
   assert.match(markdown, /## Trefwoorden\n\noffertes, planning/);
-  assert.match(markdown, /## Actiepunten\n\n- Offerte sturen\n- Demo plannen/);
+  assert.match(markdown, /## Actiepunten\n\n- Offerte sturen\n- Demo plannen\n\n## Open vragen\n\n- Wat kost de koppeling\?/);
   assert.ok(markdown.includes("Origineel: Team Leader"), markdown);
 });
 
@@ -244,4 +247,27 @@ test("the Markdown export has no transcript section when the report carries no t
   const markdown = await downloadMarkdown(env, nodes);
 
   assert.equal(markdown.includes("## Transcript"), false);
+});
+
+test("open questions show as their own block and an empty list hides it", async () => {
+  const { nodes, socket } = await bootReport();
+  socket.deliver(readyEvent());
+  socket.deliver(ENRICHED_EVENT);
+  await settle();
+  assert.equal(nodes["report-open-questions-block"].style.display, "");
+  const rows = nodes["report-open-questions"].querySelectorAll(".report-row");
+  assert.deepEqual(rows.map((row) => row.querySelector("strong").textContent), ["Wat kost de koppeling?"]);
+
+  const { env, nodes: empty, socket: socket2 } = await bootReport({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ ...STORED, open_questions: undefined }) }),
+  });
+  socket2.deliver(readyEvent());
+  socket2.deliver(ENRICHED_EVENT);
+  await settle();
+  assert.equal(empty["report-open-questions-block"].style.display, "none");
+  const blobs = [];
+  env.context.Blob = Blob;
+  env.context.URL = { createObjectURL: (blob) => (blobs.push(blob), "blob:report"), revokeObjectURL: () => {} };
+  empty["report-download-markdown"].click();
+  assert.ok(!(await blobs[0].text()).includes("Open vragen"));
 });

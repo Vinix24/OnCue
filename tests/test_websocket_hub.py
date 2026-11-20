@@ -144,8 +144,8 @@ async def test_config_subscribers_no_replay_when_idle(running_hub: int) -> None:
 
 
 @pytest.mark.asyncio
-async def test_coaching_broadcast_gated_in_free_tier(running_hub: int, monkeypatch) -> None:
-    """Free tier must not deliver coaching alerts; Pro tier must allow them."""
+async def test_coaching_broadcast_delivered_in_free_tier(running_hub: int, monkeypatch) -> None:
+    """Live coaching is free (decision 2026-11-18): both tiers deliver coaching alerts."""
 
     class _FreePolicy(FeaturePolicy):
         def current_tier(self) -> str:  # type: ignore[override]
@@ -168,8 +168,8 @@ async def test_coaching_broadcast_gated_in_free_tier(running_hub: int, monkeypat
 
     async with websockets.connect(uri) as ws_sender, websockets.connect(uri) as ws_receiver:
         await ws_sender.send(json.dumps({"type": "coaching_alert", "message": "free-test"}))
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(ws_receiver.recv(), timeout=0.3)
+        payload = await asyncio.wait_for(ws_receiver.recv(), timeout=1)
+        assert json.loads(payload)["message"] == "free-test"
 
     monkeypatch.setattr(hub_core, "get_feature_policy", lambda: _ProPolicy())
     hub_core._feature_policy = None
@@ -426,3 +426,76 @@ async def test_broadcast_drops_back_pressured_subscriber(monkeypatch: pytest.Mon
     finally:
         async with hub_core._subscribers_lock:  # noqa: SLF001
             hub_core._subscribers.pop("system", None)  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_new_mcp_bridge_keeps_hub_publish_time_on_replayed_lines(running_hub: int) -> None:
+    from sales_copilot.core.config import WebSocketConfig
+    # The MCP bridge is private and not part of the public export: skip there.
+    bridge = pytest.importorskip("sales_copilot.mcp_bridge.server")
+
+    hub_core.reset_config_state()
+    stop_event = asyncio.Event()
+    task: asyncio.Task[None] | None = None
+    try:
+        async with hub_core._config_lock:
+            hub_core.apply_start_call({"preset_name": "demo"})
+
+        uri = _ws_url(running_hub, "transcript")
+        async with websockets.connect(uri) as ws_sender:
+            cutoff_ms = 0
+            for index in range(6):
+                if index == 3:
+                    cutoff_ms = int(time.time() * 1000)
+                    await asyncio.sleep(0.02)
+                await ws_sender.send(
+                    json.dumps({"type": "transcript", "text": f"regel {index}", "speaker": "prospect"})
+                )
+                await asyncio.sleep(0.05)
+            for _ in range(40):
+                if len(hub_core._transcript_buffer) >= 6:
+                    break
+                await asyncio.sleep(0.05)
+            assert len(hub_core._transcript_buffer) == 6
+
+            # A host that restarts per turn starts a brand-new bridge, long after the lines were published.
+            await asyncio.sleep(0.2)
+            session = bridge.MCPBridgeSession()
+            task = asyncio.create_task(
+                bridge._hub_subscriber(
+                    WebSocketConfig(host="127.0.0.1", port=running_hub), "transcript", session, stop_event
+                )
+            )
+            for _ in range(60):
+                if len(await session.get_transcript_since(0)) >= 6:
+                    break
+                await asyncio.sleep(0.05)
+
+            assert len(await session.get_transcript_since(0)) == 6
+            after = await session.get_transcript_since(cutoff_ms)
+            assert [line["text"] for line in after] == ["regel 3", "regel 4", "regel 5"]
+    finally:
+        stop_event.set()
+        if task is not None:
+            await asyncio.wait_for(task, timeout=10)
+        hub_core.reset_config_state()
+
+
+@pytest.mark.asyncio
+async def test_hub_keeps_sender_supplied_timestamp_ms(running_hub: int) -> None:
+    hub_core.reset_config_state()
+    try:
+        async with hub_core._config_lock:
+            hub_core.apply_start_call({"preset_name": "demo"})
+        uri = _ws_url(running_hub, "transcript")
+        async with websockets.connect(uri) as ws_sender:
+            await ws_sender.send(
+                json.dumps({"type": "transcript", "text": "x", "speaker": "self", "timestamp_ms": 42})
+            )
+            for _ in range(40):
+                if hub_core._transcript_buffer:
+                    break
+                await asyncio.sleep(0.05)
+        assert hub_core._transcript_buffer[0]["timestamp_ms"] == 42
+    finally:
+        hub_core.reset_config_state()

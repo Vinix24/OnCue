@@ -1,16 +1,16 @@
 // Vanilla-JS i18n mechanism mirroring sales_copilot.core.i18n (see
 // claudedocs/2026-07-24-dashboard-i18n-design.md for the full design):
 // dotted-key catalog resolution with {name} interpolation, falling back to
-// the default language (nl) when a key or catalog is missing. No build step:
+// the default language (en) when a key or catalog is missing. No build step:
 // catalogs are plain JSON files under dashboard/i18n/, served by the same
 // static mount as the rest of the dashboard.
 //
 // Active language comes from the shared /api/config fetch (window.__configPromise,
 // set up in index.html) so the dashboard always mirrors the backend LANGUAGE
 // env var instead of tracking a second config source. nl remains a fully
-// supported first-class toggle -- only the default/fallback direction is nl.
+// supported first-class toggle -- the default/fallback language is en.
 (() => {
-const DEFAULT_LANGUAGE = "nl";
+const DEFAULT_LANGUAGE = "en";
 const catalogPath = (lang) => `i18n/${lang}.json`;
 
 const catalogs = {};

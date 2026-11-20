@@ -163,24 +163,10 @@ pinned to prevent silent breakage on major-bump updates.
 
 | Provider | Value | Notes |
 |---|---|---|
-| Google Gemini | `gemini` | `gemini-2.5-flash`. Uses `instructor.from_genai(GENAI_STRUCTURED_OUTPUTS)`. Example public provider. |
-| OpenRouter | `openrouter` | `anthropic/claude-haiku-4.5` default. Routes through OpenRouter's public API, not the direct Anthropic API — no Anthropic SDK involved. |
-| Google Vertex AI | `vertex` | Same Gemini models via GCP. Requires GCP billing enabled. BYO-tenant. |
-| Azure OpenAI | `azure` | OpenAI models within your own Azure subscription. BYO-tenant. |
-| Groq | `groq` | Fast inference. Free tier: 100K tokens/day limit (TPD). Production requires Dev tier. |
-| OpenAI | `openai` | Use `gpt-4o-mini` for cost-effective classification. |
+| OpenRouter | `openrouter` | Public tier. One key gives access to many models. `anthropic/claude-haiku-4.5` default. Routes through OpenRouter's public API, not the direct Anthropic API — no Anthropic SDK involved. |
+| Google Vertex AI | `vertex` | Gemini models via GCP. Requires GCP billing enabled. Own tenant. |
+| Azure OpenAI | `azure` | OpenAI models within your own Azure subscription. Own tenant. |
 | Ollama | `ollama` | Fully local. No text leaves the machine. |
-
-### Gemini configuration (example)
-
-```bash
-LLM_PROVIDER=gemini
-LLM_MODEL=gemini-2.5-flash
-GEMINI_API_KEY=your-key-here    # or GOOGLE_API_KEY — both accepted
-```
-
-Get a key at [aistudio.google.com](https://aistudio.google.com). The free tier
-is sufficient for personal use.
 
 ### OpenRouter configuration
 
@@ -190,7 +176,7 @@ LLM_MODEL=anthropic/claude-haiku-4.5
 OPENROUTER_API_KEY=your-key-here
 ```
 
-Get a key at [openrouter.ai/keys](https://openrouter.ai/keys). Winner of the
+Get a key at [openrouter.ai/keys](https://openrouter.ai/keys). One key gives access to many models. Winner of the
 fase-B B3 suggestion/rebuttal eval (p50 3.1s / p95 4.3s, Claude-tier quality,
 $1/$5 per 1M tokens — list prices, not re-verified against the live OpenRouter
 feed).
@@ -206,25 +192,7 @@ GOOGLE_CLOUD_PROJECT=your-project-id
 Requires `gcloud auth application-default login` or a service account key.
 GCP billing must be enabled — Vertex AI does not have a free tier.
 
-### Groq configuration
-
-```bash
-LLM_PROVIDER=groq
-LLM_MODEL=llama-3.3-70b-versatile
-GROQ_API_KEY=your-key-here
-```
-
-**Groq free-tier quota:** 100K tokens per day (TPD). A full sales call (18
-pain-point events, summaries, suggestions) can hit 80-120K tokens. For
-production use, upgrade to a paid Dev tier or use Gemini as fallback.
-
-### OpenAI configuration
-
-```bash
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o-mini
-OPENAI_API_KEY=your-key-here
-```
+Other providers still work in `llm_client.py` for existing `.env` files, but they are not offered as a public choice. Adding one is a do-it-yourself extension.
 
 ### Ollama (fully local)
 
@@ -278,13 +246,19 @@ See [WHISPER_CPP_DESIGN.md](WHISPER_CPP_DESIGN.md) for the full backend design.
 
 ```bash
 WHISPER_BACKEND=mlx-whisper
-WHISPER_MODEL=large-v3-turbo   # or: large-v3, medium
+WHISPER_MODEL=large-v3-turbo   # or: large-v3, medium, base, tiny, or a full owner/name repo id
 WHISPER_LANGUAGE=nl            # or: en, auto
 ```
 
 Uses Apple's MLX framework for inference on the Apple Neural Engine and GPU.
 `large-v3-turbo`: approximately 1.6 GB RAM, 5-second warmup, 50% faster per
 chunk than `large-v3`.
+
+The same alias works on whisper.cpp: with `WHISPER_CPP_MODEL_PATH` unset,
+`WHISPER_MODEL=large-v3` resolves to `ggml-large-v3.bin` in
+`vendor/whisper.cpp/models/`. If the file is missing the error names
+`bash vendor/whisper.cpp/models/download-ggml-model.sh large-v3`. An unknown
+name fails at startup and lists the valid aliases.
 
 **Known issue:** the live-pad path may silently deliver zero transcript segments
 on some macOS/MLX version combinations. If you see an active call with no
@@ -433,7 +407,7 @@ Full schema is in `.env.example`. Key variables:
 
 ```bash
 # LLM
-LLM_PROVIDER=none|gemini|openrouter|vertex|azure|groq|openai|ollama   # .env.example ships none; config.py default is none too
+LLM_PROVIDER=none|ollama|azure|vertex|openrouter   # .env.example ships none; config.py default is none too
 LLM_MODEL=                                                       # empty by default; set a model that belongs to the provider
 LLM_TIMEOUT_MS=3000
 

@@ -376,13 +376,14 @@ class TestFactoryEntitlementLayer:
 class TestEntitlementEndpoint:
     """GET /api/v1/license/features must reflect tier and features accurately."""
 
-    def test_free_tier_returns_only_script_tracking_compute(
+    def test_free_tier_returns_script_tracking_compute_and_live_coaching(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """Free is no longer empty: the Phase 1 two-layer script-tracking gate
         (salesprep-pro design doc section 3) grants `.compute` to every tier so
         coverage is always computed. Every other feature, including
-        `coaching.script_tracking.live`, stays Pro-gated."""
+        `coaching.script_tracking.live`, stays Pro-gated. Live coaching joined
+        the free tier on 2026-11-18."""
         _isolate_revocation(monkeypatch, tmp_path)
         # Empty, not delenv — see test_free_calltap_returns_403 for why the .env
         # Pro license would otherwise be reloaded at TestClient startup.
@@ -394,7 +395,7 @@ class TestEntitlementEndpoint:
         assert response.status_code == 200
         body = response.json()
         assert body["tier"] == "free"
-        assert body["features"] == [FEATURE_SCRIPT_TRACKING_COMPUTE]
+        assert body["features"] == sorted([FEATURE_SCRIPT_TRACKING_COMPUTE, FEATURE_LIVE_COACHING])
         assert FEATURE_LIVE_COACHING in body["all_features"]
 
     def test_free_tier_all_features_equals_feature_ids(

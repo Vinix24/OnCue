@@ -147,6 +147,10 @@ class ObjectionDetector:
         self._ws: websockets.ClientConnection | None = None
         self._ws_buying_signals: websockets.ClientConnection | None = None
 
+    def warm_up(self) -> bool:
+        """Build the objection router's embedding model now; see PainPointRouter.warm_up."""
+        return self._router.warm_up()
+
     @staticmethod
     def _load_responses(path: str, language: str = "nl") -> dict[str, str]:
         resolved_path = _resolve_localized_config_path(path, language)

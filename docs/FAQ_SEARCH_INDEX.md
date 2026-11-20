@@ -58,7 +58,7 @@ Quick scan list (Cmd+F): click through to the full Q/A in [FAQ.md](FAQ.md).
 - [English is transcribed while the conversation is in Dutch](FAQ.md#faq-engels-wordt-getranscribeerd-terwijl-gesprek-in-nederlands-is)
 ## Category 6 — LLM problems
 
-- [Gemini API call fails (401 unauthorized)](FAQ.md#faq-gemini-api-call-faalt-401-unauthorized)
+- [LLM API call fails (401 unauthorized)](FAQ.md#faq-llm-api-call-faalt-401-unauthorized)
 - [LLM detection is slow / timeout after 3s](FAQ.md#faq-llm-detectie-is-traag-timeout-na-3s)
 - [I want to use a local LLM via Ollama — how?](FAQ.md#faq-ik-wil-lokale-llm-via-ollama-gebruiken-hoe)
 - [Gemma / Qwen / Llama, which works best for Dutch?](FAQ.md#faq-gemma-qwen-llama-welke-werkt-het-best-voor-nederlands)

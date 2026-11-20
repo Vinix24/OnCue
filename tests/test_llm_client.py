@@ -167,6 +167,22 @@ def test_build_client_vertex_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> 
     assert calls["http_options"].timeout == 7000
 
 
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_build_client_vertex_without_gcp_project_raises(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
+    """No built-in default project: a missing GCP_PROJECT is a visible config error."""
+    created: list[dict] = []
+    monkeypatch.setattr("google.genai.Client", lambda **kwargs: created.append(kwargs) or object())
+    if value is None:
+        monkeypatch.delenv("GCP_PROJECT", raising=False)
+    else:
+        monkeypatch.setenv("GCP_PROJECT", value)
+
+    with pytest.raises(ValueError, match="GCP_PROJECT"):
+        build_client("vertex", timeout_ms=7000)
+
+    assert created == []
+
+
 def test_build_client_unknown_provider_raises() -> None:
     with pytest.raises(ValueError, match="Unsupported LLM provider"):
         build_client("banana", timeout_ms=7000)

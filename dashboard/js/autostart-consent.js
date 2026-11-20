@@ -25,6 +25,7 @@ if (!promptEl) {
 }
 
 let pendingProcess = null;
+let pendingPromptId = null;
 
 const humanizeProcess = (process) => {
   if (!process) {
@@ -37,7 +38,8 @@ const humanizeProcess = (process) => {
   return process;
 };
 
-const showPrompt = (processName) => {
+const showPrompt = (promptId, processName) => {
+  pendingPromptId = promptId || null;
   pendingProcess = processName;
   if (processNameEl) {
     processNameEl.textContent = humanizeProcess(processName);
@@ -58,6 +60,7 @@ const showPrompt = (processName) => {
 const hidePrompt = () => {
   promptEl.classList.add("hidden");
   pendingProcess = null;
+  pendingPromptId = null;
 };
 
 const showOutcome = (key) => {
@@ -66,13 +69,17 @@ const showOutcome = (key) => {
   }
   outcomeEl.textContent = window.t(key);
   outcomeEl.classList.remove("hidden");
-  // Auto-dismiss the full prompt after a short read window
+  // Auto-dismiss the full prompt after a short read window, unless a newer
+  // prompt has replaced the one this outcome belongs to.
+  const shownId = pendingPromptId;
   setTimeout(() => {
-    hidePrompt();
+    if (pendingPromptId === shownId) {
+      hidePrompt();
+    }
   }, 4000);
 };
 
-const postAutostart = async (endpoint) => {
+const postAutostart = async (endpoint, promptId) => {
   await (window.copilotAuthReady || Promise.resolve());
   const headers = { "Content-Type": "application/json" };
   if (typeof window.copilotAuthHeaders === "function") {
@@ -81,6 +88,7 @@ const postAutostart = async (endpoint) => {
   const response = await fetch(endpoint, {
     method: "POST",
     headers,
+    body: JSON.stringify({ prompt_id: promptId }),
   });
   if (!response.ok) {
     throw new Error(`${endpoint} POST failed: HTTP ${response.status}`);
@@ -98,13 +106,12 @@ if (confirmBtn) {
       declineBtn.disabled = true;
     }
     try {
-      await postAutostart("/api/autostart/confirm");
+      await postAutostart("/api/autostart/confirm", pendingPromptId);
       showOutcome("autostart.confirmed");
     } catch (error) {
       if (error.message.includes("409")) {
-        // Normal race: the prompt expired or was already handled before
-        // the user clicked. Clean up silently.
-        hidePrompt();
+        // The prompt expired or was already handled before the user clicked.
+        showOutcome("autostart.expired");
       } else {
         console.warn("autostart confirm failed:", error.message);
         confirmBtn.disabled = false;
@@ -124,13 +131,17 @@ if (declineBtn) {
     confirmBtn.disabled = true;
     declineBtn.disabled = true;
     try {
-      await postAutostart("/api/autostart/decline");
+      await postAutostart("/api/autostart/decline", pendingPromptId);
       showOutcome("autostart.declined");
     } catch (error) {
-      // Decline is best-effort; even if the POST fails (e.g. hub down),
-      // hide the prompt so the user isn't stuck.
-      console.warn("autostart decline failed:", error.message);
-      hidePrompt();
+      if (error.message.includes("409")) {
+        showOutcome("autostart.expired");
+      } else {
+        // Decline is best-effort; even if the POST fails (e.g. hub down),
+        // hide the prompt so the user isn't stuck.
+        console.warn("autostart decline failed:", error.message);
+        hidePrompt();
+      }
     }
   });
 }
@@ -146,7 +157,19 @@ const connectSystem = () => {
     try {
       const payload = JSON.parse(event.data);
       if (payload && payload.type === "autostart_consent_required") {
-        showPrompt(payload.process || "");
+        showPrompt(payload.prompt_id, payload.process || "");
+      } else if (payload && payload.type === "consent_resolved") {
+        if (payload.prompt_id && payload.prompt_id === pendingPromptId) {
+          hidePrompt();
+        }
+      } else if (payload && payload.type === "consent_snapshot") {
+        // The server's current state: show its open prompt, or remove one this
+        // view still shows after missing the resolution while it was away.
+        if (payload.pending) {
+          showPrompt(payload.pending.prompt_id, payload.pending.process || "");
+        } else {
+          hidePrompt();
+        }
       }
     } catch (error) {
       console.error("Invalid system message", error);

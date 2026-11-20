@@ -243,25 +243,30 @@ async def end_call_api() -> dict[str, str]:
     return {"status": "ok"}
 
 
+class AutostartPromptRequest(BaseModel):
+    prompt_id: str = ""
+
+
 @router.post("/api/autostart/confirm", dependencies=[Depends(require_token)])
-async def autostart_confirm_api() -> dict[str, str]:
-    """Explicit per-call consent tick for a pending runtime auto-arm prompt.
+async def autostart_confirm_api(body: AutostartPromptRequest) -> dict[str, str]:
+    """Explicit per-call consent tick for the open runtime auto-arm prompt.
 
     This is the only path that turns a detected meeting-app into an actually
-    armed (recording) session -- detection alone never starts a call.
+    armed (recording) session -- detection alone never starts a call. The
+    answer counts only for the valid prompt with this id; anything else is 409.
     """
     monitor = get_active_monitor()
-    if monitor is None or not monitor.confirm_consent():
+    if monitor is None or not monitor.confirm_consent(body.prompt_id):
         raise HTTPException(status_code=409, detail="No pending autostart consent prompt")
     return {"status": "ok"}
 
 
 @router.post("/api/autostart/decline", dependencies=[Depends(require_token)])
-async def autostart_decline_api() -> dict[str, str]:
-    """Decline a pending runtime auto-arm prompt for this detected call."""
+async def autostart_decline_api(body: AutostartPromptRequest) -> dict[str, str]:
+    """Decline the open runtime auto-arm prompt; 409 when the id is not the valid open prompt."""
     monitor = get_active_monitor()
-    if monitor is not None:
-        monitor.decline_consent()
+    if monitor is None or not monitor.decline_consent(body.prompt_id):
+        raise HTTPException(status_code=409, detail="No pending autostart consent prompt")
     return {"status": "ok"}
 
 

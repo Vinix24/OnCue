@@ -28,7 +28,8 @@ echo "--- [1/6] Ruff lint ---"
 
 # Gate 2: Tests
 echo "--- [2/6] Pytest ---"
-"$PYTHON_BIN" -m pytest tests/ -q
+"$PYTHON_BIN" -m pytest tests/ -q -n "${PYTEST_WORKERS:-2}" --dist loadgroup
+swift test --package-path native/oncue-bar
 
 # Gate 3: License-worker TS suite (vitest + tsc)
 echo "--- [3/6] License-worker TS suite (vitest + tsc) ---"

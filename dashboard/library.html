@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title data-i18n="library.page_title">OnCue</title>
+  <style>
+    :root {
+      --bg: #0d0f14; --panel: #161a22; --line: #242a36;
+      --text: #e7ebf2; --muted: #8b94a7; --green: #34d27b; --amber: #f5b53d; --red: #ef4146;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system, system-ui, sans-serif; }
+    main { width: min(760px, 92vw); margin: 0 auto; padding: 32px 0 48px; }
+    h1 { font-size: 20px; margin: 0; }
+    .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .head-actions { display: flex; align-items: center; gap: 10px; }
+    .rec-btn, .btn {
+      border: 1px solid var(--line); border-radius: 999px; padding: 9px 18px; font-size: 13px; font-weight: 600;
+      cursor: pointer; text-decoration: none; color: var(--text); background: #0f1218;
+    }
+    .rec-btn { background: var(--red); border-color: var(--red); color: #fff; }
+    .rec-btn.disabled { opacity: .5; pointer-events: none; }
+    .btn:hover { border-color: var(--green); }
+    .btn:disabled { opacity: .5; cursor: default; }
+    .note { margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--amber); color: var(--amber); border-radius: 8px; font-size: 13px; }
+    .note.failed { border-color: var(--red); color: var(--red); }
+    .note.ok { border-color: var(--green); color: var(--green); }
+    .note .update-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+    .note a { color: inherit; font-weight: 600; }
+    .note code {
+      background: #0f1218; border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px;
+      color: var(--text); font: 12px/1.5 ui-monospace, Menlo, monospace; user-select: all; white-space: pre-wrap; word-break: break-all;
+    }
+    .note .copy-btn { padding: 4px 12px; font-size: 12px; }
+    .list { list-style: none; margin: 0; padding: 0; }
+    .row {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin-bottom: 8px;
+      color: var(--text); font: inherit; cursor: pointer; text-decoration: none;
+    }
+    .row:hover { border-color: var(--green); }
+    .row .title { font-weight: 600; }
+    .row .meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .row.live { border-color: var(--red); }
+    .row.live .title { color: var(--red); }
+    .badge { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+    .badge.recording, .badge.failed { color: var(--red); }
+    .badge.transcribing, .badge.incomplete { color: var(--amber); }
+    .badge.ready { color: var(--green); }
+    .empty { color: var(--muted); text-align: center; padding: 32px 0; }
+    .tabs { display: flex; gap: 8px; margin: 16px 0 12px; }
+    .tab { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 6px 14px; color: var(--text); cursor: pointer; font: inherit; }
+    .tab.active { border-color: var(--green); }
+    .tab:disabled { opacity: .5; cursor: default; }
+    .hint { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+    pre { white-space: pre-wrap; word-break: break-word; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 0; font: 13px/1.6 ui-monospace, Menlo, monospace; }
+    .summary h3 { font-size: 13px; color: var(--muted); margin: 16px 0 4px; }
+    .summary p, .summary ul { margin: 0; }
+    [hidden] { display: none !important; }
+  </style>
+  <link rel="icon" type="image/svg+xml" href="assets/oncue-mark.svg" />
+  <link rel="stylesheet" href="css/oncue-loader.css?v=1.0.0" />
+</head>
+<body>
+  <template id="oncue-loader-template">
+    <svg class="oncue-loader" viewBox="0 0 64 64" aria-hidden="true">
+      <rect class="oncue-loader-tile" x="2" y="2" width="60" height="60" rx="14" />
+      <circle class="oncue-loader-ring" cx="29" cy="36" r="14" />
+      <line class="oncue-loader-baton" x1="24" y1="41" x2="46" y2="19" />
+      <circle class="oncue-loader-dot" cx="48" cy="17" r="4.6" />
+    </svg>
+  </template>
+  <main>
+    <section id="list-view">
+      <div class="head">
+        <h1 data-i18n="library.heading">Recordings</h1>
+        <div class="head-actions">
+          <button class="btn" id="update-btn" type="button" data-i18n="library.update_button">Check for updates</button>
+          <a class="rec-btn" id="rec" href="/record" data-i18n="library.record_button">● Record</a>
+        </div>
+      </div>
+      <div class="note update" id="update-box" hidden></div>
+      <div class="note" id="model-box" hidden></div>
+      <ul class="list" id="list"></ul>
+      <div class="empty" id="empty" data-i18n="library.empty" hidden>No recordings yet.</div>
+    </section>
+
+    <section id="detail-view" hidden>
+      <button class="btn" id="back" data-i18n="library.back">← All recordings</button>
+      <h1 id="d-title" style="margin-top:16px"></h1>
+      <div class="meta hint" id="d-meta"></div>
+      <div class="tabs">
+        <button class="tab active" id="tab-transcript" data-i18n="library.tab_transcript">Transcript</button>
+        <button class="tab" id="tab-summary" data-i18n="library.tab_summary">Summary</button>
+      </div>
+      <p class="hint" id="d-hint" hidden></p>
+      <pre id="d-transcript"></pre>
+      <div class="summary" id="d-summary" hidden></div>
+    </section>
+  </main>
+
+  <script>
+    window.__configPromise = fetch("/api/config").then((r) => r.json()).catch(() => ({}));
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script>
+    const tr = (key, params) => window.t("library." + key, params);
+    const $ = (id) => document.getElementById(id);
+    const fmt = (sec) => {
+      const t = Math.floor(sec || 0);
+      return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0");
+    };
+    const mkText = (tag, text, cls) => {
+      const el = document.createElement(tag);
+      el.textContent = text;
+      if (cls) el.className = cls;
+      return el;
+    };
+    const loaderTemplate = document.getElementById("oncue-loader-template");
+    const loader = () => (loaderTemplate ? loaderTemplate.content.firstElementChild.cloneNode(true) : null);
+    function setLoadingText(el, text, loading) {
+      const mark = loading ? loader() : null;
+      el.replaceChildren(...(mark ? [mark] : []), text);
+    }
+
+    // Model download (first start): same progress as the recorder page, shown here because this is the first screen.
+    let modelReady = true;
+    function applyModel(m) {
+      modelReady = m.state === "ready";
+      $("model-box").hidden = modelReady;
+      $("model-box").classList.toggle("failed", m.state === "failed");
+      $("rec").classList.toggle("disabled", !modelReady);
+      if (m.state === "downloading") {
+        const mb = (n) => Math.round(n / 1048576);
+        const text = m.total
+          ? window.t("recorder.model_progress", { percent: Math.floor(100 * m.done / m.total), done: mb(m.done), total: mb(m.total) })
+          : window.t("recorder.model_progress_unknown", { done: mb(m.done) });
+        setLoadingText($("model-box"), text, true);
+      } else if (m.state === "failed") {
+        setLoadingText($("model-box"), m.error || window.t("recorder.model_failed"), false);
+      } else if (!modelReady) {
+        setLoadingText($("model-box"), window.t("recorder.model_preparing"), true);
+      }
+    }
+    async function pollModel() {
+      try { applyModel(await (await fetch("/model")).json()); } catch (e) { /* retried on the next poll */ }
+      setTimeout(pollModel, modelReady ? 5000 : 1000);
+    }
+
+    let live = null;
+    async function loadList() {
+      let sessions = [];
+      try {
+        live = await (await fetch("/status")).json();
+        sessions = (await (await fetch("/api/sessions")).json()).sessions;
+      } catch (e) { return; }
+      const list = $("list");
+      list.replaceChildren();
+      const isLive = !!live && live.phase === "recording";
+      if (isLive) {
+        const row = document.createElement("a");
+        row.className = "row live";
+        row.href = "/record";
+        row.append(mkText("span", tr("recording_now"), "title"), mkText("span", fmt(live.elapsed_s), "meta"));
+        list.append(row);
+      }
+      for (const s of sessions) {
+        if (isLive && s.status === "recording") continue; // the running recording has its own row above
+        const row = document.createElement("button");
+        row.className = "row";
+        const left = document.createElement("span");
+        left.append(mkText("div", s.title, "title"), mkText("div", s.date + (s.duration_s == null ? "" : " · " + fmt(s.duration_s)), "meta"));
+        row.append(left, mkText("span", tr("status_" + s.status), "badge " + s.status));
+        row.addEventListener("click", () => openSession(s.id));
+        list.append(row);
+      }
+      $("empty").hidden = list.children.length > 0;
+    }
+
+    function showTab(name) {
+      const summary = name === "summary";
+      $("tab-transcript").classList.toggle("active", !summary);
+      $("tab-summary").classList.toggle("active", summary);
+      $("d-transcript").hidden = summary;
+      $("d-summary").hidden = !summary;
+    }
+    function renderSummary(s) {
+      const box = $("d-summary");
+      box.replaceChildren();
+      if (s.short_summary) box.append(mkText("p", s.short_summary));
+      if (s.overview) box.append(mkText("p", s.overview));
+      for (const [key, label] of [["keywords", "keywords"], ["action_items", "action_items"], ["open_questions", "open_questions"]]) {
+        if (!(s[key] || []).length) continue;
+        box.append(mkText("h3", tr(label)));
+        const ul = document.createElement("ul");
+        for (const item of s[key]) ul.append(mkText("li", item));
+        box.append(ul);
+      }
+    }
+    async function openSession(id) {
+      let d;
+      try {
+        const r = await fetch("/api/sessions/" + encodeURIComponent(id));
+        if (!r.ok) throw new Error(r.status);
+        d = await r.json();
+      } catch (e) { $("empty").hidden = false; $("empty").textContent = tr("load_failed"); return; }
+      $("list-view").hidden = true;
+      $("detail-view").hidden = false;
+      $("d-title").textContent = d.title;
+      $("d-meta").textContent = [d.date, d.duration_s == null ? null : fmt(d.duration_s), (d.speakers || []).join(", ")].filter(Boolean).join(" · ");
+      $("d-transcript").textContent = d.transcript || tr("no_transcript");
+      const has = !!d.summary;
+      $("tab-summary").disabled = !has;
+      $("d-hint").hidden = has;
+      $("d-hint").textContent = tr("no_summary");
+      if (has) renderSummary(d.summary);
+      showTab("transcript");
+    }
+    // Check for updates: the only outbound GitHub request, made when the button is clicked
+    // (ADR-006 point 7). Nothing here runs on page load.
+    const copyButton = (text) => {
+      const btn = mkText("button", tr("update_copy"), "btn copy-btn");
+      btn.type = "button";
+      btn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch (e) {
+          return; // Leave the line selectable in place instead of claiming it was copied.
+        }
+        btn.textContent = tr("update_copied");
+      });
+      return btn;
+    };
+    function renderUpdate(data) {
+      const box = $("update-box");
+      box.replaceChildren();
+      box.hidden = false;
+      const fail = (message) => {
+        box.className = "note update failed";
+        box.textContent = tr("update_error", { message });
+      };
+      if (!data || data.error) {
+        fail((data && data.error && data.error.message) || tr("update_unreachable"));
+        return;
+      }
+      if (data.update_available === false) {
+        if (!data.current_version) { fail(tr("update_invalid_response")); return; }
+        box.className = "note update ok";
+        box.textContent = tr("update_latest", { version: data.current_version });
+        return;
+      }
+      if (data.update_available !== true || !data.latest_version) {
+        fail(tr("update_invalid_response"));
+        return;
+      }
+      box.className = "note update ok";
+      box.append(mkText("div", tr("update_available", { version: data.latest_version })));
+      const action = data.action || {};
+      const line = mkText("div", "", "update-action");
+      if (action.type === "release_page" && action.url) {
+        const link = document.createElement("a");
+        link.href = action.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = tr("update_open_release");
+        line.append(link, mkText("span", tr("update_download_dmg")));
+      } else if (Array.isArray(action.commands) && action.commands.length) {
+        const hint = action.type === "steps" ? tr("update_in_checkout") : tr("update_run_line");
+        box.append(mkText("div", hint));
+        const commands = action.commands.join("\n");
+        line.append(mkText("code", commands), copyButton(commands));
+      }
+      if (line.children.length) box.append(line);
+    }
+    let updateBusy = false;
+    async function checkForUpdates() {
+      if (updateBusy) return;
+      updateBusy = true;
+      const btn = $("update-btn");
+      btn.disabled = true;
+      const box = $("update-box");
+      box.hidden = false;
+      box.className = "note update";
+      box.textContent = tr("update_checking");
+      try {
+        if (window.SalesCopilotI18n && window.SalesCopilotI18n.ready) await window.SalesCopilotI18n.ready;
+        const response = await fetch("/api/update-check");
+        if (!response.ok) throw new Error(String(response.status));
+        renderUpdate(await response.json());
+      } catch (e) {
+        renderUpdate({ error: { message: tr("update_unreachable") } });
+      } finally {
+        updateBusy = false;
+        btn.disabled = false;
+      }
+    }
+    $("update-btn").addEventListener("click", checkForUpdates);
+
+    $("tab-transcript").addEventListener("click", () => showTab("transcript"));
+    $("tab-summary").addEventListener("click", () => { if (!$("tab-summary").disabled) showTab("summary"); });
+    $("back").addEventListener("click", () => {
+      $("detail-view").hidden = true;
+      $("list-view").hidden = false;
+      loadList();
+    });
+
+    pollModel();
+    loadList();
+    setInterval(() => { if (!$("list-view").hidden) loadList(); }, 3000);
+  </script>
+</body>
+</html>

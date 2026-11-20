@@ -248,7 +248,7 @@ In short:
 | Telephony audio capture / iPhone relay (`audio.calltap`) | no | yes |
 | Central tamper-evident audit, hashes only (`compliance.central_audit`) | no | yes |
 | Autostart at login + runtime auto-arm (`system.autostart`) | no | yes |
-| Live coaching guidance (`coaching.live`) | no | yes |
+| Live coaching guidance (`coaching.live`) | yes | yes |
 | Sales-script / methodology tracking (`coaching.script_tracking`) | no | yes |
 | Curated objection-response playbook (`coaching.response_playbook`) | no | yes |
 | Report delivery to a webhook/CRM endpoint (`reports.delivery.endpoint`) | no | yes |

@@ -1,0 +1,149 @@
+{
+  "started_utc": "2026-11-20T06:10:17Z",
+  "finished_utc": "2026-11-20T06:19:57Z",
+  "runs_per_mode": 30,
+  "call_timeout_ms": 30000,
+  "max_output_tokens": 512,
+  "fragment": {
+    "path": "tests/operator_scripts/scripted_sales_call_nl.md",
+    "sha256": "f2c3d1780b607f11",
+    "lines": 8,
+    "chars": 795
+  },
+  "candidates": {
+    "haiku": {
+      "provider": "openrouter",
+      "model": "anthropic/claude-haiku-4.5",
+      "provider_pin": null,
+      "note": ""
+    },
+    "qwen": {
+      "provider": "openrouter",
+      "model": "qwen/qwen3-30b-a3b",
+      "provider_pin": [
+        "DeepInfra"
+      ],
+      "note": "provider pinned to DeepInfra (fp8), allow_fallbacks=false, enable_thinking=false"
+    },
+    "gemini": {
+      "provider": "vertex",
+      "model": "gemini-2.5-flash",
+      "provider_pin": null,
+      "note": "genai has no token streaming through LLMClient.astream: streaming falls back to acreate"
+    }
+  },
+  "results": [
+    {
+      "candidate": "haiku",
+      "mode": "streaming",
+      "attempts": 30,
+      "ok": 30,
+      "errors": 0,
+      "skipped_after_abort": 0,
+      "error_rate": 0.0,
+      "error_types": {},
+      "first_error_message": null,
+      "median_ms": 1577.4870835011825,
+      "p95_ms": 3045.271540991962,
+      "min_ms": 1422.4923749570735,
+      "max_ms": 3345.516833011061,
+      "ttft_median_ms": 1576.8441044783685,
+      "ttft_p95_ms": 3044.162583013531,
+      "measured": true
+    },
+    {
+      "candidate": "haiku",
+      "mode": "non-streaming",
+      "attempts": 30,
+      "ok": 30,
+      "errors": 0,
+      "skipped_after_abort": 0,
+      "error_rate": 0.0,
+      "error_types": {},
+      "first_error_message": null,
+      "median_ms": 1591.7488330160268,
+      "p95_ms": 2277.702749997843,
+      "min_ms": 1369.0540410461836,
+      "max_ms": 3162.88729198277,
+      "ttft_median_ms": null,
+      "ttft_p95_ms": null,
+      "measured": true
+    },
+    {
+      "candidate": "qwen",
+      "mode": "streaming",
+      "attempts": 5,
+      "ok": 0,
+      "errors": 5,
+      "skipped_after_abort": 25,
+      "error_rate": 1.0,
+      "error_types": {
+        "InstructorRetryException": 5
+      },
+      "first_error_message": "<failed_attempts>\n\n<generation number=\"1\">\n<exception>\n    Error code: 429 - {'error': {'message': 'Provider returned error', 'code': 429, 'metadata': {'raw': 'qwen/qwen3-30b-a3b is temporarily rate-l",
+      "median_ms": null,
+      "p95_ms": null,
+      "min_ms": null,
+      "max_ms": null,
+      "ttft_median_ms": null,
+      "ttft_p95_ms": null,
+      "measured": false
+    },
+    {
+      "candidate": "qwen",
+      "mode": "non-streaming",
+      "attempts": 5,
+      "ok": 0,
+      "errors": 5,
+      "skipped_after_abort": 25,
+      "error_rate": 1.0,
+      "error_types": {
+        "InstructorRetryException": 5
+      },
+      "first_error_message": "<failed_attempts>\n\n<generation number=\"1\">\n<exception>\n    Error code: 429 - {'error': {'message': 'Provider returned error', 'code': 429, 'metadata': {'raw': 'qwen/qwen3-30b-a3b is temporarily rate-l",
+      "median_ms": null,
+      "p95_ms": null,
+      "min_ms": null,
+      "max_ms": null,
+      "ttft_median_ms": null,
+      "ttft_p95_ms": null,
+      "measured": false
+    },
+    {
+      "candidate": "gemini",
+      "mode": "streaming",
+      "attempts": 30,
+      "ok": 30,
+      "errors": 0,
+      "skipped_after_abort": 0,
+      "error_rate": 0.0,
+      "error_types": {},
+      "first_error_message": null,
+      "median_ms": 6393.659917026525,
+      "p95_ms": 9392.204625008162,
+      "min_ms": 2547.875291958917,
+      "max_ms": 9672.696666966658,
+      "ttft_median_ms": 6393.630271020811,
+      "ttft_p95_ms": 9392.180666036438,
+      "measured": true
+    },
+    {
+      "candidate": "gemini",
+      "mode": "non-streaming",
+      "attempts": 30,
+      "ok": 30,
+      "errors": 0,
+      "skipped_after_abort": 0,
+      "error_rate": 0.0,
+      "error_types": {},
+      "first_error_message": null,
+      "median_ms": 6227.994020999176,
+      "p95_ms": 9130.458416999318,
+      "min_ms": 3461.233749985695,
+      "max_ms": 9295.653541979846,
+      "ttft_median_ms": null,
+      "ttft_p95_ms": null,
+      "measured": true
+    }
+  ]
+}

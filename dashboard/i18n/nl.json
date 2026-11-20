@@ -87,15 +87,15 @@
   },
   "degrade": {
     "banner_intro": "Je Pro-licentie is niet meer actief. De app blijft gratis werken:",
-    "banner_active_features": "live transcript, samenvatting en post-call diagnose",
+    "banner_active_features": "live transcript, live coaching, samenvatting en post-call diagnose",
     "banner_active_suffix": "blijven actief.",
-    "banner_disabled_features": "Live coaching, slide-injectie, autostart en centrale audit zijn uitgeschakeld.",
+    "banner_disabled_features": "Slide-injectie, autostart en centrale audit zijn uitgeschakeld.",
     "upgrade_cta": "Upgrade naar Sales Pro"
   },
   "pro_upgrade": {
     "modal_title": "Sales Pro feature",
     "desc_intro": "Telefonie-capture (FaceTime / iPhone-relay via AudioTee) zit in",
-    "desc_outro": "Upgrade om tijdens echte telefoongesprekken live te coachen.",
+    "desc_outro": "Upgrade om echte telefoongesprekken op te nemen.",
     "cta": "Bekijk Sales Pro",
     "later": "Misschien later",
     "badge_label": "🔒 Pro"
@@ -153,6 +153,7 @@
     "decline_button": "Nee",
     "confirmed": "Sessie gestart.",
     "declined": "Overgeslagen.",
+    "expired": "De vraag is verlopen.",
     "process_phone_call": "Telefoongesprek"
   },
   "coaching": {
@@ -181,7 +182,7 @@
   "detector": {
     "status_waiting": "Detectie nog niet actief",
     "status_listening": "Luistert, nog niets binnen",
-    "status_active": "Luistert \u00b7 {received} gehoord \u00b7 {detections} gedetecteerd",
+    "status_active": "Luistert · {received} gehoord · {detections} gedetecteerd",
     "status_no_input": "Luistert, maar er komt niets binnen",
     "status_stale": "Geen signaal van de detectie",
     "status_stopped": "Detectie gestopt",
@@ -288,6 +289,7 @@
     "transcript_title": "Transcript",
     "download_json": "Download Report (JSON)",
     "download_markdown": "Download Report (Markdown)",
+    "download_pdf": "Download PDF",
     "new_call_button": "New Call",
     "key_moment_fallback_label": "Moment",
     "no_scorecard": "Geen scorecard beschikbaar.",
@@ -303,6 +305,7 @@
     "overview_title": "Overzicht",
     "keywords_title": "Trefwoorden",
     "action_items_title": "Actiepunten",
+    "open_questions_title": "Open vragen",
     "term_corrections_title": "Termcorrecties",
     "term_corrections_original_label": "Origineel",
     "term_corrections_corrected_label": "Correctie",
@@ -317,5 +320,20 @@
     "talktime_self_prospect_label": "Talk-time (self/prospect)",
     "monologue_warnings_label": "Monologue warnings",
     "markdown_none": "None"
+  },
+  "library": {
+    "update_button": "Controleer op updates",
+    "update_checking": "Bezig met controleren…",
+    "update_latest": "Je hebt de nieuwste versie ({version}).",
+    "update_available": "Versie {version} is beschikbaar.",
+    "update_open_release": "Open de releasepagina",
+    "update_download_dmg": "Download de .dmg daar en sleep OnCue naar Programma's.",
+    "update_run_line": "Voer deze regel opnieuw uit in Terminal:",
+    "update_in_checkout": "Voer in je checkout uit:",
+    "update_copy": "Kopiëren",
+    "update_copied": "Gekopieerd",
+    "update_error": "Kon niet controleren op updates: {message}",
+    "update_unreachable": "de server gaf geen antwoord.",
+    "update_invalid_response": "het antwoord kon niet worden gelezen."
   }
 }

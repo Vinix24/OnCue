@@ -113,7 +113,7 @@ async def test_window_classifier_no_longer_emits_objection_or_buying_signal(
     monkeypatch.setattr(detector_main, "_publish_ws", _fake_publish_ws)
 
     ws_config = WebSocketConfig()
-    config = DetectorConfig(enable_objection_detection=True)
+    config = DetectorConfig(enable_objection_detection=True, call_language="nl")
 
     class _StubInjector:
         async def handle_window_detection(self, **kwargs):
@@ -148,7 +148,7 @@ async def test_one_detected_objection_produces_exactly_one_emission(
 
     monkeypatch.setattr(detector_main, "_publish_ws", _fake_publish_ws)
 
-    config = DetectorConfig(enable_objection_detection=True)
+    config = DetectorConfig(enable_objection_detection=True, call_language="nl")
     ws_config = WebSocketConfig()
 
     class _StubInjector:
@@ -201,7 +201,7 @@ async def test_free_entitlement_gates_objection_response_to_teaser(
     monkeypatch: pytest.MonkeyPatch,
     free_feature_policy: FeaturePolicy,
 ) -> None:
-    config = DetectorConfig(enable_objection_detection=True)
+    config = DetectorConfig(enable_objection_detection=True, call_language="nl")
     detector = ObjectionDetector(
         config,
         WebSocketConfig(),
@@ -233,7 +233,7 @@ async def test_pro_entitlement_carries_curated_objection_response(
     monkeypatch: pytest.MonkeyPatch,
     pro_feature_policy: FeaturePolicy,
 ) -> None:
-    config = DetectorConfig(enable_objection_detection=True)
+    config = DetectorConfig(enable_objection_detection=True, call_language="nl")
     detector = ObjectionDetector(
         config,
         WebSocketConfig(),
@@ -265,7 +265,7 @@ async def test_free_entitlement_gates_buying_signal_response_to_teaser(
     monkeypatch: pytest.MonkeyPatch,
     free_feature_policy: FeaturePolicy,
 ) -> None:
-    config = DetectorConfig(include_opportunities=True)
+    config = DetectorConfig(include_opportunities=True, call_language="nl")
     detector = ObjectionDetector(
         config,
         WebSocketConfig(),
@@ -296,7 +296,7 @@ async def test_pro_entitlement_carries_curated_buying_signal_response(
     monkeypatch: pytest.MonkeyPatch,
     pro_feature_policy: FeaturePolicy,
 ) -> None:
-    config = DetectorConfig(include_opportunities=True)
+    config = DetectorConfig(include_opportunities=True, call_language="nl")
     detector = ObjectionDetector(
         config,
         WebSocketConfig(),

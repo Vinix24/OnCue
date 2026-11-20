@@ -152,8 +152,8 @@ ls -t ~/Library/Logs/OnCue/ | head -1
 The person does this part, you guide it.
 
 1. Open `~/Applications/OnCue.app` (Launchpad, or `open ~/Applications/OnCue.app`). No Gatekeeper step is needed: nothing was downloaded through a browser.
-2. A dialog asks what they want to do. They choose **Opnemen en uitschrijven** (record and write out). That is the default button. **Live coach** is the full dashboard and is not needed here.
-3. A page opens in the browser at `http://127.0.0.1:8780` with two level meters and a timer.
+2. A dialog asks what they want to do. They choose **Record and transcribe**. That is the default button. On a Dutch install (`LANGUAGE=nl` in `.env`) the dialog is Dutch and the button reads **Opnemen en uitschrijven**. **Live coach** is the full dashboard and is not needed here.
+3. A page opens in the browser at `http://127.0.0.1:8780` with the library of recordings; Record opens `/record` with two level meters and a timer.
 
 ### Permissions macOS asks for
 
@@ -171,7 +171,7 @@ The names differ a little between macOS versions. Look for the entry that mentio
 1. Ask the person to tell anyone who can be heard that this is a test recording. No one else may be recorded without their consent, also not in a test. If they are alone, they speak and play a short video with sound so the other side is not silent.
 2. Press **REC**. Both meters must move: the meter `Jij (mic)` for their own voice, the meter `Prospect (system-audio)` for the video or the other person.
 3. After about 30 seconds press **Stop**.
-4. OnCue writes the conversation out in the background. When it is ready the page shows **Open transcript** and **Toon in Finder**.
+4. OnCue writes the conversation out in the background. When it is ready the page shows **Open transcript** and **Show in Finder**.
 
 Check that the file exists:
 
@@ -180,7 +180,7 @@ ls -t ~/OnCue/data/sessions/ | head -1
 ls -l ~/OnCue/data/sessions/"$(ls -t ~/OnCue/data/sessions/ | head -1)"/transcript.md
 ```
 
-The file has a header with date, start time and duration, then one line per segment: `[mm:ss] Jij: ...` for the person themself and `[mm:ss] Ander: ...` for the other side. Ask the person to open it with **Open transcript** and confirm the text is readable. Do not read the transcript content out into logs or send it anywhere.
+The file has a header with date, start time and duration, then one line per segment: `[mm:ss] Ik: ...` for the person themself and `[mm:ss] Gesprekspartner: ...` for the other side. Ask the person to open it with **Open transcript** and confirm the text is readable. Do not read the transcript content out into logs or send it anywhere.
 
 When this works, the goal state is reached. Tell the person where to find OnCue next time: Launchpad, or `~/Applications/OnCue.app`.
 

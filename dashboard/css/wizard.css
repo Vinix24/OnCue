@@ -281,22 +281,6 @@
   background: var(--glass-bg);
 }
 
-.wizard-spinner {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--border);
-  border-top-color: var(--secondary);
-  border-radius: 50%;
-  animation: wizard-spin 0.8s linear infinite;
-}
-
-@keyframes wizard-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .wizard-summary {
   margin-top: 28px;
   padding: 16px 20px;

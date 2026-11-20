@@ -21,13 +21,45 @@ set -euo pipefail
 
 LAUNCHER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_PATH_FILE="$HOME/.oncue/repo-path"
-RECORD_PORT=8780
+# Seams for tests; the defaults are the real values.
+PID_DIR="${ONCUE_PID_DIR:-/tmp}"
+
+# Messages come from the same catalog as the app (config/i18n/<language>.yaml, the
+# "launcher:" section) in the language oncue-language.sh reports. Usage:
+#   _msg <key> [name=value ...]    # fills the {name} placeholders
+# MSG_ROOT is the install the language is read from; until the install is resolved
+# it is $ONCUE_REPO when set, else the repo this script lives in.
+MSG_ROOT=""
+shopt -u patsub_replacement 2>/dev/null || true
+_msg() {
+    local key="$1" root lang catalog value="" pair name
+    shift
+    root="${MSG_ROOT:-${ONCUE_REPO:-$(cd "$LAUNCHER_DIR/../.." && pwd)}}"
+    lang="$(bash "$LAUNCHER_DIR/oncue-language.sh" "$root")"
+    for catalog in "$root/config/i18n/$lang.yaml" "$LAUNCHER_DIR/../../config/i18n/$lang.yaml" \
+        "$root/config/i18n/en.yaml" "$LAUNCHER_DIR/../../config/i18n/en.yaml"; do
+        [[ -f "$catalog" ]] || continue
+        value="$(awk -v key="$key" '
+            /^launcher:/ { in_section = 1; next }
+            /^[^ #]/ { in_section = 0 }
+            in_section && index($0, "  " key ": \"") == 1 {
+                v = substr($0, length(key) + 6); sub(/"[ \t]*$/, "", v); print v; exit
+            }' "$catalog")"
+        [[ -n "$value" ]] && break
+    done
+    [[ -n "$value" ]] || value="$key"
+    for pair in "$@"; do
+        name="${pair%%=*}"
+        value="${value//\{$name\}/${pair#*=}}"
+    done
+    printf '%s' "$value"
+}
 
 MODE="${1:-}"
 case "$MODE" in
     dashboard|record) ;;
     *)
-        echo "Onbekende modus: '${MODE}'. Gebruik 'dashboard' of 'record'." >&2
+        echo "$(_msg unknown_mode mode="$MODE")" >&2
         exit 1
         ;;
 esac
@@ -48,7 +80,7 @@ resolve_repo_root() {
             printf '%s\n' "$candidate"
             return 0
         fi
-        echo "ONCUE_REPO ($candidate) is geen geldige OnCue-installatie (mist src/sales_copilot/__main__.py of scripts/record_server.py)." >&2
+        echo "$(_msg invalid_install_env path="$candidate")" >&2
         return 1
     fi
 
@@ -65,17 +97,17 @@ resolve_repo_root() {
             printf '%s\n' "$candidate"
             return 0
         fi
-        echo "Opgeslagen pad ($candidate, uit $REPO_PATH_FILE) is geen geldige OnCue-installatie meer." >&2
+        echo "$(_msg invalid_saved_path path="$candidate" file="$REPO_PATH_FILE")" >&2
     fi
 
-    candidate="$(osascript -e 'POSIX path of (choose folder with prompt "Kies de OnCue-projectmap")' 2>/dev/null)" || true
+    candidate="$(osascript -e "POSIX path of (choose folder with prompt \"$(_msg folder_prompt)\")" 2>/dev/null)" || true
     candidate="${candidate%/}"
     if [[ -z "$candidate" ]]; then
-        echo "Geen OnCue-map geselecteerd." >&2
+        echo "$(_msg no_folder_selected)" >&2
         return 1
     fi
     if ! _has_markers "$candidate"; then
-        echo "De gekozen map ($candidate) is geen geldige OnCue-installatie (mist src/sales_copilot/__main__.py of scripts/record_server.py)." >&2
+        echo "$(_msg invalid_install_chosen path="$candidate")" >&2
         return 1
     fi
     mkdir -p "$(dirname "$REPO_PATH_FILE")"
@@ -85,9 +117,10 @@ resolve_repo_root() {
 }
 
 REPO_ROOT="$(resolve_repo_root)" || exit 1
+MSG_ROOT="$REPO_ROOT"
 
 if [[ ! -x "$REPO_ROOT/.venv/bin/python" ]]; then
-    echo "OnCue gevonden op $REPO_ROOT, maar de virtualenv ontbreekt. Run 'scripts/setup.sh' in die map en probeer opnieuw." >&2
+    echo "$(_msg venv_missing path="$REPO_ROOT")" >&2
     exit 1
 fi
 
@@ -108,36 +141,62 @@ REPO_ROOT_CANON="$(_canon_dir "$REPO_ROOT")"
 # single matching line is read — the file is never sourced, since it can
 # contain secrets that must not end up in this script's (or the browser
 # open's) environment.
-resolve_dashboard_port() {
-    local env_file="$REPO_ROOT/.env" line value
+_env_value() {
+    local key="$1" env_file="$REPO_ROOT/.env" line value
     if [[ -f "$env_file" ]]; then
-        line="$(grep -E '^WS_HUB_PORT=' "$env_file" 2>/dev/null | tail -n1 || true)"
+        line="$(grep -E "^${key}=" "$env_file" 2>/dev/null | tail -n1 || true)"
         if [[ -n "$line" ]]; then
-            value="${line#WS_HUB_PORT=}"
+            value="${line#"${key}="}"
             value="${value%%#*}"          # strip inline comment
             value="${value%\"}"; value="${value#\"}"
             value="${value%\'}"; value="${value#\'}"
-            value="$(printf '%s' "$value" | tr -d '[:space:]')"
-            if [[ "$value" =~ ^[0-9]+$ ]]; then
-                printf '%s\n' "$value"
-                return 0
-            fi
+            printf '%s' "$value" | tr -d '[:space:]'
         fi
     fi
-    printf '8760\n'
+}
+
+resolve_dashboard_port() {
+    local value
+    value="$(_env_value WS_HUB_PORT)"
+    if [[ "$value" =~ ^[0-9]+$ ]]; then
+        printf '%s\n' "$value"
+    else
+        printf '8760\n'
+    fi
 }
 
 DASHBOARD_PORT="$(resolve_dashboard_port)"
 
+# Notetaker port: test seam first, then RECORDER_PORT from .env, then 8780.
+resolve_record_port() {
+    local value
+    if [[ -n "${ONCUE_RECORD_PORT:-}" ]]; then
+        printf '%s\n' "$ONCUE_RECORD_PORT"
+        return
+    fi
+    value="$(_env_value RECORDER_PORT)"
+    if [[ "$value" =~ ^[0-9]+$ ]]; then
+        printf '%s\n' "$value"
+    else
+        printf '8780\n'
+    fi
+}
+
+RECORD_PORT="$(resolve_record_port)"
+
 case "$MODE" in
     dashboard)
         PORT="$DASHBOARD_PORT"
-        OTHER_MODE="record"
+        OTHER_ROUTE="notetaker"
+        OTHER_LABEL="notulist"
+        OWN_LABEL="copilot"
         OTHER_PORT="$RECORD_PORT"
         ;;
     record)
         PORT="$RECORD_PORT"
-        OTHER_MODE="dashboard"
+        OTHER_ROUTE="copilot"
+        OTHER_LABEL="copilot"
+        OWN_LABEL="notulist"
         OTHER_PORT="$DASHBOARD_PORT"
         ;;
 esac
@@ -150,12 +209,25 @@ if [[ "${ONCUE_LAUNCH_DRY_RUN:-0}" == "1" ]]; then
     exit 0
 fi
 
-# Two servers on different ports can coexist. Only touch the port we are
-# starting on; if the other mode is already running, leave it alone and just
-# notify.
-if lsof -i ":$OTHER_PORT" >/dev/null 2>&1; then
-    osascript -e "display notification \"OnCue $OTHER_MODE draait al op poort $OTHER_PORT — dat laat ik staan.\" with title \"OnCue\"" >/dev/null 2>&1 || true
-fi
+BAR_PID_FILE="$PID_DIR/oncue-launcher-bar.pid"
+BAR_EXE="$REPO_ROOT/bin/OnCue Bar.app/Contents/MacOS/OnCueBar"
+
+# The pid file only counts when it names a live process whose command is the
+# recording bar. A dead or foreign pid (reused by something else) is ignored.
+_stop_bar_from_pidfile() {
+    local pid cmd
+    [[ -f "$BAR_PID_FILE" ]] || return 0
+    pid="$(tr -d '[:space:]' < "$BAR_PID_FILE")"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+    kill -0 "$pid" 2>/dev/null || return 0
+    cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+    [[ "$cmd" =~ /OnCueBar([[:space:]]|$) ]] || return 0
+    kill -TERM "$pid" 2>/dev/null || true
+    for _ in $(seq 1 20); do
+        kill -0 "$pid" 2>/dev/null || return 0
+        sleep 0.25
+    done
+}
 
 # Working directory of a PID, as reported by lsof (already symlink-resolved).
 _pid_cwd() {
@@ -164,8 +236,103 @@ _pid_cwd() {
 }
 
 _pid_owns_port() {
-    lsof -a -p "$1" -i ":$2" >/dev/null 2>&1
+    lsof -a -p "$1" -nP -iTCP:"$2" -sTCP:LISTEN >/dev/null 2>&1
 }
+
+# One route at a time (ADR-004 decision 7): both routes record the same call.
+# The other route runs when its runtime file names a live pid whose port has a
+# listener. Without such a file, a listener on the configured port counts.
+_port_listening() {
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+_run_field() {
+    grep -o "\"$2\"[[:space:]]*:[[:space:]]*[0-9]*" "$1" 2>/dev/null | head -n1 | grep -o '[0-9]*$' || true
+}
+
+OTHER_PID=""
+OTHER_LISTEN_PORT=""
+
+# A pid counts as this OnCue only when its working directory is this repo.
+_pid_in_this_repo() {
+    local cwd
+    cwd="$(_pid_cwd "$1")"
+    [[ -n "$cwd" && "$(_canon_dir "$cwd")" == "$REPO_ROOT_CANON" ]]
+}
+
+_find_other_route() {
+    local run_file="$REPO_ROOT/data/run/$OTHER_ROUTE.json" pid port foreign=""
+    if [[ -r "$run_file" ]]; then
+        pid="$(_run_field "$run_file" pid)"
+        port="$(_run_field "$run_file" port)"
+        if [[ "$pid" =~ ^[0-9]+$ && "$port" =~ ^[0-9]+$ ]] \
+            && kill -0 "$pid" 2>/dev/null && _pid_owns_port "$pid" "$port"; then
+            if _pid_in_this_repo "$pid"; then
+                OTHER_PID="$pid"
+                OTHER_LISTEN_PORT="$port"
+                return 0
+            fi
+            foreign="$port"
+        fi
+    fi
+    pid="$(lsof -t -nP -iTCP:"$OTHER_PORT" -sTCP:LISTEN 2>/dev/null | head -n1 || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]]; then
+        if _pid_in_this_repo "$pid"; then
+            OTHER_PID="$pid"
+            OTHER_LISTEN_PORT="$OTHER_PORT"
+            return 0
+        fi
+        foreign="$OTHER_PORT"
+    fi
+    if [[ -n "$foreign" ]]; then
+        echo "$(_msg foreign_port port="$foreign")" >&2
+    fi
+    return 1
+}
+
+# The pid must be gone and the port free: a free port alone is not enough,
+# the server closes its listener before the shutdown that ends a recording.
+# The deadline runs on the clock (SECONDS), not on an iteration count.
+_wait_route_gone() {
+    local pid="$1" port="$2" limit="$3" deadline
+    deadline=$((SECONDS + limit))
+    while ((SECONDS < deadline)); do
+        if ! kill -0 "$pid" 2>/dev/null && ! _port_listening "$port"; then
+            return 0
+        fi
+        sleep 0.2
+    done
+    return 1
+}
+
+if _find_other_route; then
+    SWITCH_MSG="$(_msg switch_question label="$OTHER_LABEL")"
+    SWITCH_NO="$(_msg switch_no)"
+    SWITCH_YES="$(_msg switch_yes)"
+    if [[ "$OTHER_ROUTE" == "notetaker" ]]; then
+        STATUS_BODY="$(curl -s -m 2 "http://127.0.0.1:${OTHER_LISTEN_PORT}/status" 2>/dev/null || true)"
+        PHASE="$(printf '%s' "$STATUS_BODY" | sed -n 's/.*"phase"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+        if [[ -n "$PHASE" && "$PHASE" != "idle" ]]; then
+            SWITCH_MSG="$SWITCH_MSG $(_msg switch_recording)"
+        fi
+    fi
+    SWITCH_CHOICE="$(osascript -e "display dialog \"$SWITCH_MSG\" buttons {\"$SWITCH_NO\", \"$SWITCH_YES\"} default button \"$SWITCH_NO\" with title \"OnCue\"" 2>/dev/null | sed -n 's/^button returned://p')" || true
+    if [[ "$SWITCH_CHOICE" != "$SWITCH_YES" ]]; then
+        exit 0
+    fi
+
+    SWITCH_LIMIT="${ONCUE_SWITCH_TIMEOUT_S:-60}"
+    [[ "$SWITCH_LIMIT" =~ ^[0-9]+$ ]] || SWITCH_LIMIT=60
+    kill -TERM "$OTHER_PID" 2>/dev/null || true
+    if ! _wait_route_gone "$OTHER_PID" "$OTHER_LISTEN_PORT" "$SWITCH_LIMIT"; then
+        osascript -e "display notification \"$(_msg switch_notification label="$OWN_LABEL")\" with title \"OnCue\"" >/dev/null 2>&1 || true
+        echo "$(_msg switch_timeout other="$OTHER_LABEL" pid="$OTHER_PID" port="$OTHER_LISTEN_PORT" limit="$SWITCH_LIMIT" label="$OWN_LABEL")" >&2
+        exit 1
+    fi
+    if [[ "$OTHER_ROUTE" == "notetaker" ]]; then
+        _stop_bar_from_pidfile
+    fi
+fi
 
 # Never kill by pattern-matching a command line: that matches any process on
 # the machine whose args happen to contain the string, including a live
@@ -174,7 +341,7 @@ _pid_owns_port() {
 PORT_PIDS=()
 while IFS= read -r _port_pid; do
     [[ -n "$_port_pid" ]] && PORT_PIDS+=("$_port_pid")
-done < <(lsof -ti ":$PORT" 2>/dev/null || true)
+done < <(lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
 
 if [[ "${#PORT_PIDS[@]}" -gt 0 ]]; then
     SAME_REPO_PIDS=()
@@ -183,36 +350,41 @@ if [[ "${#PORT_PIDS[@]}" -gt 0 ]]; then
         owner_cwd="$(_pid_cwd "$pid")"
         if [[ -z "$owner_cwd" ]]; then
             FOREIGN=1
-            echo "Kan de working directory van PID $pid (poort $PORT) niet vaststellen — ik raak dit proces niet aan." >&2
+            echo "$(_msg cwd_unknown pid="$pid" port="$PORT")" >&2
             continue
         fi
         if [[ "$(_canon_dir "$owner_cwd")" == "$REPO_ROOT_CANON" ]]; then
             SAME_REPO_PIDS+=("$pid")
         else
             FOREIGN=1
-            echo "Poort $PORT is al in gebruik door PID $pid vanuit een andere map ($owner_cwd) — ik raak dit proces niet aan." >&2
+            echo "$(_msg port_other_folder port="$PORT" pid="$pid" cwd="$owner_cwd")" >&2
         fi
     done
 
     if [[ "$FOREIGN" -eq 1 ]]; then
-        echo "Los dit handmatig op (bijv. 'kill <pid>') en start OnCue opnieuw." >&2
+        echo "$(_msg resolve_manually)" >&2
         exit 1
     fi
 
-    DIALOG_MSG="OnCue $MODE draait al op poort $PORT, vanuit deze map. Wil je die instantie herstarten?"
-    CHOICE="$(osascript -e "display dialog \"$DIALOG_MSG\" buttons {\"Annuleer\", \"Herstarten\"} default button \"Annuleer\" with title \"OnCue\"" 2>/dev/null | sed -n 's/^button returned://p')" || true
+    DIALOG_MSG="$(_msg restart_question mode="$MODE" port="$PORT")"
+    RESTART_CANCEL="$(_msg restart_cancel)"
+    RESTART_YES="$(_msg restart_yes)"
+    CHOICE="$(osascript -e "display dialog \"$DIALOG_MSG\" buttons {\"$RESTART_CANCEL\", \"$RESTART_YES\"} default button \"$RESTART_CANCEL\" with title \"OnCue\"" 2>/dev/null | sed -n 's/^button returned://p')" || true
 
-    if [[ "$CHOICE" != "Herstarten" ]]; then
+    if [[ "$CHOICE" != "$RESTART_YES" ]]; then
         exit 0
     fi
 
     for pid in "${SAME_REPO_PIDS[@]}"; do
         kill "$pid" 2>/dev/null || true
     done
+    if [[ "$MODE" == "record" ]]; then
+        _stop_bar_from_pidfile
+    fi
 
     FREED=0
     for _ in $(seq 1 10); do
-        if ! lsof -i ":$PORT" >/dev/null 2>&1; then
+        if ! lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
             FREED=1
             break
         fi
@@ -220,14 +392,14 @@ if [[ "${#PORT_PIDS[@]}" -gt 0 ]]; then
     done
 
     if [[ "$FREED" -ne 1 ]]; then
-        echo "Poort $PORT is niet vrijgekomen na herstart-poging (PID(s): ${SAME_REPO_PIDS[*]}). Los dit handmatig op." >&2
+        echo "$(_msg port_not_freed port="$PORT" pids="${SAME_REPO_PIDS[*]}")" >&2
         exit 1
     fi
 fi
 
 mkdir -p data/logs
 LOG_FILE="data/logs/launcher-${MODE}.log"
-PID_FILE="/tmp/oncue-launcher-${MODE}.pid"
+PID_FILE="$PID_DIR/oncue-launcher-${MODE}.pid"
 
 if [[ "$MODE" == "dashboard" ]]; then
     # The launcher manages its own browser tabs below, so tell the server not
@@ -263,7 +435,7 @@ _server_owns_port() {
     # Second-best signal if the PID/port intersection above is ever
     # inconclusive: does whoever holds the port share our repo's cwd?
     local owner_pid owner_cwd
-    for owner_pid in $(lsof -ti ":$port" 2>/dev/null || true); do
+    for owner_pid in $(lsof -t -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true); do
         owner_cwd="$(_pid_cwd "$owner_pid")"
         if [[ -n "$owner_cwd" && "$(_canon_dir "$owner_cwd")" == "$REPO_ROOT_CANON" ]]; then
             return 0
@@ -276,7 +448,7 @@ _server_owns_port() {
 READY=0
 for _ in $(seq 1 30); do
     if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-        echo "OnCue $MODE server is direct gestopt. Log: $REPO_ROOT/$LOG_FILE" >&2
+        echo "$(_msg server_stopped mode="$MODE" log="$REPO_ROOT/$LOG_FILE")" >&2
         exit 1
     fi
     if _server_owns_port "$PORT"; then
@@ -287,7 +459,7 @@ for _ in $(seq 1 30); do
 done
 
 if [[ "$READY" -ne 1 ]]; then
-    echo "OnCue $MODE server startup timed out. Log: $REPO_ROOT/$LOG_FILE" >&2
+    echo "$(_msg server_timeout mode="$MODE" log="$REPO_ROOT/$LOG_FILE")" >&2
     exit 1
 fi
 
@@ -303,6 +475,25 @@ if [[ "$MODE" == "dashboard" ]]; then
     fi
 else
     open "http://127.0.0.1:${PORT}"
+
+    # The recording bar is a separate process. Without it OnCue still works,
+    # so nothing below may stop the launcher.
+    BAR_LOG="data/logs/launcher-bar.log"
+    BAR_MARKER="data/.bar-missing-notified"
+    BAR_HOTKEY="$(_env_value BAR_HOTKEY)"
+    BAR_HOTKEY="${BAR_HOTKEY:-ctrl+option+r}"
+    _stop_bar_from_pidfile
+    if [[ -x "$BAR_EXE" ]]; then
+        nohup "$BAR_EXE" --port "$RECORD_PORT" --hotkey "$BAR_HOTKEY" >> "$BAR_LOG" 2>&1 &
+        echo "$!" > "$BAR_PID_FILE"
+        rm -f "$BAR_MARKER"
+    else
+        printf '%s opnamebalk ontbreekt of is niet uitvoerbaar: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$BAR_EXE" >> "$BAR_LOG"
+        if [[ ! -e "$BAR_MARKER" ]]; then
+            osascript -e "display notification \"$(_msg bar_missing_notification)\" with title \"OnCue\"" >/dev/null 2>&1 || true
+            : > "$BAR_MARKER" || true
+        fi
+    fi
 fi
 
-echo "OnCue $MODE gestart (pid $SERVER_PID, poort $PORT). Log: $REPO_ROOT/$LOG_FILE"
+echo "$(_msg started mode="$MODE" pid="$SERVER_PID" port="$PORT" log="$REPO_ROOT/$LOG_FILE")"

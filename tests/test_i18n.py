@@ -55,24 +55,24 @@ def test_i18n_resolves_dotted_key_for_language(seeded_catalogs: Path) -> None:
 
 
 def test_i18n_falls_back_to_default_when_language_catalog_missing(seeded_catalogs: Path) -> None:
-    # "xx" has no catalog file -> resolves against the nl default.
-    assert i18n.t("coaching.empty_state", lang="xx") == "NL empty"
+    # "xx" has no catalog file -> resolves against the en default.
+    assert i18n.t("coaching.empty_state", lang="xx") == "EN empty"
 
 
 def test_i18n_falls_back_to_default_when_key_missing_in_nondefault_language(
     seeded_catalogs: Path,
 ) -> None:
-    # "only_nl" exists in nl (the default) but not in en -> requesting en
-    # falls back to the nl default, proving the en toggle degrades gracefully.
-    assert i18n.t("only_nl", lang="en") == "alleen in het Nederlands"
+    # "only_en" exists in en (the default) but not in nl -> requesting nl
+    # falls back to the en default, proving the nl toggle degrades gracefully.
+    assert i18n.t("only_en", lang="nl") == "only in English"
 
 
 def test_i18n_missing_key_in_default_language_returns_raw_key(
     seeded_catalogs: Path,
 ) -> None:
-    # "only_en" exists in en but not in nl (the default) -> requesting nl
-    # returns the raw key since nl is the anchor and has no further fallback.
-    assert i18n.t("only_en", lang="nl") == "only_en"
+    # "only_nl" exists in nl but not in en (the default) -> requesting en
+    # returns the raw key since en is the anchor and has no further fallback.
+    assert i18n.t("only_nl", lang="en") == "only_nl"
 
 
 def test_i18n_missing_key_returns_key_itself(seeded_catalogs: Path) -> None:
@@ -119,9 +119,9 @@ def test_i18n_missing_catalog_caches_empty_mapping(seeded_catalogs: Path) -> Non
 # --- configured language ----------------------------------------------------
 
 
-def test_configured_language_defaults_to_nl(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_configured_language_defaults_to_en(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(i18n.LANGUAGE_ENV_VAR, raising=False)
-    assert i18n.configured_language() == "nl"
+    assert i18n.configured_language() == "en"
 
 
 def test_configured_language_reads_and_normalizes_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -148,9 +148,9 @@ def test_language_en_selects_real_en_catalog(monkeypatch: pytest.MonkeyPatch) ->
     assert i18n.t("coaching.suggestion_empty_state") == "Waiting for conversation context..."
 
 
-def test_language_default_selects_real_nl_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_language_default_selects_real_en_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(i18n.LANGUAGE_ENV_VAR, raising=False)
-    assert i18n.t("coaching.suggestion_empty_state") == "Wacht op gesprekscontext..."
+    assert i18n.t("coaching.suggestion_empty_state") == "Waiting for conversation context..."
 
 
 def test_language_nl_selects_real_nl_catalog(monkeypatch: pytest.MonkeyPatch) -> None:

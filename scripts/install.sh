@@ -157,6 +157,18 @@ _is_python_311() {
 VENV_DIR="$ROOT_DIR/.venv"
 PYTHON="$VENV_DIR/bin/python"
 AUDIOTEE_BIN="$ROOT_DIR/bin/audiotee"
+BAR_APP="$ROOT_DIR/bin/OnCue Bar.app"
+BAR_NOTE="OnCue works without the recording bar: the recording page in the browser stays the full control."
+
+# True when the bar is in bin/, its program is executable and its bundle version
+# is the version of this release (pyproject.toml). Anything unreadable is a no.
+_bar_current() {
+    local want have
+    want="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT_DIR/pyproject.toml" 2>/dev/null | head -n 1)"
+    [[ -n "$want" && -x "$BAR_APP/Contents/MacOS/OnCueBar" ]] || return 1
+    have="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$BAR_APP/Contents/Info.plist" 2>/dev/null)" || return 1
+    [[ "$have" == "$want" ]]
+}
 WHISPER_DIR="$ROOT_DIR/vendor/whisper.cpp"
 WHISPER_CLI="$WHISPER_DIR/build/bin/whisper-cli"
 WHISPER_SERVER="$WHISPER_DIR/build/bin/whisper-server"
@@ -185,25 +197,52 @@ prebuilt_verify_environment() {
         AUDIO_REASON="the prebuilt AudioTee program is missing or does not run."
         _warn "$AUDIO_REASON"
     fi
+    if _bar_current; then
+        _green "Recording bar verified: bin/OnCue Bar.app"
+    else
+        _warn "The recording bar (bin/OnCue Bar.app) is missing or out of date. $BAR_NOTE"
+    fi
 }
 
 # Downloads the GGML speech model with curl. A download that stops halfway
 # leaves a .part file that the next run resumes; the model file itself only
 # appears once the download is complete.
 prebuilt_fetch_model() {
-    local url="${ONCUE_MODEL_URL:-https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin}"
+    local default_url="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
+    local default_sha="1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"
+    local url="${ONCUE_MODEL_URL:-$default_url}"
+    local want_sha="${ONCUE_MODEL_SHA256:-}"
+    if [[ -z "$want_sha" && "$url" == "$default_url" ]]; then
+        want_sha="$default_sha"
+    fi
     if [[ -f "$WHISPER_MODEL" ]]; then
         _green "Speech model already present"
         return 0
     fi
     mkdir -p "$WHISPER_MODEL_DIR"
     _blue "Downloading the speech model (1.5 GB, progress goes to the log)..."
-    if _run_logged curl -fsSL --retry 3 --connect-timeout 20 -C - -o "$WHISPER_MODEL.part" "$url" \
-        && mv "$WHISPER_MODEL.part" "$WHISPER_MODEL"; then
-        _green "Speech model downloaded"
-    else
+    if ! _run_logged curl -fsSL --retry 3 --connect-timeout 20 -C - -o "$WHISPER_MODEL.part" "$url"; then
         TRANSCRIBER_REASON="the speech model download failed (see the log)."
         _warn "$TRANSCRIBER_REASON Run the installer again to resume it."
+        return 0
+    fi
+    if [[ -n "$want_sha" ]]; then
+        local got_sha
+        got_sha="$(shasum -a 256 "$WHISPER_MODEL.part" | cut -d' ' -f1)"
+        if [[ "$got_sha" != "$want_sha" ]]; then
+            rm -f "$WHISPER_MODEL.part"
+            TRANSCRIBER_REASON="the downloaded speech model failed its SHA-256 check and was removed."
+            _warn "$TRANSCRIBER_REASON Run the installer again to download it afresh."
+            return 0
+        fi
+    else
+        _warn "ONCUE_MODEL_URL is set without ONCUE_MODEL_SHA256: the speech model is not checksum-verified"
+    fi
+    if mv "$WHISPER_MODEL.part" "$WHISPER_MODEL"; then
+        _green "Speech model downloaded"
+    else
+        TRANSCRIBER_REASON="the speech model could not be moved into place."
+        _warn "$TRANSCRIBER_REASON"
     fi
 }
 
@@ -334,6 +373,16 @@ else
     fi
 fi
 
+# The recording bar (macOS 14.2 and later). A missing bar never fails the install.
+if _bar_current; then
+    _green "Recording bar already built: bin/OnCue Bar.app"
+elif [[ -f "$ROOT_DIR/native/oncue-bar/Package.swift" && -f "$ROOT_DIR/scripts/build_oncue_bar.sh" ]] \
+    && _run_logged bash "$ROOT_DIR/scripts/build_oncue_bar.sh" "$ROOT_DIR/bin" && _bar_current; then
+    _green "Recording bar built: bin/OnCue Bar.app"
+else
+    _warn "The recording bar could not be built. $BAR_NOTE"
+fi
+
 # ── 7. whisper.cpp backend (binary + GGML model) ─────────────────────────────
 # whisper.cpp is the default transcription backend. Its binary must be compiled
 # from the vendored source and paired with a GGML model. Without it the
@@ -379,6 +428,10 @@ if [[ ! -f "$ENV_FILE" ]]; then
     _green ".env created from .env.example"
 else
     _green ".env already present (left untouched)"
+    # English is the default for new installs; an existing install whose
+    # settings set neither language key stays Dutch (scripts/migrate_env_language.sh).
+    _MIGRATED="$(bash "$ROOT_DIR/scripts/migrate_env_language.sh" "$ENV_FILE")" || _fail "Could not read the language settings in $ENV_FILE"
+    [[ -z "$_MIGRATED" ]] || _green "$_MIGRATED"
 fi
 mkdir -p "$ROOT_DIR/data/sessions"
 _green "data/ directories ready"

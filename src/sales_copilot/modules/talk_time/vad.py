@@ -11,6 +11,10 @@ except Exception:  # pragma: no cover - fallback until tracker exists
     _SpeechEvent = None
 
 
+# Minimum window Silero v5 accepts, per supported sample rate.
+_SILERO_WINDOW_SAMPLES = {16000: 512, 8000: 256}
+
+
 @dataclass
 class SpeechEvent:
     speaker: Literal["self", "prospect"]
@@ -105,6 +109,15 @@ class VADProcessor:
         audio = np.asarray(audio_chunk, dtype=np.float32)
         if audio.ndim > 1:
             audio = audio.mean(axis=-1)
+
+        # Silero v5 raises on a window shorter than 512 samples at 16 kHz (256 at
+        # 8 kHz). Only a stream's final partial chunk can be that short (replay
+        # EOF; live capture uses a fixed block size). Zero-pad it: the speech
+        # events of the full chunks stay untouched, and the tail is still scored
+        # (silence padding can only lower its probability, never invent speech).
+        window = _SILERO_WINDOW_SAMPLES.get(self._sample_rate)
+        if window is not None and audio.shape[0] < window:
+            audio = np.pad(audio, (0, window - audio.shape[0]))
 
         try:
             import torch

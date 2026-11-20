@@ -40,6 +40,7 @@ SOFTWARE.
 - **License:** MIT
 - **Copyright:** 2025 Nick Payne
 - **Pinned version:** `56ac954369a09318e46b88a6eec33c2d2b0d32a3`
+- **Local modification:** the copy in `vendor/audiotee` is locally modified: it adds device-change logging (`DeviceChangeMonitor`, log lines on stderr); the upstream LICENSE file is unchanged.
 
 Note: the upstream pinned commit declares MIT licensing in `README.md` but does not ship a standalone `LICENSE` file.
 

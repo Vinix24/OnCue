@@ -96,7 +96,9 @@ FEATURE_IDS = frozenset(
 # Free computes script coverage (deterministic, local, no LLM required) and
 # writes the post-call scorecard -- it just never gets the live push or the
 # curated remedy. See salesprep-pro design doc section 3.
-FREE_FEATURES = frozenset({FEATURE_SCRIPT_TRACKING_COMPUTE})
+# Operator decision 2026-11-18: live coaching is part of the free tier, so a
+# user without a license key can try what the public launch promises.
+FREE_FEATURES = frozenset({FEATURE_SCRIPT_TRACKING_COMPUTE, FEATURE_LIVE_COACHING})
 PRO_FEATURES = frozenset(
     {
         FEATURE_CALLTAP,

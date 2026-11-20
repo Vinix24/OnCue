@@ -35,7 +35,7 @@ def _isolate(monkeypatch, tmp_path, *, revoked: bool = False) -> None:
     )
 
 
-def test_free_denies_all_pro_features(monkeypatch, tmp_path) -> None:
+def test_free_denies_pro_features_but_allows_live_coaching(monkeypatch, tmp_path) -> None:
     _isolate(monkeypatch, tmp_path)
     monkeypatch.delenv("SALES_COPILOT_LICENSE", raising=False)
 
@@ -43,7 +43,7 @@ def test_free_denies_all_pro_features(monkeypatch, tmp_path) -> None:
     assert policy.current_tier() == "free"
     assert policy.allows(FEATURE_CALLTAP) is False
     assert policy.allows(FEATURE_CENTRAL_AUDIT) is False
-    assert policy.allows(FEATURE_LIVE_COACHING) is False
+    assert policy.allows(FEATURE_LIVE_COACHING) is True
     assert policy.is_pro() is False
 
 

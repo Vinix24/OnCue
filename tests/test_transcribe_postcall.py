@@ -112,3 +112,69 @@ def test_transcribe_session_with_only_silence_placeholders_is_empty(tmp_path) ->
 
     text = asyncio.run(transcribe_session(tmp_path, _Silent()))
     assert text == ""
+
+
+_MARKER_SEGMENTS = [
+    {"start": 5.0, "label": "self", "text": "een"},
+    {"start": 70.0, "label": "prospect", "text": "twee"},
+]
+
+
+def test_marker_between_segments_lands_before_the_next_segment() -> None:
+    out = format_transcript(_MARKER_SEGMENTS, markers=[30.0], marker_label="Markering")
+    assert out.splitlines() == ["[00:05] self: een", "Markering 00:30", "[01:10] prospect: twee"]
+
+
+def test_marker_at_a_segment_start_goes_before_that_segment() -> None:
+    out = format_transcript(_MARKER_SEGMENTS, markers=[70.0])
+    assert out.splitlines() == ["[00:05] self: een", "Marker 01:10", "[01:10] prospect: twee"]
+
+
+def test_marker_after_last_segment_goes_at_the_end_in_time_order() -> None:
+    out = format_transcript(_MARKER_SEGMENTS, markers=[200.0, 100.0])
+    assert out.splitlines()[-2:] == ["Marker 01:40", "Marker 03:20"]
+    assert len(out.splitlines()) == 4
+
+
+def test_two_markers_keep_their_order_before_one_segment() -> None:
+    out = format_transcript(_MARKER_SEGMENTS, markers=[40.0, 20.0])
+    assert out.splitlines()[1:3] == ["Marker 00:20", "Marker 00:40"]
+
+
+def test_no_markers_leaves_output_byte_for_byte_unchanged() -> None:
+    expected = "[00:05] self: een\n[01:10] prospect: twee\n"
+    assert format_transcript(_MARKER_SEGMENTS) == expected
+    assert format_transcript(_MARKER_SEGMENTS, markers=[]) == expected
+    assert format_transcript(_MARKER_SEGMENTS, markers=None) == expected
+
+
+def test_markers_only_without_segments() -> None:
+    assert format_transcript([], markers=[3.0]) == "Marker 00:03\n"
+
+
+def test_transcribe_session_passes_markers_through(tmp_path) -> None:
+    (tmp_path / "self.wav").write_bytes(b"")
+
+    class Backend:
+        async def transcribe_file_segments(self, path):
+            return [{"start": 10.0, "end": 12.0, "text": "hallo"}]
+
+    out = asyncio.run(
+        transcribe_session(tmp_path, Backend(), label_map={"self": "Jij"}, markers=[4.0], marker_label="Markering")
+    )
+    assert out.splitlines() == ["Markering 00:04", "[00:10] Jij: hallo"]
+
+
+def test_notes_render_as_timestamped_parenthesis_lines_in_time_order() -> None:
+    out = format_transcript(_MARKER_SEGMENTS, markers=[30.0], notes=[(100.0, "back"), (20.0, "lost")])
+    assert out.splitlines() == [
+        "[00:05] self: een",
+        "[00:20] (lost)",
+        "Marker 00:30",
+        "[01:10] prospect: twee",
+        "[01:40] (back)",
+    ]
+
+
+def test_no_notes_leaves_output_unchanged() -> None:
+    assert format_transcript(_MARKER_SEGMENTS, notes=[]) == format_transcript(_MARKER_SEGMENTS)

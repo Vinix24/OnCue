@@ -1,0 +1,88 @@
+/* OnCue loading mark — concept C: the "O with baton".
+
+   One block for every loading state: the dashboard's detector warm-up status,
+   the model download/preparing notice (library and recorder), the notetaker's
+   transcribing state, and the wizard's loading and running states. The baton
+   beats a 4/4 bar around its grip at (24, 41) of the 64×64 viewBox; the red
+   cue dot pulses on beat one. */
+
+.oncue-loader {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  display: inline-block;
+  vertical-align: -3px;
+}
+
+.oncue-loader-sm {
+  width: 13px;
+  height: 13px;
+  vertical-align: -2px;
+}
+
+.oncue-loader[hidden] {
+  display: none;
+}
+
+.oncue-loader-tile {
+  fill: #14171f;
+}
+
+.oncue-loader-ring {
+  fill: none;
+  stroke: #f5f5f4;
+  stroke-width: 5;
+}
+
+.oncue-loader-baton {
+  stroke: #f5f5f4;
+  stroke-width: 3;
+  stroke-linecap: round;
+  transform-box: view-box;
+  transform-origin: 24px 41px;
+  animation: oncue-baton-beat 2.2s ease-in-out infinite;
+}
+
+.oncue-loader-dot {
+  fill: #ef4444;
+  transform-box: view-box;
+  transform-origin: 48px 17px;
+  animation: oncue-dot-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes oncue-baton-beat {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  18% {
+    transform: rotate(13deg);
+  }
+  40% {
+    transform: rotate(-8deg);
+  }
+  62% {
+    transform: rotate(9deg);
+  }
+  82% {
+    transform: rotate(-11deg);
+  }
+}
+
+@keyframes oncue-dot-pulse {
+  0%,
+  30%,
+  100% {
+    transform: scale(1);
+  }
+  18% {
+    transform: scale(1.45);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oncue-loader-baton,
+  .oncue-loader-dot {
+    animation: none;
+  }
+}

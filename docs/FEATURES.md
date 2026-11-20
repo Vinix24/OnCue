@@ -32,7 +32,7 @@ Feature entitlement is enforced in code by `FeaturePolicy` (`src/sales_copilot/a
 | Telephony audio capture, iPhone-relay / FaceTime (`audio.calltap`) | No | Yes |
 | Central tamper-evident audit with hashes only (`compliance.central_audit`) | No | Yes |
 | Autostart on login + runtime auto-arm (`system.autostart`) | No | Yes |
-| Live coaching guidance (`coaching.live`) | No | Yes |
+| Live coaching guidance (`coaching.live`) | Yes | Yes |
 | Sales-script / methodology tracking (`coaching.script_tracking`) | No | Yes |
 | Curated objection-response playbook (`coaching.response_playbook`) | No | Yes |
 | Report delivery to a webhook/CRM endpoint (`reports.delivery.endpoint`) | No | Yes |
@@ -47,7 +47,7 @@ Feature entitlement is enforced in code by `FeaturePolicy` (`src/sales_copilot/a
 - `compliance.central_audit` — central hash-only audit endpoint (`src/sales_copilot/core/compliance_audit.py`).
 - `presentation.dynamic_slides` — presentation automation (Pro-gated).
 - `system.autostart` — launch at login via wizard autostart-step (`src/sales_copilot/wizard/cli.py`), **and** the runtime auto-arm monitor (`src/sales_copilot/core/autostart_monitor.py`) that detects a video call *or* a phone/FaceTime call starting while the app is already running. These are two distinct capabilities sharing one feature-gate: the wizard step controls whether the app starts at macOS login; the runtime monitor controls whether an already-running app auto-arms a call session, from either trigger source.
-- `coaching.live` — live coaching-guidance channel; suppressed without entitlement (`src/sales_copilot/websocket/hub_core.py`, `src/sales_copilot/auth/feature_policy.py`).
+- `coaching.live` — live coaching-guidance channel; Free, Pro and Enterprise all include it (`src/sales_copilot/websocket/hub_core.py`, `src/sales_copilot/auth/feature_policy.py`).
 - `coaching.script_tracking` — sales-script / methodology tracking; gated WebSocket channel (`src/sales_copilot/websocket/hub_core.py`).
 - `coaching.response_playbook` — curated objection-response playbook; the Free tier falls back to a locked teaser (`src/sales_copilot/auth/feature_policy.py`).
 - `reports.delivery.endpoint` — HTTP delivery of the finished post-call report to a customer-configured webhook/CRM endpoint (`src/sales_copilot/modules/reports/delivery.py`). Delivery to a local directory (`REPORT_DELIVERY_DIR`) is a separate sink and stays Free in both tiers; on Free, a configured endpoint is skipped with one `WARNING` per process and the directory sink still runs.
@@ -62,10 +62,11 @@ The Free tier is the full open-source copilot engine. You get:
 
 - Local audio capture for mic + system audio (AudioTee whole-system tap by default; BlackHole is a manual fallback).
 - whisper.cpp large-v3-turbo transcription on your Mac.
-- Silero VAD talk-time tracking with a breathing bar on your second screen.
+- Silero VAD talk-time tracking with a breathing bar in the dashboard.
 - Detection of 12+ Dutch pain-point categories, 5 objection categories, and buying signals.
 - A private coaching dashboard with live transcript, detections, and follow-up suggestions.
-- Post-call JSON and Markdown reports.
+- Post-call JSON and Markdown reports, with summary, keywords, action items and an "Open questions" block (shown only when the call left questions open).
+- A "Download PDF" button on the report page: the browser's own print-to-PDF with a print stylesheet that leaves out the controls. Nothing leaves the machine.
 - Sample case slides via `scripts/seed_cases.py`.
 - Sales, coach, and recruitment presets.
 - Client folders (`klant.yaml`): couple a client's company, industry, contact people
@@ -74,9 +75,31 @@ The Free tier is the full open-source copilot engine. You get:
   call starts, an optional per-client retention window, a warning when the client
   folder root lives under a cloud-synced location (iCloud Drive, Dropbox, or a
   File-Provider cloud-storage mount), and an automatic `gesprekken/` call archive.
-- No LLM by default (`LLM_PROVIDER=none`); the live cues run local without one. Optional providers: Gemini, OpenRouter, Groq, OpenAI, Ollama, Vertex AI, Azure OpenAI, including fully local Ollama.
+- No LLM by default (`LLM_PROVIDER=none`); the live cues run local without one. Optional providers per privacy tier: local Ollama, your own tenant (Vertex AI, Azure OpenAI) or public via OpenRouter (one key gives access to many models).
 
 The Free tier is AGPL-3.0. Self-hosting is required; there is no managed cloud service.
+
+### Library (start screen of the notetaker)
+
+The notetaker opens on a library of recordings at `http://127.0.0.1:8780/`. The recorder itself is at `/record`; the bar and every recorder endpoint are unchanged.
+
+- Every session in `data/sessions/`, newest first, with title (from `metadata.json`, else date and time), date, duration and status. A running recording shows on top as "Recording" and opens the recorder.
+- Status is derived, never assumed: `recording` (`.recording`), `transcribing` (`.transcribe-pending`), `failed` (`transcription-failed.txt` or `recovery-failed.txt`), `ready` (`transcript.md`, or a linked report), `incomplete` (audio only). A directory with no transcript, report or audio is skipped.
+- A recording opens with the tabs Transcript and Summary. The summary comes from the report in `data/reports/` that is named `<timestamp>_<session id>_report.json` and carries the same `session_id`; without a match the tab is disabled and only the transcript shows. Sessions from the copilot route (UUID directories) are listed when they have a transcript or a report.
+- On first start the library shows the speech-model download progress and keeps Record disabled until it is ready.
+- Read-only API, local only like `/status`: `GET /api/sessions` and `GET /api/sessions/<id>`.
+
+### Recording bar (macOS 14.2 and later)
+
+The recording bar is a standard feature of the notetaker route on macOS 14.2 and later. It is installed with OnCue as `OnCue Bar.app`, in the `bin/` folder.
+
+- A small floating block at the top right of the screen, with the menu bar. It shows on every desktop and above a full-screen video-call app, and it never takes focus from the app you are in.
+- Record, stop, pause, resume and add a marker, from the block or the menu bar.
+- A global hotkey, Control-Option-R, starts and stops a recording. Change it with `BAR_HOTKEY` in `.env`.
+- "OnCue afsluiten" in the right-click menu closes the bar and OnCue. A running recording is finished first, so nothing is lost.
+- After a hard stop (power loss, force quit) at most the audio since the last write to disk is lost, plus the markers and pauses of that stretch.
+- A recording stops by itself after 120 seconds of silence on both tracks (see "Auto-stop on silence" in `docs/CONFIG.md`). The bar and the recorder page say "stopped after N s of silence" and the transcript gets a line at that point. `RECORDER_AUTOSTOP_SILENCE_SECONDS=0` turns it off.
+- A Mac without the bar works the same: the installer says so once. On Windows the recording page in the browser stays the control.
 
 ---
 
@@ -90,7 +113,7 @@ Pro unlocks the license-gated capabilities enforced by `FeaturePolicy`:
 4. **Autostart on login** (`system.autostart`). The app starts automatically when you log in to macOS, configured through the setup wizard.
 5. **Runtime auto-arm (video calls)** (`system.autostart`). While the app is already running, Pro installs detect a supported video meeting app (Google Chrome / Microsoft Teams / zoom.us) becoming active and surface a consent-tick prompt to arm the call session automatically -- the manual Start Call button stays available in every tier.
 6. **Runtime auto-arm (phone calls)** (`system.autostart`). The same monitor also detects an active macOS phone/FaceTime call via the `avconferenced` daemon and surfaces the same consent-tick prompt. The copilot only *detects* an in-progress call -- macOS places the underlying call itself via Continuity/iPhone-relay; this is not a dialer or CRM click-to-call integration.
-7. **Live coaching guidance** (`coaching.live`). Live in-call coaching prompts on a dedicated channel, suppressed without entitlement.
+7. **Live coaching guidance** (`coaching.live`). Live in-call coaching prompts on a dedicated channel. Free in every tier, including after the grace period ends.
 8. **Sales-script / methodology tracking** (`coaching.script_tracking`). Tracks adherence to a configured sales script or methodology.
 9. **Curated objection-response playbook** (`coaching.response_playbook`). Curated responses to detected objections; the Free tier shows a locked teaser instead.
 10. **Report delivery to a webhook/CRM endpoint** (`reports.delivery.endpoint`). Sends the finished post-call report to a customer-configured webhook or CRM endpoint; delivery to a local directory stays Free in both tiers.

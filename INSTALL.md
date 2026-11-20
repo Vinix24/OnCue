@@ -11,9 +11,18 @@ For macOS (the stable, primary platform): the one-line install for everyone, a d
 
 ---
 
-## One line, for everyone
+## Download the app (.dmg), for everyone
 
-Open Terminal (Cmd+Space, type `Terminal`, Enter), paste this line and press Enter:
+1. Download `OnCue-<version>-arm64.dmg` from the [latest release page](https://github.com/Vinix24/OnCue/releases/latest). The `.sha256` file next to it lets you check the download with `shasum -a 256 -c`.
+2. Open the .dmg and drag **OnCue** to **Applications**. The app carries the floating recording bar (`Contents/Helpers/OnCue Bar.app`): it starts with the notetaker and quits with OnCue.
+3. Open **OnCue** from Applications. macOS asks for the microphone and for system-audio recording: click Allow.
+4. The speech model downloads at the first start, so the first start takes a while. Then choose **Record and transcribe**.
+
+The app is signed and notarized by Apple. It keeps its data in `~/Library/Application Support/SalesCopilot`, separate from a one-line install in `~/OnCue`. If an OnCue already runs on port 8760, the app does not start a second one.
+
+## One line in Terminal, the second route
+
+Prefer Terminal? Open it (Cmd+Space, type `Terminal`, Enter), paste this line and press Enter:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Vinix24/OnCue/main/scripts/bootstrap.sh)"
@@ -34,7 +43,7 @@ Add `--dry-run` after the closing quote (`... )" bash --dry-run`) to see every s
 
 **Gatekeeper.** The one-line route has no Gatekeeper step. Nothing is downloaded through a browser, so macOS puts no quarantine mark on it. There is no "right-click > Open" and no "Open Anyway". The app is ad-hoc signed on your own Mac, not notarized by Apple.
 
-**First launch.** Open `~/Applications/OnCue.app` (or Launchpad). Choose **Opnemen en uitschrijven**. macOS asks for the microphone and for system-audio recording: click Allow. Press **REC**, and after **Stop** OnCue writes `transcript.md` into `~/OnCue/data/sessions/<time>/`. **Live coach** opens the dashboard instead.
+**First launch.** Open `~/Applications/OnCue.app` (or Launchpad). Choose **Record and transcribe** (**Opnemen en uitschrijven** on a Dutch install, `LANGUAGE=nl`). macOS asks for the microphone and for system-audio recording: click Allow. Press **REC**, and after **Stop** OnCue writes `transcript.md` into `~/OnCue/data/sessions/<time>/`. **Live coach** opens the dashboard instead.
 
 **An AI assistant can do this for you.** Give it this prompt: `Install OnCue on my Mac. First read https://raw.githubusercontent.com/Vinix24/OnCue/main/docs/INSTALL_WITH_AI.md and follow those steps exactly. Tell me if I have to click something or type my password.` The guide it follows is [docs/INSTALL_WITH_AI.md](docs/INSTALL_WITH_AI.md).
 
@@ -54,7 +63,7 @@ sales-copilot start
 ```
 
 `sales-copilot start` launches the local hub and opens the dashboard in your default browser. It drives two UIs:
-- `dashboard/index.html` — private coaching UI (second screen), opened for you
+- `dashboard/index.html` — private coaching UI, opened for you
 - `presentation/index.html` — Reveal.js deck to screen-share to your prospect (open this tab yourself and share it)
 
 If the browser doesn't open, go to `http://localhost:8760` manually.
@@ -225,7 +234,7 @@ It lists what it will remove and asks for confirmation first. It removes only wh
 
 **GPU.** The script installs the CPU build of whisper.cpp. For an NVIDIA GPU, follow the cuBLAS route under the manual install below and point `.env` at those binaries.
 
-**LLM provider.** Optional, as on macOS, and it builds on the full profile. Install the provider extra into the same environment, for example `.\.venv\Scripts\python.exe -m pip install -e ".[gemini]" -c constraints.txt`, and set it in `.env` as described under [Add an LLM provider for pain-point detection](#add-an-llm-provider-for-pain-point-detection).
+**LLM provider.** Optional, as on macOS, and it builds on the full profile. Install the provider extra into the same environment, for example `.\.venv\Scripts\python.exe -m pip install -e ".[openai]" -c constraints.txt`, and set it in `.env` as described under [Add an LLM provider for pain-point detection](#add-an-llm-provider-for-pain-point-detection).
 
 The installer's protocol is in [docs/WINDOWS_TESTPLAN.md](docs/WINDOWS_TESTPLAN.md).
 
@@ -287,15 +296,15 @@ Use the non-CUDA binaries from the same v1.9.1 release instead of the cuBLAS zip
 ### Add an LLM provider for pain-point detection
 
 ```bash
-pip install ".[gemini]" -c constraints.txt
+pip install ".[openai]" -c constraints.txt
 ```
 
 ```env
-LLM_PROVIDER=gemini
-GEMINI_API_KEY=your_key_here
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=your_key_here
 ```
 
-Swap `gemini` for `groq` or `openai` if you prefer that provider. See [Choosing an LLM provider](#choosing-an-llm-provider) below. Only add `.[llm]` on Windows if you already have Rust/Cargo installed — without it, `pip install ".[llm]"` (or `.[smart]`/`.[full]`, which both include `llm`) fails with a `metadata-generation-failed` error on `litellm`.
+The public tier runs through OpenRouter, which gives access to many models with one key. See [Choosing an LLM provider](#choosing-an-llm-provider) below. Only add `.[llm]` on Windows if you already have Rust/Cargo installed — without it, `pip install ".[llm]"` (or `.[smart]`/`.[full]`, which both include `llm`) fails with a `metadata-generation-failed` error on `litellm`.
 
 ### TLS / HTTPS inspection pitfall (corporate machines)
 
@@ -308,6 +317,8 @@ Machines behind a corporate firewall or antivirus that injects a root CA will hi
 Until an offline/bundled embedding model or a certifi-based downloader lands, pain-point detection cannot warm up on machines with TLS inspection. Tracked as a known gap.
 
 The one-command installer downloads whisper.cpp and the model through .NET, which checks certificates against the Windows certificate store. A root CA that the company installed there is trusted, so those two downloads are not hit by this pitfall. The embedding-model download at first startup still is.
+
+**Fallback capture route: `WINDOWS_CAPTURE_ROUTE=process`.** By default OnCue records the render endpoint (`WINDOWS_CAPTURE_ROUTE=endpoint`). If a call is missed on that route (for example a Phone Link call), set `WINDOWS_CAPTURE_ROUTE=process` in `.env`: OnCue then records everything Windows plays except OnCue's own audio, whichever device it plays on. It needs Windows build 20348 or newer; below that, or when Windows refuses the capture, OnCue warns and records nothing on that stream. It also warns when Windows has set the volume of OnCue's capture below 10% or muted it (fix it in the Windows volume mixer). This route is opt-in and not yet tested on Windows hardware.
 
 ### Known Windows caveats
 
@@ -339,31 +350,20 @@ What Windows does *not* have, independent of the above: (1) automatic call detec
 
 An LLM is optional. `LLM_PROVIDER=none` is the default: the live cues (embedding detection and talk-time) run fully local and no transcript text is sent anywhere. With a provider set, OnCue also uses it for window classification, a rolling summary, live suggestions and the post-call report. Never audio. What is sent per task is listed in [docs/PRIVACY.md](docs/PRIVACY.md). Set `LLM_PROVIDER` in `.env`:
 
-| Provider | Free tier | Speed | Privacy |
+| Tier | `LLM_PROVIDER` | Privacy |
 |---|---|---|---|
-| `none` (default) | n/a | n/a | Nothing is sent |
-| `gemini` | Yes, Gemini 2.5 Flash | Fast | Google Cloud |
-| `groq` | Yes, 100K tokens/day | Very fast | Groq Cloud |
-| `openai` | No | Fast | OpenAI Cloud |
-| `ollama` | Yes (local) | Depends on hardware | Fully local |
+| No LLM (default) | `none` | Nothing is sent |
+| Local | `ollama` | Fully local |
+| Own cloud tenant | `azure`, `vertex` | Stays in your own governed tenant |
+| Public | `openrouter` | OpenRouter and the model provider behind it |
 
-**Quick pick:** for the lowest latency, use Gemini 2.5 Flash or Groq. `anthropic/claude-haiku-4.5` via OpenRouter is another opt-in. Public providers receive the text after the pattern-based PII filter, which is a safety net and not a guarantee (see [docs/PRIVACY.md](docs/PRIVACY.md)).
-
-**Gemini (example public provider):**
+**Public tier (OpenRouter):** OpenRouter gives access to many models with one key, for example `anthropic/claude-haiku-4.5`. Public providers receive the text after the pattern-based PII filter, which is a safety net and not a guarantee (see [docs/PRIVACY.md](docs/PRIVACY.md)). Adding another public provider is a do-it-yourself extension.
 ```env
-LLM_PROVIDER=gemini
-GEMINI_API_KEY=your_key_here
+LLM_PROVIDER=openrouter
+LLM_MODEL=anthropic/claude-haiku-4.5
+OPENROUTER_API_KEY=your_key_here
 ```
-Get key: https://aistudio.google.com/app/apikey
-
-**Groq (fastest free option):**
-```env
-LLM_PROVIDER=groq
-GROQ_API_KEY=your_key_here
-```
-Get key: https://console.groq.com
-
-Note: Groq free tier has a 100K tokens/day limit. For production use (multiple calls/day) or team deployments, use Gemini or a paid Groq tier.
+Get key: https://openrouter.ai/keys
 
 **Fully local (Ollama):**
 ```env
@@ -376,6 +376,8 @@ Requires Ollama running locally. The `/v1` suffix is required (the OpenAI-compat
 ---
 
 ## Update
+
+The start screen (the **Recordings** library page) has a **Check for updates** button. OnCue contacts GitHub only when you click it: never at import, at start, on a timer or when the page loads. The button tells you whether a newer version exists and, for your install route, what to do next (open the release page for the app, run the one-line install again, or pull and reinstall a checkout). Without a click, OnCue makes no request to its maker.
 
 **Path 1 (pipx):**
 ```bash
@@ -435,7 +437,7 @@ Then check the dashboard for error messages — they show the exact failure caus
 
 **Very high latency (>10s) on pain-point detection**
 
-Switch to Gemini or Groq for faster responses. Ollama on 8 GB RAM with a 7B model typically adds 4-8s of latency per detection.
+Switch to the public tier (OpenRouter) for faster responses. Ollama on 8 GB RAM with a 7B model typically adds 4-8s of latency per detection.
 
 ---
 

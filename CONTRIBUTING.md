@@ -54,6 +54,14 @@ python -m pytest tests/ -v
 5. Use a clear PR description with scope, rationale, and test evidence.
 6. All PRs must pass CI before merge.
 
+### Changelog fragments
+
+Do not edit `CHANGELOG.md`: parallel PRs would conflict on it. Add a fragment file
+`changelog.d/<slug>.<section>.md` instead, where `section` is one of `added`, `changed`,
+`fixed`, `security`, `removed` or `documentation`. The file holds Markdown list items only
+(`- ` at column 0, continuation lines indented by two spaces). `changelog.d/README.md` has
+the details; `python scripts/changelog_assemble.py --check` validates your fragment.
+
 ## 5) Testing Expectations
 
 All PRs must pass:

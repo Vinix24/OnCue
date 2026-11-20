@@ -747,6 +747,13 @@ def test_hint_feedback_defaults_session_id(
     assert record["session_id"]
 
 
+def _answer(client: TestClient, endpoint: str, monitor: RuntimeAutostartMonitor | None = None):
+    """POST an answer to an autostart consent endpoint, naming the monitor's open prompt."""
+
+    prompt_id = (monitor._prompt_id if monitor is not None else None) or "no-open-prompt"
+    return client.post(endpoint, json={"prompt_id": prompt_id})
+
+
 # ---------------------------------------------------------------------------
 # Autostart consent endpoints
 # ---------------------------------------------------------------------------
@@ -757,21 +764,21 @@ def test_autostart_confirm_409_when_no_pending_prompt(authed_client: TestClient)
     set_active_monitor(None)
     hub.reset_config_state()
 
-    response = authed_client.post("/api/autostart/confirm")
+    response = _answer(authed_client, "/api/autostart/confirm")
 
     assert response.status_code == 409
     assert "No pending autostart consent prompt" in response.json()["detail"]
 
 
-def test_autostart_decline_200_always(authed_client: TestClient) -> None:
-    """POST /api/autostart/decline always returns 200, even with no active monitor."""
+def test_autostart_decline_409_without_monitor(authed_client: TestClient) -> None:
+    """POST /api/autostart/decline returns 409 when there is no active monitor."""
     set_active_monitor(None)
     hub.reset_config_state()
 
-    response = authed_client.post("/api/autostart/decline")
+    response = _answer(authed_client, "/api/autostart/decline")
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    assert response.status_code == 409
+    assert "No pending autostart consent prompt" in response.json()["detail"]
 
 
 def test_autostart_confirm_200_when_pending_consent(authed_client: TestClient) -> None:
@@ -794,11 +801,13 @@ def test_autostart_confirm_200_when_pending_consent(authed_client: TestClient) -
     # the confirm endpoint without depending on real process detection.
     monitor.state = "consent_pending"
     monitor._detected_process = "Microsoft Teams"
+    monitor._prompt_id = "prompt-teams"
     monitor._active_trigger = "video"
+    monitor._last_observed["video"] = monitor.clock()  # a prompt needs a fresh observation
 
     set_active_monitor(monitor)
 
-    response = authed_client.post("/api/autostart/confirm")
+    response = _answer(authed_client, "/api/autostart/confirm", monitor)
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
@@ -807,7 +816,7 @@ def test_autostart_confirm_200_when_pending_consent(authed_client: TestClient) -
     # Verify the monitor has advanced to armed state
     assert monitor.state == "armed"
     # Verify no race condition on a second call: confirm again = 409
-    response2 = authed_client.post("/api/autostart/confirm")
+    response2 = _answer(authed_client, "/api/autostart/confirm", monitor)
     assert response2.status_code == 409
 
     set_active_monitor(None)
@@ -822,11 +831,13 @@ def test_autostart_decline_resets_pending_state(authed_client: TestClient) -> No
     )
     monitor.state = "consent_pending"
     monitor._detected_process = "Zoom"
+    monitor._prompt_id = "prompt-zoom"
     monitor._active_trigger = "video"
+    monitor._last_observed["video"] = monitor.clock()  # a prompt needs a fresh observation
 
     set_active_monitor(monitor)
 
-    response = authed_client.post("/api/autostart/decline")
+    response = _answer(authed_client, "/api/autostart/decline", monitor)
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"

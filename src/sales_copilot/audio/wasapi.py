@@ -22,8 +22,12 @@ from typing import Any
 
 import numpy as np
 
+from sales_copilot.core.i18n import t
+from sales_copilot.core.paths import resolve_app_resource
+
 from .capture import AudioConfig, _drop_oldest_and_put
 from .tap_health import DEFAULT_HEARTBEAT_SECONDS, TapHealth, TapHealthTracker
+from .wasapi_endpoint import _APPS_RELATIVE, load_call_apps, pick_endpoint_id, read_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +133,8 @@ def _com_uninitialize() -> None:
 # thread returns in well under one pull interval; two seconds is only reached
 # when a driver call is genuinely wedged.
 _STOP_JOIN_TIMEOUT_SECONDS = 2.0
+# A COM snapshot slower than this on the reader thread is logged (D3 reads that line).
+_SLOW_SNAPSHOT_S = 0.1
 
 # How long start() waits for the reader thread to report the outcome of the
 # open. The whole open is COM enumeration plus IAudioClient::Initialize --
@@ -145,6 +151,12 @@ _OPEN_READY_TIMEOUT_SECONDS = 10.0
 # before the first attempt: Windows needs a moment to promote a new default
 # output device after the old one disappears.
 _RECOVERY_RETRY_SECONDS = 1.0
+
+# ADR-008: how often the selector runs while following the call's endpoint, and
+# how long an outage may last before tap_health reports no_tap and the audio
+# warning is emitted (once per outage).
+_FOLLOW_POLL_SECONDS = 2.0
+_FOLLOW_OUTAGE_GRACE_SECONDS = 10.0
 
 
 def _describe_speaker(speaker: Any) -> str:
@@ -209,6 +221,8 @@ class WasapiLoopbackStream:
         silence_timeout_multiplier: float = 3.0,
         endpoint_poll_seconds: float = DEFAULT_HEARTBEAT_SECONDS,
         recovery_retry_s: float = _RECOVERY_RETRY_SECONDS,
+        follow_poll_seconds: float = _FOLLOW_POLL_SECONDS,
+        outage_grace_s: float = _FOLLOW_OUTAGE_GRACE_SECONDS,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -247,6 +261,25 @@ class WasapiLoopbackStream:
         self._endpoint_poll_seconds = endpoint_poll_seconds
         self._speaker_id: Any = None
         self._speaker_label = ""
+        # ADR-008 follow mode: True only while WINDOWS_ENDPOINT_FOLLOW is on and
+        # no AUDIO_WASAPI_ENDPOINT_NAME override matched.
+        self._follow_active = False
+        self._follow_poll_seconds = follow_poll_seconds
+        self._outage_grace_s = outage_grace_s
+        self._call_apps: frozenset[str] | None = None
+        self._select_reason = ""
+        self._default_lookup_failure_logged = False
+        self._outage_warned = False
+        # Start of the current outage; kept until a read returns audio again (not
+        # until a mere re-open), so the grace period cannot restart on every recovery.
+        self._outage_start: float | None = None
+        # A failed call-app list load is remembered: logged once, not on every poll.
+        self._call_apps_failed = False
+        # Seconds of lost time not yet worth a whole chunk of silence; carried to
+        # the next switch so many short gaps cannot drift the timeline.
+        self._silence_carry_s = 0.0
+        # ADR-008 fallback order after the selected endpoint: communications, console.
+        self._fallback_ids: list[str] = []
 
     @property
     def chunks_received(self) -> int:
@@ -292,20 +325,17 @@ class WasapiLoopbackStream:
             self._stop_event.clear()
 
             if sys.platform != "win32":
-                self._emit_warning("WASAPI-loopback-capture is alleen beschikbaar op Windows; deze stream blijft stil.")
+                self._emit_warning(t("audio.wasapi_windows_only"))
                 self._degraded = True
-                self._health.mark_attach_failed("niet-Windows platform")
+                self._health.mark_attach_failed(t("audio.detail_not_windows"))
                 return
 
             try:
-                sc = _import_soundcard()
+                sc = self._import_backend()
             except Exception:
-                self._emit_warning(
-                    "Python-package 'soundcard' ontbreekt. Installeer met "
-                    "`pip install .[windows]` om WASAPI-loopback-capture te gebruiken."
-                )
+                self._emit_warning(t("audio.wasapi_soundcard_missing"))
                 self._degraded = True
-                self._health.mark_attach_failed("soundcard ontbreekt")
+                self._health.mark_attach_failed(t("audio.detail_soundcard_missing"))
                 return
 
             self._sc = sc
@@ -337,11 +367,9 @@ class WasapiLoopbackStream:
                 abandoned.set()
                 self._stop_event.set()
                 self._reader_thread = reader_thread
-                self._emit_warning(
-                    "Het WASAPI-loopback-apparaat reageerde niet bij het openen; WASAPI-loopback-capture blijft stil."
-                )
+                self._emit_warning(t("audio.wasapi_open_timeout"))
                 self._degraded = True
-                self._health.mark_attach_failed("openen van loopback-apparaat reageerde niet")
+                self._health.mark_attach_failed(t("audio.detail_open_timeout"))
                 return
 
             if not opened[0]:
@@ -350,6 +378,11 @@ class WasapiLoopbackStream:
 
             self._degraded = False
             self._reader_thread = reader_thread
+
+    def _import_backend(self) -> Any:
+        """Return the capture backend ``_open_recorder`` works with (a seam for subclasses)."""
+
+        return _import_soundcard()
 
     def _reader_main(self, ready: threading.Event, opened: list[bool], abandoned: threading.Event) -> None:
         """Reader-thread entry point: owns the recorder's entire lifecycle.
@@ -385,9 +418,9 @@ class WasapiLoopbackStream:
                     "WasapiLoopbackStream: unexpected error while opening the loopback recorder.",
                     exc_info=True,
                 )
-                self._emit_warning("Onverwachte fout bij het openen van WASAPI-loopback-capture; de tap blijft stil.")
+                self._emit_warning(t("audio.wasapi_unexpected_open_error"))
                 self._degraded = True
-                self._health.mark_attach_failed("onverwachte fout bij openen")
+                self._health.mark_attach_failed(t("audio.detail_unexpected_open_error"))
                 success = False
             finally:
                 opened[0] = success
@@ -401,7 +434,7 @@ class WasapiLoopbackStream:
                 # failed. Do not overwrite that with the mark_attached() the
                 # open just did: this thread is about to exit and the finally
                 # below closes the recorder it opened.
-                self._health.mark_attach_failed("openen van loopback-apparaat reageerde niet")
+                self._health.mark_attach_failed(t("audio.detail_open_timeout"))
                 return
 
             self._read_loop()
@@ -452,13 +485,12 @@ class WasapiLoopbackStream:
             speaker = _find_named_speaker(sc, endpoint_name)
             if speaker is None:
                 if not silent:
-                    self._emit_warning(
-                        f"WASAPI-eindpunt '{endpoint_name}' (AUDIO_WASAPI_ENDPOINT_NAME) niet gevonden; "
-                        "WASAPI-loopback-capture valt terug op het standaard uitvoerapparaat."
-                    )
+                    self._emit_warning(t("audio.wasapi_endpoint_not_found", endpoint=endpoint_name))
             else:
                 following_default = False
 
+        if speaker is None and following_default and self._config.windows_endpoint_follow:
+            speaker = self._select_speaker(sc)
         if speaker is None:
             try:
                 speaker = sc.default_speaker()
@@ -466,42 +498,188 @@ class WasapiLoopbackStream:
                 speaker = None
         if speaker is None:
             if not silent:
-                self._emit_warning(
-                    "Geen standaard audio-uitvoerapparaat gevonden; WASAPI-loopback-capture kan niet starten."
-                )
+                self._emit_warning(t("audio.wasapi_no_default_output"))
                 self._degraded = True
-                self._health.mark_attach_failed("geen standaard uitvoerapparaat")
+                self._health.mark_attach_failed(t("audio.detail_no_default_output"))
             return False
 
-        try:
-            microphone = sc.get_microphone(speaker.id, include_loopback=True)
-        except Exception:
-            if not silent:
-                self._emit_warning("Kon geen WASAPI-loopback-apparaat openen voor het standaard uitvoerapparaat.")
-                self._degraded = True
-                self._health.mark_attach_failed("loopback-apparaat kon niet openen")
-            return False
-
+        # ADR-008 point 3: a selected endpoint that cannot be opened must not block
+        # the fallback; try the communications default, then the console default,
+        # in the same pass. Only the follow mode (selector in charge) falls back.
+        candidates = [speaker]
+        if self._follow_active_for_open(following_default):
+            candidates.extend(self._fallback_speakers(sc, speaker))
         blocksize = self._config.chunk_size * 2
-        try:
-            recorder_cm = microphone.recorder(samplerate=self._config.sample_rate, blocksize=blocksize)
-            recorder = recorder_cm.__enter__()
-        except Exception:
+        failure = ""
+        recorder_cm = recorder = None
+        for index, candidate in enumerate(candidates):
+            try:
+                microphone = sc.get_microphone(candidate.id, include_loopback=True)
+            except Exception:
+                if index == 0:
+                    failure = "loopback"
+                logger.warning("WASAPI loopback: cannot open endpoint %s", _describe_speaker(candidate), exc_info=True)
+                continue
+            try:
+                recorder_cm = microphone.recorder(samplerate=self._config.sample_rate, blocksize=blocksize)
+                recorder = recorder_cm.__enter__()
+            except Exception:
+                if index == 0:
+                    failure = "recorder"
+                recorder_cm = recorder = None
+                logger.warning(
+                    "WASAPI loopback: cannot open recorder for %s", _describe_speaker(candidate), exc_info=True
+                )
+                continue
+            if candidate is not speaker:
+                logger.info(
+                    "WASAPI loopback fell back from %s to %s after an open failure.",
+                    _describe_speaker(speaker),
+                    _describe_speaker(candidate),
+                )
+            speaker = candidate
+            break
+        else:
             if not silent:
-                self._emit_warning("Kon de WASAPI-loopback-recorder niet openen.")
+                if failure == "loopback":
+                    self._emit_warning(t("audio.wasapi_no_loopback_device"))
+                    self._health.mark_attach_failed(t("audio.detail_loopback_open_failed"))
+                else:
+                    self._emit_warning(t("audio.wasapi_recorder_open_failed"))
+                    self._health.mark_attach_failed(t("audio.detail_recorder_open_failed"))
                 self._degraded = True
-                self._health.mark_attach_failed("recorder kon niet openen")
             return False
 
         self._recorder_cm = recorder_cm
         self._recorder = recorder
         self._following_default = following_default
+        self._follow_active = following_default and bool(self._config.windows_endpoint_follow)
         self._speaker_id = getattr(speaker, "id", None)
         self._speaker_label = _describe_speaker(speaker)
         self._degraded = False
         if not silent:
             self._health.mark_attached(self.device_label)
         return True
+
+    def _follow_active_for_open(self, following_default: bool) -> bool:
+        return following_default and bool(self._config.windows_endpoint_follow)
+
+    def _fallback_speakers(self, sc: Any, tried: Any) -> list[Any]:
+        """Speakers after ``tried`` in ADR-008 order: communications, console, then default."""
+
+        found: list[Any] = []
+        seen = {getattr(tried, "id", None)}
+        try:
+            available = list(sc.all_speakers() or ())
+        except Exception:
+            available = []
+        for wanted in self._fallback_ids:
+            for cand in available:
+                cid = getattr(cand, "id", None)
+                if cid == wanted and cid not in seen:
+                    seen.add(cid)
+                    found.append(cand)
+        try:
+            default = sc.default_speaker()
+        except Exception:
+            default = None
+        if default is not None and getattr(default, "id", None) not in seen:
+            found.append(default)
+        return found
+
+    def _select_speaker(self, sc: Any) -> Any | None:
+        """Ask the ADR-008 selector for the speaker to tap; None means "no information".
+
+        The caller then uses ``default_speaker()``, which is today's behaviour. A
+        broken call-app list or a failing speaker lookup is logged and treated the
+        same way, never as a reason to stop the capture.
+        """
+
+        self._select_reason = "no_information"
+        self._fallback_ids = []
+        if self._call_apps is None:
+            if self._call_apps_failed:
+                self._select_reason = "call_apps_unavailable"
+                return None
+            try:
+                self._call_apps = load_call_apps()
+            except Exception:
+                self._call_apps_failed = True
+                self._select_reason = "call_apps_unavailable"
+                logger.warning(
+                    "WasapiLoopbackStream: call-app list unavailable (%s); endpoint selection uses the default output.",
+                    resolve_app_resource(_APPS_RELATIVE),
+                    exc_info=True,
+                )
+                return None
+        try:
+            snapshot_started = self._clock()
+            snapshot = read_snapshot()
+            snapshot_s = self._clock() - snapshot_started
+            if snapshot_s > _SLOW_SNAPSHOT_S:
+                logger.info("WASAPI endpoint snapshot took %d ms (reader thread)", round(snapshot_s * 1000))
+            endpoint_id, reason = pick_endpoint_id(self._speaker_id, self._call_apps, snapshot)
+            if snapshot is not None:
+                self._fallback_ids = [i for i in (snapshot.communications_id, snapshot.console_id) if i]
+            if endpoint_id is None:
+                self._select_reason = reason
+                return None
+            for candidate in sc.all_speakers() or ():
+                if getattr(candidate, "id", None) == endpoint_id:
+                    self._select_reason = reason
+                    return candidate
+            self._select_reason = f"{reason}, no matching speaker"
+        except Exception:
+            logger.warning("WasapiLoopbackStream: endpoint selection failed; using the default output.", exc_info=True)
+        return None
+
+    def _log_default_lookup_failure(self, exc: Exception) -> None:
+        """Warn once that the default-speaker lookup fails, so it is not read as "endpoint unchanged"."""
+
+        if self._default_lookup_failure_logged:
+            return
+        self._default_lookup_failure_logged = True
+        logger.warning(
+            "WASAPI loopback: default-speaker lookup failed (%s: %s); the endpoint check is skipped.",
+            type(exc).__name__,
+            exc,
+        )
+
+    def _follow_endpoint(self) -> bool:
+        """Switch to the selector's choice when it differs. True when switched."""
+
+        speaker = self._select_speaker(self._sc)
+        if speaker is None:
+            # ADR-008 point 1: no information means the default output, while
+            # polling as well as at start.
+            try:
+                speaker = self._sc.default_speaker()
+            except Exception as exc:
+                self._log_default_lookup_failure(exc)
+                return False
+            if speaker is None:
+                return False
+        if getattr(speaker, "id", None) == self._speaker_id:
+            return False
+        return self._reattach(speaker, reason=self._select_reason)
+
+    def _fill_silence(self, seconds: float) -> None:
+        """Emit the silence chunks that ``seconds`` of lost time is worth (fixed time base)."""
+
+        chunk_s = self._config.chunk_size / float(self._config.sample_rate)
+        total = max(seconds, 0.0) + self._silence_carry_s
+        count = int(total / chunk_s)
+        self._silence_carry_s = total - count * chunk_s
+        for _ in range(count):
+            self._emit_silence_chunk()
+
+    def _report_outage(self) -> None:
+        """The tap is gone: one audio warning per outage, and tap_health says no_tap."""
+
+        if not self._outage_warned:
+            self._outage_warned = True
+            self._emit_warning(t("audio.wasapi_outage"))
+        self._health.mark_detached(t("audio.detail_device_vanished"), already_warned=True)
 
     def _recover_recorder(self, lost_label: str) -> bool:
         """Keep the clock running while the endpoint is gone, and re-open it.
@@ -517,7 +695,13 @@ class WasapiLoopbackStream:
         chunk_s = self._config.chunk_size / float(self._config.sample_rate)
         loss_start = self._clock()
         emitted = 0
-        next_attempt = loss_start + self._recovery_retry_s
+        repeat_outage = self._outage_start is not None
+        outage_start = self._outage_start if self._outage_start is not None else loss_start
+        self._outage_start = outage_start
+        # Following the call's endpoint: the next endpoint in the selector's order
+        # is tried at once, and the outage is only reported after the grace period.
+        next_attempt = loss_start + (0.0 if self._follow_active and not repeat_outage else self._recovery_retry_s)
+        outage_pending = self._follow_active
 
         def fill_silence() -> None:
             nonlocal emitted
@@ -529,6 +713,9 @@ class WasapiLoopbackStream:
         while not self._stop_event.is_set():
             fill_silence()
             now = self._clock()
+            if outage_pending and now - outage_start >= self._outage_grace_s:
+                outage_pending = False
+                self._report_outage()
             if now >= next_attempt:
                 try:
                     opened = self._open_recorder(silent=True)
@@ -565,7 +752,8 @@ class WasapiLoopbackStream:
             return
         try:
             current = self._sc.default_speaker()
-        except Exception:
+        except Exception as exc:
+            self._log_default_lookup_failure(exc)
             return
         if current is None:
             return
@@ -573,7 +761,7 @@ class WasapiLoopbackStream:
             return
         self._reattach(current)
 
-    def _reattach(self, new_speaker: Any) -> None:
+    def _reattach(self, new_speaker: Any, *, reason: str | None = None) -> bool:
         """Swap the recorder to ``new_speaker`` without dropping buffered audio.
 
         Opens the new recorder before touching any shared state, so a failure
@@ -585,6 +773,7 @@ class WasapiLoopbackStream:
 
         old_label = self._speaker_label
         new_label = _describe_speaker(new_speaker)
+        open_started = self._clock()
         try:
             microphone = self._sc.get_microphone(new_speaker.id, include_loopback=True)
             blocksize = self._config.chunk_size * 2
@@ -597,7 +786,8 @@ class WasapiLoopbackStream:
                 old_label,
                 exc_info=True,
             )
-            return
+            return False
+        gap_s = max(self._clock() - open_started, 0.0)
 
         with self._lock:
             if self._stop_event.is_set():
@@ -605,7 +795,7 @@ class WasapiLoopbackStream:
                     new_recorder_cm.__exit__(None, None, None)
                 except Exception:
                     pass
-                return
+                return False
             old_recorder_cm = self._recorder_cm
             self._recorder_cm = new_recorder_cm
             self._recorder = new_recorder
@@ -619,25 +809,48 @@ class WasapiLoopbackStream:
             except Exception:
                 logger.warning("WasapiLoopbackStream old recorder __exit__ raised during re-attach", exc_info=True)
 
+        if reason is None:
+            logger.info(
+                "WASAPI loopback default output endpoint changed, re-attaching: %s -> %s",
+                old_label,
+                new_label,
+            )
+            return True
+        # The old recorder was not read while the new one opened: keep the tracks
+        # aligned by filling that time with silence on the fixed time base.
+        self._fill_silence(gap_s)
         logger.info(
-            "WASAPI loopback default output endpoint changed, re-attaching: %s -> %s",
+            "WASAPI loopback switched endpoint: %s -> %s (reason: %s, gap: %d ms)",
             old_label,
             new_label,
+            reason,
+            round(gap_s * 1000),
         )
+        return True
 
     def _read_loop(self) -> None:
         accum = np.zeros((0,), dtype=np.float32)
         shape_checked = False
         last_emit = time.monotonic()
-        last_endpoint_check = time.monotonic()
-        outage_warned = False
+        last_endpoint_check = self._clock()
+        self._outage_warned = False
+        self._outage_start = None
         pacing_timeout = (self._config.chunk_size / float(self._config.sample_rate)) * self._silence_timeout_multiplier
 
         while not self._stop_event.is_set():
-            now = time.monotonic()
-            if self._following_default and (now - last_endpoint_check) >= self._endpoint_poll_seconds:
-                self._check_default_endpoint_drift()
+            now = self._clock()
+            poll_s = self._follow_poll_seconds if self._follow_active else self._endpoint_poll_seconds
+            if self._following_default and (now - last_endpoint_check) >= poll_s:
                 last_endpoint_check = now
+                if self._follow_active:
+                    if self._follow_endpoint():
+                        accum = np.zeros((0,), dtype=np.float32)
+                        shape_checked = False
+                        last_emit = time.monotonic()
+                        last_endpoint_check = self._clock()
+                        continue
+                else:
+                    self._check_default_endpoint_drift()
 
             try:
                 block = self._recorder.record(numframes=self._config.chunk_size)
@@ -646,29 +859,22 @@ class WasapiLoopbackStream:
                 # vanished endpoint (headset off, USB unplugged) can come back
                 # or be replaced by the new default. One warning per outage;
                 # it re-arms only once a read has returned audio again.
-                if not outage_warned:
-                    outage_warned = True
-                    self._emit_warning(
-                        "WASAPI-loopback-apparaat gaf een fout of verdween tijdens opname; opnieuw verbinden."
-                    )
                 lost_label = self._speaker_label
-                self._health.mark_detached("loopback-apparaat verdween tijdens opname", already_warned=True)
+                if not self._follow_active:
+                    self._report_outage()
                 self._close_recorder()
                 if not self._recover_recorder(lost_label):
                     return
                 accum = np.zeros((0,), dtype=np.float32)
                 shape_checked = False
                 last_emit = time.monotonic()
-                last_endpoint_check = last_emit
+                last_endpoint_check = self._clock()
                 continue
 
             if not shape_checked:
                 shape_checked = True
                 if not self._validate_first_block_shape(block):
-                    self._emit_warning(
-                        "Onverwachte vorm of samplerate van WASAPI-loopback-audio "
-                        f"(verwacht (frames, kanalen) op {self._config.sample_rate} Hz)."
-                    )
+                    self._emit_warning(t("audio.wasapi_bad_shape", rate=self._config.sample_rate))
                     self._degraded = True
                     return
 
@@ -676,7 +882,8 @@ class WasapiLoopbackStream:
                 frames = int(block.shape[0]) if isinstance(block, np.ndarray) and block.ndim == 2 else 0
 
                 if frames > 0:
-                    outage_warned = False
+                    self._outage_warned = False
+                    self._outage_start = None
                     mono = np.mean(block.astype(np.float32, copy=False), axis=1)
                     accum = np.concatenate([accum, mono])
                     while accum.shape[0] >= self._config.chunk_size:
@@ -691,7 +898,7 @@ class WasapiLoopbackStream:
                     self._emit_silence_chunk()
                     last_emit = time.monotonic()
             except Exception:
-                self._emit_warning("WASAPI-loopback-apparaat gaf een fout of verdween tijdens opname.")
+                self._emit_warning(t("audio.wasapi_read_error"))
                 self._degraded = True
                 return
 

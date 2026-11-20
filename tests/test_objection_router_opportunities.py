@@ -27,6 +27,12 @@ _requires_acquisitie_pack = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _dutch_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests assert on the Dutch base presets, which load for a Dutch call."""
+    monkeypatch.setenv("CALL_LANGUAGE", "nl")
+
+
 class _FakeDebouncer(PainPointDebouncer):
     def __init__(self, should: bool = True) -> None:
         super().__init__(cooldown_seconds=45)

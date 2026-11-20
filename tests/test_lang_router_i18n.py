@@ -60,12 +60,12 @@ def test_lang_router_coaching_prompts_uses_configured_language(
 
 
 def test_lang_router_coaching_prompts_fallback_for_unknown_language() -> None:
-    # No catalog for "fr" -> every string falls back to the nl default.
+    # No catalog for "fr" -> every string falls back to the en default.
     prompts = lang_router.route_coaching_prompts("fr")
 
     assert prompts.language == "fr"
-    assert prompts.empty_state == "Wacht op gesprekscontext..."
-    assert "salescoach" in prompts.system_prompt
+    assert prompts.empty_state == "Waiting for conversation context..."
+    assert "sales coach" in prompts.system_prompt
 
 
 # --- transcription vocabulary ----------------------------------------------
@@ -75,16 +75,26 @@ def test_lang_router_vocabulary_config_nl_is_base_file() -> None:
     assert lang_router.route_vocabulary_config("nl") == "config/transcription_vocabulary.yaml"
 
 
-def test_lang_router_vocabulary_config_falls_back_when_language_file_absent() -> None:
-    # No config/transcription_vocabulary_en.yaml ships -> base file is used.
-    assert lang_router.route_vocabulary_config("en") == "config/transcription_vocabulary.yaml"
+def test_lang_router_vocabulary_config_en_is_english_file() -> None:
+    assert lang_router.route_vocabulary_config("en") == "config/transcription_vocabulary_en.yaml"
 
 
-def test_lang_router_vocabulary_config_uses_configured_language(
+def test_lang_router_vocabulary_config_unknown_language_never_gets_dutch_list() -> None:
+    # No config/transcription_vocabulary_fr.yaml ships -> the English file, not the Dutch base.
+    assert lang_router.route_vocabulary_config("fr") == "config/transcription_vocabulary_en.yaml"
+
+
+def test_lang_router_vocabulary_config_ignores_ui_language(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(i18n.LANGUAGE_ENV_VAR, "nl")
-    assert lang_router.route_vocabulary_config() == "config/transcription_vocabulary.yaml"
+    assert lang_router.route_vocabulary_config("en") == "config/transcription_vocabulary_en.yaml"
+    assert lang_router.route_vocabulary_config("") == "config/transcription_vocabulary_en.yaml"
+
+
+def test_lang_router_vocabulary_config_requires_language() -> None:
+    with pytest.raises(TypeError):
+        lang_router.route_vocabulary_config()  # type: ignore[call-arg]
 
 
 def test_lang_router_vocabulary_config_picks_language_file_when_present(
@@ -111,7 +121,7 @@ def test_transcriber_config_default_vocabulary_follows_language(
 
     config = TranscriberConfig.from_env()
 
-    assert config.vocabulary_config == "config/transcription_vocabulary.yaml"
+    assert config.vocabulary_config == "config/transcription_vocabulary_en.yaml"
 
 
 # --- suggestion client wiring ----------------------------------------------

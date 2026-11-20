@@ -678,7 +678,7 @@ def test_audiotee_missing_binary_warns_without_crash(tmp_path) -> None:
     assert stream.read() is None
     assert len(warnings) == 1
     assert warnings[0]["stream"] == "prospect"
-    assert "niet gevonden" in warnings[0]["message"]
+    assert "not found" in warnings[0]["message"]
 
     stream.stop()
 
@@ -758,8 +758,8 @@ def test_audiotee_setup_failure_emits_actionable_permission_warning(monkeypatch,
     assert len(warnings) == 1
     assert warnings[0]["type"] == "audio_warning"
     assert warnings[0]["stream"] == "prospect"
-    assert "Systeeminstellingen" in warnings[0]["message"]
-    assert "Audio-opname" in warnings[0]["message"]
+    assert "System Settings" in warnings[0]["message"]
+    assert "Audio Recording" in warnings[0]["message"]
     assert "tapCreationFailed" in warnings[0]["message"]
 
     stream.stop()
@@ -818,8 +818,8 @@ def test_audiotee_healthy_tap_never_emits_setup_failure_warning(monkeypatch, tmp
 
     assert stream.chunks_received == 1
     assert len(warnings) == 1
-    assert "Systeeminstellingen" not in warnings[0]["message"]
-    assert "tijdens het gesprek gestopt" in warnings[0]["message"]
+    assert "System Settings" not in warnings[0]["message"]
+    assert "stopped during the call" in warnings[0]["message"]
 
     stream.stop()
 

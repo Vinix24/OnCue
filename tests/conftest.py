@@ -16,6 +16,7 @@ from sales_copilot.auth.feature_policy import FeaturePolicy
 from sales_copilot.auth.license_format import TIER_FEATURES
 from sales_copilot.core import config as config_module
 from sales_copilot.core.config import DetectorConfig
+from sales_copilot.modules.detector.model_cache import embedding_model_cached
 from sales_copilot.websocket import hub  # noqa: E402
 from tests.conftest_replay import running_hub as running_hub  # noqa: F401
 
@@ -23,8 +24,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Names that select or authenticate an LLM/provider lane. A developer's shell or `.env`
 # carries real values for these; a test must start from the code defaults instead.
+# GCP_PROJECT/GCP_LOCATION are in because `vertex` needs them to build a client at all:
+# python-dotenv walks up from litellm's site-packages dir into the checkout, so a local
+# `.env` handed every test a project id that CI does not have (PR #428).
 _PROVIDER_ENV_NAME = re.compile(
-    r"^(?:.*_PROVIDER|.*_API_KEY|(?:.*_)?LLM_MODEL|INSIGHT_MODEL|HUGGINGFACE_TOKEN|HF_TOKEN|SUPABASE_KEY)$"
+    r"^(?:.*_PROVIDER|.*_API_KEY|(?:.*_)?LLM_MODEL|INSIGHT_MODEL|HUGGINGFACE_TOKEN|HF_TOKEN|SUPABASE_KEY"
+    r"|GCP_PROJECT|GCP_LOCATION)$"
 )
 
 
@@ -51,23 +56,15 @@ def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config_module, "load_dotenv", _load_dotenv)
     for name in [n for n in os.environ if _PROVIDER_ENV_NAME.match(n)]:
         monkeypatch.delenv(name)
+    # An operator's LANGUAGE=nl / CALL_LANGUAGE=nl (an install that stays Dutch) must not
+    # decide a test either: the default is English, and a Dutch test sets it itself.
+    for name in ("LANGUAGE", "CALL_LANGUAGE", "WHISPER_LANGUAGE"):
+        monkeypatch.delenv(name, raising=False)
 
 
 def _embedding_model_cached() -> bool:
-    """True when the default embedding model has a complete snapshot in the local HF cache.
-
-    ``huggingface_hub`` is an optional dependency (the Windows smoke job installs without it).
-    Without it there is no embedding model to load, so nothing is cached."""
-    try:
-        from huggingface_hub import constants as hf_constants
-    except ImportError:
-        return False
-
-    model = os.environ.get("EMBEDDING_MODEL") or DetectorConfig.embedding_model
-    if "/" not in model:
-        model = f"sentence-transformers/{model}"
-    snapshots = Path(hf_constants.HF_HUB_CACHE) / f"models--{model.replace('/', '--')}" / "snapshots"
-    return snapshots.is_dir() and any((snap / "config.json").exists() for snap in snapshots.iterdir())
+    """True when the default embedding model has a complete snapshot in the local HF cache."""
+    return embedding_model_cached(os.environ.get("EMBEDDING_MODEL") or DetectorConfig.embedding_model)
 
 
 @contextmanager
@@ -179,3 +176,28 @@ def authed_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """
     monkeypatch.setenv("SHUTDOWN_TOKEN", _TEST_TOKEN)
     return TestClient(hub.app, headers={"X-Sales-Copilot-Token": _TEST_TOKEN})
+
+
+@pytest.fixture(autouse=True)
+def _reset_hub_call_and_sample_state() -> Iterator[None]:
+    """Give every test a hub with no call and no sample player, whatever ran before.
+
+    ``hub_core._call_active`` and ``hub_api._sample_player`` are module globals. The
+    start-call endpoint tests (test_hub_endpoints, auth/test_feature_policy_bypass) leave
+    ``_call_active`` True, and ``/api/sample-aha/start`` answers 409 in that case. Under
+    xdist the order of tests per worker differs from a serial run, so the sample-aha e2e
+    failed on CI only when it landed behind one of them. Reset before and after, so a test
+    is also protected from a leak that happened outside a fixture.
+    """
+    from sales_copilot.websocket import hub_api, hub_core
+
+    def _reset() -> None:
+        player = hub_api._sample_player
+        hub_api._sample_player = None
+        if player is not None:
+            player.stop()
+        hub_core.reset_config_state()
+
+    _reset()
+    yield
+    _reset()

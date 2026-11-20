@@ -1710,18 +1710,6 @@ body.in-call #end-call {
   display: none;
 }
 
-.system-status-spinner {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 2px solid var(--border-strong);
-  border-top-color: var(--orange);
-  animation: spin .7s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
 
 .timer {
   display: flex;
@@ -3220,5 +3208,43 @@ body.in-call .rec-dot {
   }
   .rail {
     overflow-y: visible;
+  }
+}
+
+/* "Download PDF" is the browser's print-to-PDF: only the report card prints, without controls. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .report-card,
+  .report-card * {
+    visibility: visible;
+  }
+  .report-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: #fff;
+    color: #000;
+    box-shadow: none;
+  }
+  .report-actions,
+  .report-download,
+  .report-status,
+  #report-new-call {
+    display: none !important;
+  }
+  .report-subtitle,
+  .report-card h1,
+  .report-card h2,
+  .report-card h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .report-block,
+  .report-row {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }

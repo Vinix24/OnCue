@@ -3,7 +3,7 @@
 ``enrich_report`` reads the whole transcript and returns the five report fields the live
 pipeline cannot produce: ``gesprek_gevoerd`` (did two people actually talk, or was it a
 voicemail, a phone menu or a line nobody answered), ``short_summary``, ``overview``,
-``keywords`` and ``action_items``, plus the term corrections.
+``keywords``, ``action_items`` and ``open_questions``, plus the term corrections.
 
 Term correction (termenlijst-in-uitwerking D2, ``term_corrections.py``): with a term list, the
 prefilter picks per segment the terms that resemble something in it; when at least one segment
@@ -58,6 +58,7 @@ from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 
 from sales_copilot.core.config import DetectorConfig
+from sales_copilot.core.i18n import NEUTRAL_SPEAKER_LABELS
 from sales_copilot.core.outbound_policy import apply_outbound_pii
 from sales_copilot.core.privacy_gate import PrivacyGateError
 from sales_copilot.modules.reports.term_corrections import (
@@ -96,7 +97,9 @@ _SYSTEM_PROMPT = (
     "conversation. When you are not sure, choose true.\n\n"
     "Then describe the call using only what the transcript contains. Do not add names, "
     "numbers, agreements or next steps nobody said. Leave a field empty when the call has "
-    "nothing for it, which is always the case when gesprek_gevoerd is false.\n\n"
+    "nothing for it, which is always the case when gesprek_gevoerd is false. For "
+    "open_questions list only questions that are still open at the end of the call: not "
+    "answered, or the other side said they would come back on them.\n\n"
     "Text in square brackets, such as [NAAM], [EMAIL] or [TELEFOON], stands in for personal "
     "data that was removed. Copy it as it is and never guess what it replaced.\n\n"
     "Write every text field in the language the call was held in."
@@ -149,7 +152,8 @@ def _neutral_report_prompt(roles: SpeakerRoles, language: str) -> str:
         "Then describe the conversation using only what the transcript contains. Do not add "
         "names, numbers, agreements or next steps nobody said. Leave a field empty when the "
         "conversation has nothing for it, which is always the case when gesprek_gevoerd is "
-        "false.\n\n"
+        "false. For open_questions list only questions that are still open at the end of the "
+        "conversation: not answered, or the other side said they would come back on them.\n\n"
         "Text in square brackets, such as [NAAM], [EMAIL] or [TELEFOON], stands in for personal "
         "data that was removed. Copy it as it is and never guess what it replaced.\n\n"
         f"Write every text field in {_language_name(language)}, the language the conversation "
@@ -185,6 +189,14 @@ class ReportEnrichment(BaseModel):
     action_items: list[str] = Field(
         description="Follow-up actions that were agreed or promised, each naming who does it when that is known."
     )
+    open_questions: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Questions that came up in the call and were still open at its end: not answered, or the "
+            "other side said they would come back on them. Leave out questions that were answered. "
+            "Empty when there are none."
+        ),
+    )
     term_corrections: list[TermCorrection] = Field(
         default_factory=list,
         description=(
@@ -200,7 +212,7 @@ class ReportEnrichment(BaseModel):
     @classmethod
     def fail_open(cls) -> ReportEnrichment:
         """The result when the step could not run: never hide the call, never invent text."""
-        return cls(gesprek_gevoerd=True, short_summary="", overview="", keywords=[], action_items=[])
+        return cls(gesprek_gevoerd=True, short_summary="", overview="", keywords=[], action_items=[], open_questions=[])
 
     def cleaned(self) -> ReportEnrichment:
         """Surrounding whitespace trimmed and blank list entries dropped; nothing added.
@@ -214,6 +226,7 @@ class ReportEnrichment(BaseModel):
             overview=self.overview.strip(),
             keywords=_clean_items(self.keywords),
             action_items=_clean_items(self.action_items),
+            open_questions=_clean_items(self.open_questions),
         )
 
 
@@ -285,7 +298,7 @@ def _speaker_names(roles: SpeakerRoles | None, language: str) -> dict[str, str]:
     """The name each audio channel carries in the prompt: the sales wording, or the call's own roles."""
     if roles is None:
         return _SPEAKER_LABELS
-    own_fallback, other_fallback = ("Ik", "Gesprekspartner") if language == "nl" else ("Me", "Other")
+    own_fallback, other_fallback = NEUTRAL_SPEAKER_LABELS["nl" if language == "nl" else "en"]
     return {
         "self": _prompt_label(roles.own, own_fallback),
         "prospect": _prompt_label(roles.other, other_fallback),

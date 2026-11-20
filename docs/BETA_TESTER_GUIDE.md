@@ -52,19 +52,19 @@ Press Cmd+Space, type `Terminal` and press Enter. Paste this line and press Ente
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Vinix24/OnCue/main/scripts/bootstrap.sh)"
 ```
 
-Wait until it says `OnCue is installed.` and the status block shows `Transcriber OK`, `Audio capture OK` and `App OK`. The download is about 2.8 GB: on a fast connection under a minute, on a home connection several minutes, up to about 15. If your Mac has no Apple developer tools yet, an Apple window opens with an Install button and the installer asks for your Mac password (you do not see it while typing). The Terminal says when that happens. Prefer an AI assistant? Give it the prompt in [INSTALL.md](../INSTALL.md#one-line-for-everyone).
+Wait until it says `OnCue is installed.` and the status block shows `Transcriber OK`, `Audio capture OK` and `App OK`. The download is about 2.8 GB: on a fast connection under a minute, on a home connection several minutes, up to about 15. If your Mac has no Apple developer tools yet, an Apple window opens with an Install button and the installer asks for your Mac password (you do not see it while typing). The Terminal says when that happens. Prefer an AI assistant? Give it the prompt in [INSTALL.md](../INSTALL.md#one-line-in-terminal-the-second-route).
 
 The app ends up in `~/Applications/OnCue.app`. Because nothing is downloaded through a browser, macOS shows no "Apple could not verify the developer" warning and you do not have to right-click anything.
 
-### Step 2: Open OnCue and choose "Opnemen en uitschrijven"
+### Step 2: Open OnCue and choose "Record and transcribe"
 
-Open OnCue from Launchpad (or `~/Applications/OnCue.app`). A dialog asks what you want to do. **Opnemen en uitschrijven** is the default: it records both sides of the call and writes a readable `transcript.md` after you press Stop. **Live coach** is the full dashboard with detection and coaching.
+Open OnCue from Launchpad (or `~/Applications/OnCue.app`). A dialog asks what you want to do. **Record and transcribe** is the default (on a Dutch install, `LANGUAGE=nl`, the dialog is Dutch and the button reads **Opnemen en uitschrijven**): it records both sides of the call and writes a readable `transcript.md` after you press Stop. **Live coach** is the full dashboard with detection and coaching.
 
 The first time, macOS asks for permission for the microphone and for system-audio recording. Click Allow.
 
 ### Step 3: Record and read the transcript
 
-Press **REC** when the conversation starts and **Stop** when it ends. After Stop, OnCue writes the conversation out and the page shows **Open transcript** and **Toon in Finder**. The file is `data/sessions/<time>/transcript.md` inside the OnCue folder (`~/OnCue`). Tell the other participants that you record and transcribe the call.
+Press **REC** when the conversation starts and **Stop** when it ends. After Stop, OnCue writes the conversation out and the page shows **Open transcript** and **Show in Finder**. The file is `data/sessions/<time>/transcript.md` inside the OnCue folder (`~/OnCue`). Tell the other participants that you record and transcribe the call.
 
 For the dashboard (**Live coach**) the page is `http://localhost:8760/dashboard`. In the top right you see a status indicator. Wait until it says "Status: connected": that usually takes 10 to 30 seconds the first time.
 
@@ -145,7 +145,7 @@ AudioTee taps the entire system output mix, so first check whether system audio 
 
 **3. Pain points aren't detected**
 
-The LLM API key is missing or expired. Open `.env` in the OnCue folder (`~/OnCue`, a hidden file: use Finder > Go > Go to Folder and type `~/OnCue`). This is only needed for LLM features; recording and transcribing work without it. If you configured a provider, check whether the matching key (for example `GROQ_API_KEY` or `GEMINI_API_KEY`) is filled in. Groq and Gemini both offer a free tier.
+The LLM API key is missing or expired. Open `.env` in the OnCue folder (`~/OnCue`, a hidden file: use Finder > Go > Go to Folder and type `~/OnCue`). This is only needed for LLM features; recording and transcribing work without it. If you configured a provider, check whether the matching key (`OPENROUTER_API_KEY` for the public tier) is filled in. OpenRouter gives access to many models with one key.
 
 **4. The app won't start, "damaged" message**
 

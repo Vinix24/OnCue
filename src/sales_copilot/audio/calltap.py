@@ -26,6 +26,8 @@ from typing import Any
 
 import numpy as np
 
+from sales_copilot.core.i18n import t
+
 from .capture import AudioConfig, _drop_oldest_and_put, _find_pid
 from .tap_health import TapHealth, TapHealthTracker
 
@@ -81,21 +83,16 @@ class CallTapStream:
                 return
 
             if not os.path.exists(self._config.audiotee_path):
-                self._emit_warning(
-                    f"AudioTee-binary niet gevonden ({self._config.audiotee_path}); prospect-call-tap kan niet starten."
-                )
+                self._emit_warning(t("audio.calltap_binary_missing", path=self._config.audiotee_path))
                 self._degraded = True
-                self._health.mark_attach_failed("binary ontbreekt")
+                self._health.mark_attach_failed(t("audio.detail_binary_missing"))
                 return
 
             pid = _find_pid(self._process_name)
             if pid is None:
-                self._emit_warning(
-                    f"Telefonie-proces '{self._process_name}' niet gevonden. "
-                    "Start een gesprek (of controleer of avconferenced draait) en probeer opnieuw."
-                )
+                self._emit_warning(t("audio.calltap_process_not_found", process=self._process_name))
                 self._degraded = True
-                self._health.mark_attach_failed(f"'{self._process_name}' draait niet")
+                self._health.mark_attach_failed(t("audio.detail_process_not_running", process=self._process_name))
                 return
 
             self._stop_event.clear()
@@ -114,8 +111,8 @@ class CallTapStream:
         while not self._stop_event.is_set():
             proc = self._spawn(current_pid)
             if proc is None:
-                self._emit_warning(f"Kon AudioTee-call-tap niet starten voor '{self._process_name}'.")
-                self._health.mark_attach_failed("subprocess kon niet starten")
+                self._emit_warning(t("audio.calltap_start_failed", process=self._process_name))
+                self._health.mark_attach_failed(t("audio.detail_subprocess_start_failed"))
                 return
 
             with self._lock:
@@ -129,8 +126,8 @@ class CallTapStream:
             # Subprocess exited unexpectedly. avconferenced can restart between
             # calls, so attempt one re-resolve + tap-restart before warning.
             if self._restart_attempted:
-                self._emit_warning(f"AudioTee-call-tap voor '{self._process_name}' is opnieuw gestopt; geef het op.")
-                self._health.mark_detached("subprocess opnieuw gestopt", already_warned=True)
+                self._emit_warning(t("audio.calltap_stopped_again", process=self._process_name))
+                self._health.mark_detached(t("audio.detail_subprocess_stopped_again"), already_warned=True)
                 return
             self._restart_attempted = True
             logger.error(
@@ -139,10 +136,10 @@ class CallTapStream:
             )
             current_pid = _find_pid(self._process_name) or 0
             if not current_pid:
-                self._emit_warning(
-                    f"Telefonie-proces '{self._process_name}' verdween en kwam niet terug; prospect-audio gestopt."
+                self._emit_warning(t("audio.calltap_process_vanished", process=self._process_name))
+                self._health.mark_detached(
+                    t("audio.detail_process_vanished", process=self._process_name), already_warned=True
                 )
-                self._health.mark_detached(f"'{self._process_name}' verdween", already_warned=True)
                 return
 
     def _spawn(self, pid: int) -> subprocess.Popen[bytes] | None:

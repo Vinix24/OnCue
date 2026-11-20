@@ -49,10 +49,10 @@ Build the whisper.cpp backend and fetch the GGML model:
 
 Transcriber:
 - `WHISPER_BACKEND` (default `whisper.cpp`; `mlx-whisper` experimental fallback, `parakeet` optional, `groq` cloud opt-in)
-- `WHISPER_MODEL` (default `large-v3-turbo`)
+- `WHISPER_MODEL` (default `large-v3-turbo`; one of `tiny`, `base`, `medium`, `large-v3-turbo`, `large-v3`, or a full repo id on mlx-whisper)
 - `WHISPER_LANGUAGE` (default `nl`; follows `CALL_LANGUAGE` when unset)
 - `WHISPER_CPP_BINARY` (default `./vendor/whisper.cpp/build/bin/whisper-cli`)
-- `WHISPER_CPP_MODEL_PATH` (default `./vendor/whisper.cpp/models/ggml-large-v3-turbo.bin`)
+- `WHISPER_CPP_MODEL_PATH` (default: `ggml-<WHISPER_MODEL>.bin` in `./vendor/whisper.cpp/models/`, so `ggml-large-v3-turbo.bin`)
 - `WHISPER_CPP_SERVER_ENABLED` (default `true` — persistent model-resident fast path)
 - `DIARIZATION_BACKEND` (default `sortformer`)
 - `MIN_SPEAKERS` / `MAX_SPEAKERS` (default 2)

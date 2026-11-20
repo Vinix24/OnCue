@@ -67,6 +67,7 @@ async def test_main_passes_session_id_to_script_tracker(monkeypatch) -> None:
             captured["tracker_kwargs"] = kwargs
             captured["tracker"] = self
             self.checkpoint_calls = 0
+            self.router = types.SimpleNamespace(warm_up=lambda: True)
 
         async def checkpoint(self) -> None:
             self.checkpoint_calls += 1
@@ -97,7 +98,7 @@ async def test_main_passes_session_id_to_script_tracker(monkeypatch) -> None:
 
     monkeypatch.setattr(detector_main.websockets, "connect", lambda *a, **k: _FakeWS())
     monkeypatch.setattr(
-        detector_main, "PainPointRouter", lambda *a, **k: types.SimpleNamespace(routes=[])
+        detector_main, "PainPointRouter", lambda *a, **k: types.SimpleNamespace(routes=[], warm_up=lambda: True)
     )
     monkeypatch.setattr(detector_main, "LLMConfirmClient", lambda *a, **k: object())
     monkeypatch.setattr(detector_main, "PainPointDebouncer", lambda *a, **k: object())
@@ -106,7 +107,7 @@ async def test_main_passes_session_id_to_script_tracker(monkeypatch) -> None:
     monkeypatch.setattr(
         detector_main,
         "load_preset",
-        lambda name: types.SimpleNamespace(name=name, objections=[], ui_labels={}),
+        lambda name, language=None: types.SimpleNamespace(name=name, objections=[], ui_labels={}),
     )
     monkeypatch.setattr(
         detector_main,
@@ -176,7 +177,7 @@ async def test_main_logs_transcript_subscription_confirmed(monkeypatch, caplog) 
 
     monkeypatch.setattr(detector_main.websockets, "connect", lambda *a, **k: _FakeWS())
     monkeypatch.setattr(
-        detector_main, "PainPointRouter", lambda *a, **k: types.SimpleNamespace(routes=[])
+        detector_main, "PainPointRouter", lambda *a, **k: types.SimpleNamespace(routes=[], warm_up=lambda: True)
     )
     monkeypatch.setattr(detector_main, "LLMConfirmClient", lambda *a, **k: object())
     monkeypatch.setattr(detector_main, "PainPointDebouncer", lambda *a, **k: object())
@@ -185,7 +186,7 @@ async def test_main_logs_transcript_subscription_confirmed(monkeypatch, caplog) 
     monkeypatch.setattr(
         detector_main,
         "load_preset",
-        lambda name: types.SimpleNamespace(name=name, objections=[], ui_labels={}),
+        lambda name, language=None: types.SimpleNamespace(name=name, objections=[], ui_labels={}),
     )
     monkeypatch.setattr(
         detector_main,
@@ -267,7 +268,7 @@ async def test_main_never_logs_the_hub_token(monkeypatch, caplog) -> None:
 
     monkeypatch.setattr(detector_main.websockets, "connect", lambda *a, **k: _FakeWS())
     monkeypatch.setattr(
-        detector_main, "PainPointRouter", lambda *a, **k: types.SimpleNamespace(routes=[])
+        detector_main, "PainPointRouter", lambda *a, **k: types.SimpleNamespace(routes=[], warm_up=lambda: True)
     )
     monkeypatch.setattr(detector_main, "LLMConfirmClient", lambda *a, **k: object())
     monkeypatch.setattr(detector_main, "PainPointDebouncer", lambda *a, **k: object())
@@ -276,7 +277,7 @@ async def test_main_never_logs_the_hub_token(monkeypatch, caplog) -> None:
     monkeypatch.setattr(
         detector_main,
         "load_preset",
-        lambda name: types.SimpleNamespace(name=name, objections=[], ui_labels={}),
+        lambda name, language=None: types.SimpleNamespace(name=name, objections=[], ui_labels={}),
     )
     monkeypatch.setattr(
         detector_main,

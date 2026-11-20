@@ -656,6 +656,7 @@ def write_blind(
 async def _transcribe_regions(audio: np.ndarray, regions: Sequence[Region], max_len_s: float = 15.0) -> list[TextSeg]:
     from sales_copilot.core.config import TranscriberConfig, load_env
     from sales_copilot.modules.transcriber.backends import create_backend
+    from sales_copilot.modules.transcriber.backends.model_names import resolve_mlx_repo
 
     load_env()
     cfg = TranscriberConfig.from_env()
@@ -663,7 +664,7 @@ async def _transcribe_regions(audio: np.ndarray, regions: Sequence[Region], max_
         {
             "backend": cfg.backend,
             "language": cfg.language,
-            "model_repo": f"mlx-community/whisper-{cfg.model}",
+            "model_repo": resolve_mlx_repo(cfg.model),
             "whisper_cpp_binary": cfg.whisper_cpp_binary,
             "whisper_cpp_model_path": cfg.whisper_cpp_model_path,
             "whisper_cpp_threads": cfg.whisper_cpp_threads,

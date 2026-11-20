@@ -6,87 +6,151 @@
     {
       "type": "transcript",
       "speaker": "self",
-      "text": "Goedemiddag, dank voor het opnemen. We helpen salesteams met het automatiseren van offertes. Hebt u even tijd?",
+      "text": "Goedemiddag, dank voor het opnemen. We helpen salesteams met het automatiseren van offertes.",
       "start_ms": 0,
-      "end_ms": 4200,
+      "end_ms": 9500,
       "delay_ms": 300
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Het begon bij ons zelf: onze eigen verkopers zaten elke vrijdag offertes uit oude documenten in elkaar te knippen en te plakken.",
+      "start_ms": 9500,
+      "end_ms": 19000,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Daarom hebben we een platform gebouwd dat uw prijslijst, uw voorwaarden en uw klantgegevens in één keer samenbrengt.",
+      "start_ms": 19000,
+      "end_ms": 28500,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "U kiest de producten, het systeem rekent de kortingen door en de offerte staat in uw eigen huisstijl klaar.",
+      "start_ms": 28500,
+      "end_ms": 38000,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Daarnaast koppelt het aan uw CRM, dus elke wijziging in een deal komt automatisch in het voorstel terecht.",
+      "start_ms": 38000,
+      "end_ms": 47500,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Klanten kunnen de offerte online bekijken, er opmerkingen bij zetten en met één klik akkoord geven.",
+      "start_ms": 47500,
+      "end_ms": 57000,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "U ziet precies wanneer iemand de offerte opent, welke onderdelen worden gelezen en waar mensen afhaken.",
+      "start_ms": 57000,
+      "end_ms": 66500,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Teams die ermee werken sturen hun voorstellen gemiddeld drie keer sneller de deur uit, en ze verliezen minder deals aan trage opvolging.",
+      "start_ms": 66500,
+      "end_ms": 76000,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "En de uitrol is eenvoudig: we importeren uw bestaande sjablonen, trainen uw team in een middag en u kunt direct aan de slag. Hebt u even tijd?",
+      "start_ms": 76000,
+      "end_ms": 85500,
+      "delay_ms": 700
     },
     {
       "type": "transcript",
       "speaker": "prospect",
       "text": "Ja, maar kort. Het maken van offertes kost ons heel veel tijd, dat is wel een pijnpunt bij ons.",
-      "start_ms": 4200,
-      "end_ms": 9200,
+      "start_ms": 85500,
+      "end_ms": 90500,
       "delay_ms": 1200
     },
     {
       "type": "transcript",
       "speaker": "self",
       "text": "Herkenbaar. Hoe loopt dat offerteproces nu precies bij jullie?",
-      "start_ms": 9200,
-      "end_ms": 12300,
+      "start_ms": 90500,
+      "end_ms": 93600,
       "delay_ms": 1200
     },
     {
       "type": "transcript",
       "speaker": "prospect",
       "text": "We doen alles nog in Word en elke offerte is maatwerk. Soms duurt het dagen voor een offerte de deur uit gaat.",
-      "start_ms": 12300,
-      "end_ms": 18300,
+      "start_ms": 93600,
+      "end_ms": 99600,
       "delay_ms": 1200
     },
     {
       "type": "transcript",
       "speaker": "self",
       "text": "En als u dat zou kunnen halveren, wat zou dat voor het team betekenen?",
-      "start_ms": 18300,
-      "end_ms": 21500,
+      "start_ms": 99600,
+      "end_ms": 102800,
       "delay_ms": 1200
     },
     {
       "type": "transcript",
       "speaker": "prospect",
       "text": "Dat zou mooi zijn, maar het is te duur voor ons. We hebben een strak budget dit jaar.",
-      "start_ms": 21500,
-      "end_ms": 27000,
+      "start_ms": 102800,
+      "end_ms": 108300,
       "delay_ms": 1200
     },
     {
       "type": "transcript",
       "speaker": "self",
       "text": "Begrijpelijk. Wat als de investering zich binnen een kwartaal terugverdient?",
-      "start_ms": 27000,
-      "end_ms": 31000,
+      "start_ms": 108300,
+      "end_ms": 112300,
       "delay_ms": 1200
     },
     {
       "type": "transcript",
       "speaker": "prospect",
       "text": "Mijn manager moet hier nog naar kijken. We willen dit pas volgend kwartaal oppakken.",
-      "start_ms": 31000,
-      "end_ms": 36500,
+      "start_ms": 112300,
+      "end_ms": 117800,
       "delay_ms": 1200
     },
     {
       "type": "transcript",
       "speaker": "self",
       "text": "Geen probleem. Kan ik dan een korte terugbelafspraak inplannen met u en uw manager?",
-      "start_ms": 36500,
-      "end_ms": 41000,
+      "start_ms": 117800,
+      "end_ms": 122300,
       "delay_ms": 1200
     },
     {
       "type": "transcript",
       "speaker": "prospect",
       "text": "Ja, doe maar. Stuur een kort voorstel naar ons algemene mailbox, dan nemen we contact op.",
-      "start_ms": 41000,
-      "end_ms": 46000,
+      "start_ms": 122300,
+      "end_ms": 127300,
       "delay_ms": 1200
     }
   ],
   "suggestions": [
     {
-      "after_event_index": 1,
+      "after_event_index": 9,
       "questions": [
         "Wat kost het offerteproces jullie nu per week in uren?",
         "Wie maakt er nu precies de offertes?",
@@ -94,7 +158,7 @@
       ]
     },
     {
-      "after_event_index": 5,
+      "after_event_index": 13,
       "questions": [
         "Wat bedoelt u precies met 'te duur' — de maandelijkse kosten of de opstart?",
         "Hoe bepaalt u het budget voor dit soort tooling?",
@@ -102,7 +166,7 @@
       ]
     },
     {
-      "after_event_index": 7,
+      "after_event_index": 15,
       "questions": [
         "Wanneer zou uw manager hier tijd voor hebben?",
         "Wat is het belangrijkste dat uw manager wil weten?",

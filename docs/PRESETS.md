@@ -27,11 +27,24 @@ Without `PRESET`, the system falls back to the `sales` preset.
 
 ---
 
+## Presets follow the call language
+
+A preset resolves per call language (`CALL_LANGUAGE`). For language `xx` the loader reads
+`config/presets/<name>_xx.yaml` when it exists, else the base file `config/presets/<name>.yaml`.
+The base files are written in **Dutch**. When a base file is used for another language, its
+inline routes and `ui_labels` are not applied: `config/pain_points_xx.yaml` and
+`config/objections_xx.yaml` supply the routes and the speaker labels come from the i18n catalog.
+The consent tier, prompt addendum and category identifiers stay. Only `sales` has an English file
+(`sales_en.yaml`); `acquisitie`, `coach` and `recruitment` use the English route files on an
+English call.
+
+---
+
 ## Sales (default)
 
 Sales conversations between a seller and a prospect (B2B).
 
-**UI labels:** prospect / verkoper
+**UI labels:** prospect / verkoper (English call: prospect / salesperson)
 
 **Pain points (12):** offerteproces, capaciteit, cross_sell, lead_generation,
 kennisontsluiting, klantenservice, handmatig_werk, data_kwaliteit, rapportage,
@@ -106,7 +119,8 @@ Three of the shipped module presets set `modules.pain_points: false` on purpose:
 ("live coaching metrics without detector or slides") and `notetaker` (live
 transcript and post-call report only, your own microphone included, no
 talk-time coaching; see "Notetaker" in the [README](../README.md#notetaker)).
-That is a legitimate choice, not a defect, and it stays selectable.
+That is a legitimate choice, not a defect, and it stays selectable. Live coaching
+(`coaching.live`) is part of the free tier and needs no license key.
 
 What changed on 2026-09-05 is that the choice can no longer be made *for* you.
 `discovery` is the first preset in `config/presets.yaml`, and the dashboard used

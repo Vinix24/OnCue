@@ -1,0 +1,177 @@
+{
+  "title": "Sample Aha — quote process & price objection",
+  "description": "Short, fictional English B2B sales call for the 'Show me what it does' demo. Contains a pain point (quote process), an objection (price/timing) and coaching moments. No real PII.",
+  "speed_default": 1.5,
+  "events": [
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Good afternoon, and thanks for taking the call. We help sales teams automate their quotes.",
+      "start_ms": 0,
+      "end_ms": 9500,
+      "delay_ms": 300
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "It started with our own team: every Friday our sellers were stitching quotes together from old documents, copying and pasting.",
+      "start_ms": 9500,
+      "end_ms": 19000,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "So we built a platform that brings your price list, your terms and your customer data together in one place.",
+      "start_ms": 19000,
+      "end_ms": 28500,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "You pick the products, the system works out the discounts, and the quote is ready in your own branding.",
+      "start_ms": 28500,
+      "end_ms": 38000,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "It also connects to your CRM, so every change to a deal ends up in the proposal automatically.",
+      "start_ms": 38000,
+      "end_ms": 47500,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Customers can view the quote online, leave comments on it and approve it with a single click.",
+      "start_ms": 47500,
+      "end_ms": 57000,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "You can see exactly when someone opens the quote, which sections they read and where they drop off.",
+      "start_ms": 57000,
+      "end_ms": 66500,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "Teams that use it send their proposals out three times faster on average, and they lose fewer deals to slow follow-up.",
+      "start_ms": 66500,
+      "end_ms": 76000,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "And the rollout is simple: we import your existing templates, train your team in an afternoon and you can start right away. Do you have a few minutes?",
+      "start_ms": 76000,
+      "end_ms": 85500,
+      "delay_ms": 700
+    },
+    {
+      "type": "transcript",
+      "speaker": "prospect",
+      "text": "Sure, but keep it short. Creating quotes takes us too much time, and that is a real problem for us.",
+      "start_ms": 85500,
+      "end_ms": 90500,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "That sounds familiar. How does the quote process work for you today?",
+      "start_ms": 90500,
+      "end_ms": 93600,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "prospect",
+      "text": "We still build every quote manually in Word. Clients wait too long for a quote, sometimes several days.",
+      "start_ms": 93600,
+      "end_ms": 99600,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "And if you could cut that time in half, what would that mean for the team?",
+      "start_ms": 99600,
+      "end_ms": 102800,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "prospect",
+      "text": "That would be great, but this is too expensive for us. We do not have budget for this right now.",
+      "start_ms": 102800,
+      "end_ms": 108300,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "I understand. What if the investment paid for itself within a quarter?",
+      "start_ms": 108300,
+      "end_ms": 112300,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "prospect",
+      "text": "My manager still needs to review this. We want to pick this up next quarter.",
+      "start_ms": 112300,
+      "end_ms": 117800,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "self",
+      "text": "No problem. Can I schedule a short follow-up call with you and your manager?",
+      "start_ms": 117800,
+      "end_ms": 122300,
+      "delay_ms": 1200
+    },
+    {
+      "type": "transcript",
+      "speaker": "prospect",
+      "text": "Yes, please do. Send a short proposal to our general mailbox and we will get back to you.",
+      "start_ms": 122300,
+      "end_ms": 127300,
+      "delay_ms": 1200
+    }
+  ],
+  "suggestions": [
+    {
+      "after_event_index": 9,
+      "questions": [
+        "How many hours a week does the quote process cost you right now?",
+        "Who exactly builds the quotes today?",
+        "What happens when a quote goes out a day late?"
+      ]
+    },
+    {
+      "after_event_index": 13,
+      "questions": [
+        "What do you mean by 'too expensive': the monthly cost or the setup?",
+        "How do you decide the budget for this kind of tooling?",
+        "What would it be worth to you to have quotes ready within a day?"
+      ]
+    },
+    {
+      "after_event_index": 15,
+      "questions": [
+        "When would your manager have time for this?",
+        "What matters most to your manager?",
+        "Can I send a business case you can forward?"
+      ]
+    }
+  ]
+}

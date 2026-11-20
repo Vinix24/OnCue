@@ -227,6 +227,77 @@ setup_permissions() {
   ok "Permission setup step completed"
 }
 
+set_env_value() {
+  local key="$1" value="$2" file="$ROOT_DIR/.env" tmp rc mode
+  tmp="$(mktemp "$file.XXXXXX")" || { warn "Cannot create a temp file next to $file"; return 1; }
+  # grep exit 1 = no matching line (fine); 2 or higher = the read failed: leave .env untouched.
+  rc=0
+  grep -v "^${key}=" "$file" > "$tmp" 2>/dev/null || rc=$?
+  if [[ "$rc" -gt 1 ]]; then
+    warn "Cannot read $file (grep exit $rc); .env left unchanged"
+    python3 -c 'import os,sys; os.unlink(sys.argv[1])' "$tmp"
+    return 1
+  fi
+  if ! printf '%s=%s\n' "$key" "$value" >> "$tmp"; then
+    warn "Cannot write $tmp; .env left unchanged"
+    python3 -c 'import os,sys; os.unlink(sys.argv[1])' "$tmp"
+    return 1
+  fi
+  mode="$(stat -f '%Lp' "$file" 2>/dev/null || stat -c '%a' "$file" 2>/dev/null)" || mode=600
+  chmod "$mode" "$tmp" && mv "$tmp" "$file"
+}
+
+# Three privacy tiers per conversation: local, own cloud tenant, public via OpenRouter.
+choose_llm_tier() {
+  local choice="" tenant="" api_key="" model=""
+  echo "LLM tier for summaries and live suggestions:"
+  echo "  1) Local (Ollama): nothing leaves this machine"
+  echo "  2) Own cloud tenant (Azure OpenAI or Vertex AI)"
+  echo "  3) Public via OpenRouter: one key gives access to many models"
+  read -r -p "Choice [1-3, enter to skip]: " choice
+  case "$choice" in
+    1)
+      read -r -p "Local model you pulled in Ollama [qwen2.5:7b]: " model
+      model="${model:-qwen2.5:7b}"
+      set_env_value LLM_PROVIDER ollama || return 1
+      set_env_value LLM_MODEL "$model" || return 1
+      ;;
+    2)
+      read -r -p "Tenant [azure|vertex]: " tenant
+      if [[ "$tenant" != "azure" && "$tenant" != "vertex" ]]; then
+        warn "Unknown tenant '$tenant'; LLM provider left unchanged"
+        return 0
+      fi
+      if [[ "$tenant" == "vertex" ]]; then
+        read -r -p "Vertex model [gemini-2.5-flash]: " model
+        model="${model:-gemini-2.5-flash}"
+      else
+        read -r -p "Azure OpenAI deployment name: " model
+        if [[ -z "$model" ]]; then
+          warn "An Azure deployment name is required; LLM provider left unchanged"
+          return 0
+        fi
+      fi
+      set_env_value LLM_PROVIDER "$tenant" || return 1
+      set_env_value LLM_MODEL "$model" || return 1
+      info "Fill in your tenant endpoint and credentials in .env"
+      ;;
+    3)
+      read -r -p "OPENROUTER_API_KEY (enter to skip): " api_key
+      set_env_value LLM_PROVIDER openrouter || return 1
+      set_env_value LLM_MODEL "anthropic/claude-haiku-4.5" || return 1
+      if [[ -n "$api_key" ]]; then
+        set_env_value OPENROUTER_API_KEY "$api_key" || return 1
+      fi
+      ;;
+    "")
+      ;;
+    *)
+      warn "Unknown choice '$choice'; LLM provider left unchanged"
+      ;;
+  esac
+}
+
 setup_env_file() {
   info "Environment configuration"
   if [[ ! -f "$ROOT_DIR/.env" ]]; then
@@ -237,21 +308,12 @@ setup_env_file() {
   fi
 
   if [[ "$DRY_RUN" == "true" ]]; then
-    info "[dry-run] would prompt for GEMINI_API_KEY and set WHISPER_MODEL"
+    info "[dry-run] would ask for the LLM tier (local, own tenant, public via OpenRouter) and set WHISPER_MODEL"
     return 0
   fi
 
-  local api_key=""
   if [[ "$AUTO_YES" != "true" ]]; then
-    read -r -p "GEMINI_API_KEY (enter to skip): " api_key
-  fi
-
-  if [[ -n "$api_key" ]]; then
-    if grep -q '^GEMINI_API_KEY=' "$ROOT_DIR/.env"; then
-      sed -i '' "s|^GEMINI_API_KEY=.*|GEMINI_API_KEY=$api_key|" "$ROOT_DIR/.env"
-    else
-      echo "GEMINI_API_KEY=$api_key" >> "$ROOT_DIR/.env"
-    fi
+    choose_llm_tier
   fi
 
   if grep -q '^WHISPER_MODEL=' "$ROOT_DIR/.env"; then
@@ -373,4 +435,6 @@ main() {
   ok "Setup complete. Launch with: bash scripts/start.sh"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

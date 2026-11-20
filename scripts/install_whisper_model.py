@@ -3,22 +3,8 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import dataclass
 
-
-@dataclass(frozen=True)
-class ModelSpec:
-    alias: str
-    repo_id: str
-
-
-MODEL_MAP: dict[str, ModelSpec] = {
-    "tiny": ModelSpec(alias="tiny", repo_id="mlx-community/whisper-tiny-mlx"),
-    "base": ModelSpec(alias="base", repo_id="mlx-community/whisper-base-mlx"),
-    "medium": ModelSpec(alias="medium", repo_id="mlx-community/whisper-medium-mlx"),
-    "large-v3-turbo": ModelSpec(alias="large-v3-turbo", repo_id="mlx-community/whisper-large-v3-turbo"),
-    "large-v3": ModelSpec(alias="large-v3", repo_id="mlx-community/whisper-large-v3-mlx"),
-}
+from sales_copilot.modules.transcriber.backends.model_names import MODEL_MAP
 
 
 def parse_args() -> argparse.Namespace:
@@ -48,7 +34,7 @@ def main() -> int:
     args = parse_args()
     spec = MODEL_MAP[args.model]
 
-    print(f"Selected model: {spec.alias} -> {spec.repo_id}")
+    print(f"Selected model: {spec.alias} -> {spec.mlx_repo_id}")
     if args.revision:
         print(f"Revision: {args.revision}")
 
@@ -65,13 +51,13 @@ def main() -> int:
 
     try:
         snapshot_path = snapshot_download(
-            repo_id=spec.repo_id,
+            repo_id=spec.mlx_repo_id,
             revision=args.revision,
             local_files_only=False,
             resume_download=True,
         )
     except Exception as exc:
-        print(f"ERROR: failed to download model {spec.repo_id}: {exc}", file=sys.stderr)
+        print(f"ERROR: failed to download model {spec.mlx_repo_id}: {exc}", file=sys.stderr)
         return 1
 
     print(f"Model ready in cache: {snapshot_path}")

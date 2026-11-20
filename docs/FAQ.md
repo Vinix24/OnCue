@@ -24,7 +24,7 @@ Step-by-step diagnosis and fix: [TROUBLESHOOTING.md — BlackHole does not appea
 **Fix it yourself:**
 1. Only the build route (the fallback of the one-line install) asks for your Mac password, once, for Homebrew. The release route asks for none. The password is the one you log in with, and you do not see it while typing.
 2. The installer is Apple's and Homebrew's own: the Terminal shows which one asks. Do not type your password anywhere else, and never give it to an AI assistant.
-3. Run the one-line install again after an error: it is safe to repeat. See [INSTALL.md](../INSTALL.md#one-line-for-everyone).
+3. Run the one-line install again after an error: it is safe to repeat. See [INSTALL.md](../INSTALL.md#one-line-in-terminal-the-second-route).
 **When this does NOT work:** Look at [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md). If it's a managed work Mac: email `info@vincentvandeth.nl`.
 
 <a id="faq-python-3-11-not-found-tijdens-setup"></a>
@@ -549,10 +549,10 @@ tail -n 150 data/logs/copilot.log | rg -i 'whisper|warmup|transcrib|model|chunk'
 
 ## Category 6 — LLM problems
 
-<a id="faq-gemini-api-call-faalt-401-unauthorized"></a>
-### Q: Gemini API call fails (401 unauthorized)
+<a id="faq-llm-api-call-faalt-401-unauthorized"></a>
+### Q: LLM API call fails (401 unauthorized)
 
-**What you see:** You are experiencing: **Gemini API call fails (401 unauthorized)**. This behavior blocks a normal call flow or makes the output unreliable.
+**What you see:** You are experiencing: **LLM API call fails (401 unauthorized)**. This behavior blocks a normal call flow or makes the output unreliable.
 **Why this happens:** LLM errors usually come from a key/provider mismatch, latency, or a model choice that doesn't fit your account.
 **Fix it yourself:**
 1. Check the provider + model combination in setup and `.env`.
@@ -731,9 +731,14 @@ tail -n 80 data/logs/copilot.log | rg -i 'provider|model|config'
 2. Record the retention period and consent text in your own sales process.
 3. Verify it works with:
 ```bash
-ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|gemini|openai|groq'
+ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|openrouter|vertex|azure'
 ```
 **When this does NOT work:** For legally binding statements: consult your privacy lawyer.
+
+<a id="faq-slaat-oncue-stemprofielen-op"></a>
+### Q: Does OnCue store voice profiles or recognise people by voice?
+
+No. Diarization labels speakers anonymously within one recording (`SPEAKER_00`, ...) and no voice embedding is stored. Your own side is known from the microphone channel. Details and the GDPR article 9 reason: [ARCHITECTURE_BOUNDARIES.md — Speaker boundary](ARCHITECTURE_BOUNDARIES.md#speaker-boundary-no-voice-profiles-are-stored).
 
 <a id="faq-kan-ik-100-lokaal-draaien-geen-internet"></a>
 ### Q: Can I run 100% locally (no internet)?
@@ -745,7 +750,7 @@ ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'p
 2. Record the retention period and consent text in your own sales process.
 3. Verify it works with:
 ```bash
-ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|gemini|openai|groq'
+ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|openrouter|vertex|azure'
 ```
 **When this does NOT work:** For legally binding statements: consult your privacy lawyer.
 
@@ -759,7 +764,7 @@ ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'p
 2. Record the retention period and consent text in your own sales process.
 3. Verify it works with:
 ```bash
-ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|gemini|openai|groq'
+ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|openrouter|vertex|azure'
 ```
 **When this does NOT work:** For legally binding statements: consult your privacy lawyer.
 
@@ -773,7 +778,7 @@ ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'p
 2. Record the retention period and consent text in your own sales process.
 3. Verify it works with:
 ```bash
-ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|gemini|openai|groq'
+ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|openrouter|vertex|azure'
 ```
 **When this does NOT work:** For legally binding statements: consult your privacy lawyer.
 
@@ -787,7 +792,7 @@ ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'p
 2. Record the retention period and consent text in your own sales process.
 3. Verify it works with:
 ```bash
-ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|gemini|openai|groq'
+ls -la data/sessions data/reports && tail -n 80 data/logs/copilot.log | rg -i 'provider|ollama|openrouter|vertex|azure'
 ```
 **When this does NOT work:** For legally binding statements: consult your privacy lawyer.
 
@@ -827,7 +832,7 @@ ls -lt data/reports | head -n 5
 **What you see:** You want to know whether OnCue also runs outside macOS.
 **Why this happens:** macOS is the stable main platform; Windows is a separate track with its own audio-capture path (WASAPI instead of AudioTee/BlackHole). Linux and iPad/iOS are not (yet) on the map.
 **Status per platform:**
-1. **Windows:** yes, via WASAPI loopback capture — no virtual audio device needed, unlike BlackHole on macOS. `pip install ".[windows]"` gives you only the audio capture; for LLM-driven pain-point detection you also need a provider extra, e.g. `pip install ".[windows,detector,gemini]"` (`litellm` recently moved behind the separate `[llm]` extra because it needs Rust/Cargo to build on Windows). Windows is supported. Verified 2026-07-14 in a Windows 11 VM with a real audio-hardware probe (95/95 real frames, not mocked) and on physical hardware since 2026-07-26 (issue #148). See [INSTALL.md#windows](../INSTALL.md#windows).
+1. **Windows:** yes, via WASAPI loopback capture — no virtual audio device needed, unlike BlackHole on macOS. `pip install ".[windows]"` gives you only the audio capture; for LLM-driven pain-point detection you also need a provider extra, e.g. `pip install ".[windows,detector,openai]"` (`litellm` recently moved behind the separate `[llm]` extra because it needs Rust/Cargo to build on Windows). Windows is supported. Verified 2026-07-14 in a Windows 11 VM with a real audio-hardware probe (95/95 real frames, not mocked) and on physical hardware since 2026-07-26 (issue #148). See [INSTALL.md#windows](../INSTALL.md#windows).
 2. **Linux:** on the roadmap, no supported audio-capture backend yet.
 3. **iPad / iOS:** not planned — the architecture (macOS Core Audio process-tap, Windows WASAPI loopback, local whisper.cpp) requires a desktop OS.
 **When this does NOT work:** For Windows-specific problems: see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#problem-wasapi-loopback-capture-geeft-geen-audio-windows) or open a [GitHub issue](https://github.com/Vinix24/OnCue/issues). For macOS-only features (telephony capture) that you're missing on Windows: that's deliberate, see the Architecture section in the README.

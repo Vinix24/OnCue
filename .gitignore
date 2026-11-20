@@ -103,3 +103,7 @@ scripts/_analyse_time_investment.py
 
 # Vendored presentation assets: the global dist/ rule must not swallow Reveal.js's dist/
 !presentation/vendor/reveal.js/dist/
+
+# OnCue Bar (SwiftPM build output and built app)
+native/oncue-bar/.build/
+OnCue Bar.app/

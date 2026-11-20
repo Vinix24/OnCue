@@ -37,6 +37,12 @@ _skip_no_wc = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _dutch_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests assert on the Dutch base presets, which load for a Dutch call."""
+    monkeypatch.setenv("CALL_LANGUAGE", "nl")
+
+
 class TestDetectorConfigPresetIntegration:
     def test_default_preset_name_is_sales(self) -> None:
         config = DetectorConfig()

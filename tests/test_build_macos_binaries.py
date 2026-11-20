@@ -108,3 +108,108 @@ def test_dependency_check_fails_on_rpath_binary(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert "non-system library" in result.stderr
     assert "@rpath/libanswer.dylib" in result.stderr
+
+
+# ── recording bar ────────────────────────────────────────────────────────────
+
+BAR_ID = "nl.vnxdigital.oncue.bar"
+darwin_only = pytest.mark.skipif(not Path("/usr/libexec/PlistBuddy").exists(), reason="needs PlistBuddy (macOS)")
+
+
+def _fake_bar(app: Path, version: str, *, bundle_id: str = BAR_ID, executable: bool = True) -> Path:
+    (app / "Contents" / "MacOS").mkdir(parents=True)
+    (app / "Contents" / "Info.plist").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>\n'
+        f"<key>CFBundleIdentifier</key><string>{bundle_id}</string>\n"
+        f"<key>CFBundleVersion</key><string>{version}</string>\n"
+        "</dict></plist>\n"
+    )
+    exe = app / "Contents" / "MacOS" / "OnCueBar"
+    exe.write_text("#!/bin/sh\nexit 0\n")
+    exe.chmod(0o755 if executable else 0o644)
+    return app
+
+
+def _check_bar(app: Path, expected: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", "-c", f'source "{SCRIPT}"; check_bar_bundle "$1" "$2"', "_", str(app), expected],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@darwin_only
+def test_bar_check_accepts_a_matching_bundle(tmp_path: Path) -> None:
+    result = _check_bar(_fake_bar(tmp_path / "OnCue Bar.app", "1.2.3"), "1.2.3")
+    assert result.returncode == 0, result.stderr
+
+
+@darwin_only
+@pytest.mark.parametrize(
+    "case",
+    ["wrong_version", "wrong_id", "not_executable", "no_plist", "empty_expected"],
+)
+def test_bar_check_refuses_anything_else(case: str, tmp_path: Path) -> None:
+    app = tmp_path / "OnCue Bar.app"
+    expected = "1.2.3"
+    if case == "wrong_version":
+        _fake_bar(app, "1.2.2")
+    elif case == "wrong_id":
+        _fake_bar(app, "1.2.3", bundle_id="nl.example.other")
+    elif case == "not_executable":
+        _fake_bar(app, "1.2.3", executable=False)
+    elif case == "no_plist":
+        _fake_bar(app, "1.2.3")
+        (app / "Contents" / "Info.plist").unlink()
+    else:
+        _fake_bar(app, "1.2.3")
+        expected = ""
+    result = _check_bar(app, expected)
+    assert result.returncode == 1
+    assert "bar check:" in result.stderr
+
+
+def test_bar_is_built_signed_deep_and_lands_in_the_tarball(tmp_path: Path) -> None:
+    """Runs the real build_bar with a fake bar build script and a fake codesign."""
+    root = tmp_path / "root"
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "build_oncue_bar.sh").write_text(
+        '#!/bin/bash\nmkdir -p "$1/OnCue Bar.app/Contents/MacOS"\n'
+        'echo built > "$1/OnCue Bar.app/Contents/MacOS/OnCueBar"\n'
+    )
+    shims = tmp_path / "shims"
+    shims.mkdir()
+    calls = tmp_path / "calls.log"
+    codesign = shims / "codesign"
+    codesign.write_text(f'#!/bin/sh\necho "codesign $*" >> "{calls}"\n')
+    codesign.chmod(0o755)
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    script = (
+        f'source "{SCRIPT}"; ROOT_DIR="{root}"; LOG_FILE="{tmp_path / "build.log"}"; '
+        f'build_bar "{stage}"'
+    )
+    env = {"PATH": f"{shims}:/usr/bin:/bin", "HOME": str(tmp_path)}
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=False)
+    assert result.returncode == 0, result.stderr
+    assert (stage / "OnCue Bar.app" / "Contents" / "MacOS" / "OnCueBar").is_file()
+    assert "codesign --force --deep --sign - " + str(stage / "OnCue Bar.app") in calls.read_text()
+
+    text = SCRIPT.read_text()
+    assert 'codesign --verify --deep --strict "$dir/$BAR_APP_NAME"' in text
+    assert 'check_bar_bundle "$dir/$BAR_APP_NAME" "$(oncue_version)"' in text
+    assert "oncue bar:" in text and '"$BAR_BUNDLE_ID" "$(oncue_version)"' in text
+    assert 'audiotee "$BAR_APP_NAME" BUILD_INFO.txt' in text
+
+
+def test_bar_build_failure_stops_the_release_build(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "build_oncue_bar.sh").write_text("#!/bin/bash\nexit 1\n")
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    script = f'source "{SCRIPT}"; ROOT_DIR="{root}"; LOG_FILE="{tmp_path / "build.log"}"; build_bar "{stage}"'
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    assert result.returncode == 1
+    assert "oncue bar build failed" in result.stderr

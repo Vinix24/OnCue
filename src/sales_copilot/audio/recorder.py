@@ -53,6 +53,10 @@ class AudioRecorder:
         self._ended_at: str | None = None
         self._failed_streams: dict[str, str] = {}
         self._late_start_ms: dict[str, int] = {}
+        self._markers: list[int] = []
+        self._auto_stop: dict[str, int | str] | None = None
+        self._tap_events: list[dict[str, int | float | str]] = []
+        self._pauses: list[dict[str, int]] = []
         self._closed = False
         self._dir.mkdir(parents=True, exist_ok=True)
         self._dir.chmod(stat.S_IRWXU)
@@ -96,6 +100,24 @@ class AudioRecorder:
         """Record that a stream came up ``offset_ms`` into the call (leading silence)."""
         with self._lock:
             self._late_start_ms[stream_label] = offset_ms
+
+    def set_timeline(self, markers: list[int], pauses: list[dict[str, int]]) -> None:
+        """Hand over marker offsets and pauses (ms of recording time) before ``finalize``."""
+        with self._lock:
+            self._markers = [int(m) for m in markers]
+            self._pauses = [
+                {"offset_ms": int(p["offset_ms"]), "wall_duration_ms": int(p["wall_duration_ms"])} for p in pauses
+            ]
+
+    def set_tap_events(self, events: list[dict[str, int | float | str]]) -> None:
+        """Hand over the system-tap state changes (``t`` seconds of recording time) before ``finalize``."""
+        with self._lock:
+            self._tap_events = [{"t": e["t"], "event": str(e["event"])} for e in events]
+
+    def note_auto_stop(self, silence_s: int, offset_ms: int) -> None:
+        """Record that silence ended the recording at ``offset_ms`` after ``silence_s`` seconds."""
+        with self._lock:
+            self._auto_stop = {"reason": "silence", "silence_s": int(silence_s), "offset_ms": int(offset_ms)}
 
     def pad_track_to(self, stream_label: str, target_ms: float) -> int:
         """Append digital silence so ``stream_label`` lasts ``target_ms``.
@@ -249,6 +271,14 @@ class AudioRecorder:
             metadata["failed_streams"] = dict(self._failed_streams)
         if self._late_start_ms:
             metadata["late_start_ms"] = dict(self._late_start_ms)
+        if self._markers:
+            metadata["markers"] = [{"offset_ms": m} for m in self._markers]
+        if self._tap_events:
+            metadata["tap_events"] = [dict(e) for e in self._tap_events]
+        if self._auto_stop:
+            metadata["auto_stop"] = dict(self._auto_stop)
+        if self._pauses:
+            metadata["pauses"] = [dict(p) for p in self._pauses]
         metadata_path = self._dir / "metadata.json"
         metadata_path.write_text(
             json.dumps(metadata, indent=2), encoding="utf-8"

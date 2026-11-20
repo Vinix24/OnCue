@@ -140,8 +140,9 @@ any utterance it matches. Until 2026-09-05 it scored `len(overlap) + 1 if any
 token >= 7 chars` against a bar of 2, which meant one shared long word was
 enough, and every hit returned a hardcoded `confidence=0.95, tier="high"`.
 Downstream thresholds could therefore never filter a keyword match and the LLM
-confirm path was never reached from it. A live call produced "een maand of
-vijf, zes" classified as pain point `rapportage` at 0.95.
+confirm path was never reached from it. A short phrase such as "de rapportages
+staan in de map" was classified as pain point `rapportage` at 0.95 on the
+strength of the single shared long word.
 
 Two structural changes fixed that, both visible in the diagram above: a match
 now needs at least `_MIN_KEYWORD_OVERLAP` independently overlapping content

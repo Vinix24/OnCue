@@ -4,8 +4,9 @@ import asyncio
 import json
 import logging
 import signal
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from urllib.parse import urlsplit, urlunsplit
 
 import websockets
@@ -74,6 +75,55 @@ def _resolve_insight_engine():
     engine_cls = _insight_module.InsightEngine
     globals()["InsightEngine"] = engine_cls
     return engine_cls
+
+
+def _start_warmup(warm_up: Callable[[], bool], name: str) -> asyncio.Task[bool]:
+    """Run a blocking ``warm_up`` in a daemon thread and return a cancellable task.
+
+    ``asyncio.to_thread`` runs on the loop's default executor, whose non-daemon
+    threads ``asyncio.run`` joins at exit, so a slow model load would delay the
+    process. A daemon thread is never joined: cancelling the returned task stops
+    the wait, and the interpreter exits even if the build is unfinished. The
+    thread never blocks the event loop or the hub.
+    """
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[bool] = loop.create_future()
+
+    def _resolve(result: bool) -> None:
+        if not future.done():
+            future.set_result(result)
+
+    def _run() -> None:
+        try:
+            result = bool(warm_up())
+        except Exception:
+            logger.warning("Warm-up %s raised; building on first use instead.", name, exc_info=True)
+            result = False
+        try:
+            loop.call_soon_threadsafe(_resolve, result)
+        except RuntimeError:
+            # The loop is already closed: shutdown did not wait for this build.
+            logger.debug("Warm-up %s finished after the loop closed.", name)
+
+    threading.Thread(target=_run, name=name, daemon=True).start()
+
+    async def _wait() -> bool:
+        return await future
+
+    return asyncio.create_task(_wait(), name=name)
+
+
+def _start_router_warmup(router: PainPointRouter) -> asyncio.Task[bool]:
+    """Start building the pain-point router's embedding model in the background."""
+    return _start_warmup(router.warm_up, "router-warmup")
+
+
+async def _cancel_warmups(tasks: Sequence[asyncio.Task[bool] | None]) -> None:
+    """Stop waiting for unfinished warm-ups; their daemon threads do not hold up exit."""
+    pending = [task for task in tasks if task is not None]
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
 
 
 def _now_ms() -> int:
@@ -366,9 +416,7 @@ async def _consume_transcripts(
         # prevents duplicate emissions for the same category.
         if objection_detector is not None:
             objection_tasks.append(
-                asyncio.create_task(
-                    _detect_objection(objection_detector, text, speaker, timestamp_ms)
-                )
+                asyncio.create_task(_detect_objection(objection_detector, text, speaker, timestamp_ms))
             )
 
         if config.only_classify_prospect and speaker != "prospect":
@@ -517,6 +565,7 @@ async def main(
     summary_task: asyncio.Task[None] | None = None
     insight_task: asyncio.Task[None] | None = None
     script_tracking_task: asyncio.Task[None] | None = None
+    warmups: list[asyncio.Task[bool] | None] = []
 
     def _request_shutdown() -> None:
         if not stop_event.is_set():
@@ -541,6 +590,10 @@ async def main(
                 detector_config,
                 detector_config.call_language,
             )
+            # Build the embedding router in the background so the first transcript
+            # does not pay the ~8 s model load. classify() waits on the same
+            # build lock, and a failed warm-up falls back to build-on-first-use.
+            warmups.append(_start_router_warmup(router))
             llm_client = LLMConfirmClient(detector_config, context_docs=context_docs)
             debouncer = PainPointDebouncer(detector_config.debounce_seconds)
             pipeline = DetectionPipeline(
@@ -555,7 +608,7 @@ async def main(
             await case_db.initialize()
             cases = await case_db.list_cases()
 
-            preset = load_preset(detector_config.preset_name)
+            preset = load_preset(detector_config.preset_name, detector_config.call_language)
             logger.info("Preset loaded: %s", preset.name)
 
             injector = SlideInjector(pipeline, case_db, ws_config, slides_config)
@@ -573,6 +626,7 @@ async def main(
                     include_negatives=detector_config.include_negatives,
                 )
                 logger.info("Fast objection detector ready (preset routes).")
+                warmups.append(_start_warmup(objection_detector.warm_up, "objection-warmup"))
 
             script_tracker: ScriptTracker | None = None
             script_tracking_task: asyncio.Task[None] | None = None
@@ -593,6 +647,9 @@ async def main(
                     # persisted per-call and the post-call Free scorecard can
                     # read the snapshot back as its source of truth.
                     script_tracker = ScriptTracker(detector_config, session_id=session_id)
+                    # Only built when the tier computes script coverage, so a
+                    # tier without it never loads the model.
+                    warmups.append(_start_warmup(script_tracker.router.warm_up, "script-warmup"))
                     script_engine = ScriptTrackerEngine(script_tracker, ws_config)
                     script_tracking_task = asyncio.create_task(
                         script_engine.run(stop_event),
@@ -685,6 +742,7 @@ async def main(
             finally:
                 await status_channel.close()
     finally:
+        await _cancel_warmups(warmups)
         if suggestions_task is not None:
             suggestions_task.cancel()
             try:

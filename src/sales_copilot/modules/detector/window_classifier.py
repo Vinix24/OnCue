@@ -138,7 +138,7 @@ class WindowClassifier:
             self._llm = None
             self.system_prompt = ""
             return
-        self.preset = preset if preset is not None else load_preset(config.preset_name)
+        self.preset = preset if preset is not None else load_preset(config.preset_name, config.call_language)
         self._pain_categories = (
             pain_categories
             if pain_categories is not None

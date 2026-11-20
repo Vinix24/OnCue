@@ -25,13 +25,14 @@ def test_get_steps_includes_pro_steps_for_pro(pro_feature_policy: object) -> Non
         "mic",
         "route",
         "model",
+        "speed",
         "provider",
         "autostart",
         "calltap",
         "doctor",
     ]
-    assert steps[4].feature_id == FEATURE_AUTOSTART
-    assert steps[5].feature_id == FEATURE_CALLTAP
+    assert steps[5].feature_id == FEATURE_AUTOSTART
+    assert steps[6].feature_id == FEATURE_CALLTAP
 
 
 def test_run_wizard_free_shows_upgrade_hint(

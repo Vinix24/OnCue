@@ -162,7 +162,7 @@ print(f"{c.host}|{c.port}")
 }
 
 _check_hub() {
-    if ! lsof -i ":$HUB_PORT" >/dev/null 2>&1; then
+    if ! lsof -nP -iTCP:"$HUB_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
         STATUS_HUB="FAIL"
         _report FAIL "2. Hub" "niets luistert op poort $HUB_PORT ($HUB_HOST)" \
             "bash scripts/oncue_chain.sh up"
@@ -174,7 +174,7 @@ _check_hub() {
     else
         STATUS_HUB="FAIL"
         _report FAIL "2. Hub" "poort $HUB_PORT is bezet maar antwoordt niet op /api/status" \
-            "lsof -i :$HUB_PORT   # zoek uit wie de poort vasthoudt, dan handmatig opruimen"
+            "lsof -nP -iTCP:$HUB_PORT -sTCP:LISTEN   # zoek uit wie de poort vasthoudt, dan handmatig opruimen"
     fi
     return 0
 }
@@ -185,7 +185,7 @@ _check_owner() {
         return 0
     fi
     local pids foreign=0 same=0 found_pid=0 pid owner_cwd owner_canon
-    pids="$(lsof -ti ":$HUB_PORT" 2>/dev/null || true)"
+    pids="$(lsof -t -nP -iTCP:"$HUB_PORT" -sTCP:LISTEN 2>/dev/null || true)"
     while IFS= read -r pid; do
         [[ -z "$pid" ]] && continue
         found_pid=1

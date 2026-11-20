@@ -32,6 +32,9 @@ const reportSelectors = {
   overview: document.getElementById("report-overview"),
   keywords: document.getElementById("report-keywords"),
   actionItems: document.getElementById("report-action-items"),
+  openQuestionsBlock: document.getElementById("report-open-questions-block"),
+  openQuestions: document.getElementById("report-open-questions"),
+  downloadPdf: document.getElementById("report-download-pdf"),
 };
 
 // The enrichment runs after the call and can take a minute or more. When report_enriched has not
@@ -321,6 +324,7 @@ const enrichmentText = (report) => ({
   overview: typeof report?.overview === "string" ? report.overview.trim() : "",
   keywords: textList(report?.keywords),
   actionItems: textList(report?.action_items),
+  openQuestions: textList(report?.open_questions),
 });
 
 const applyEnrichment = (report) => {
@@ -343,7 +347,17 @@ const applyEnrichment = (report) => {
     text.actionItems.map((item) => ({ title: item, meta: "" })),
     "",
   );
-  const hasContent = Boolean(text.shortSummary || text.overview || text.keywords.length || text.actionItems.length);
+  setListItems(
+    reportSelectors.openQuestions,
+    text.openQuestions.map((item) => ({ title: item, meta: "" })),
+    "",
+  );
+  if (reportSelectors.openQuestionsBlock) {
+    reportSelectors.openQuestionsBlock.style.display = text.openQuestions.length ? "" : "none";
+  }
+  const hasContent = Boolean(
+    text.shortSummary || text.overview || text.keywords.length || text.actionItems.length || text.openQuestions.length,
+  );
   block.style.display = hasContent ? "" : "none";
 };
 
@@ -459,6 +473,7 @@ const fetchEnrichedReport = async (sessionId, run) => {
     overview: stored.overview,
     keywords: stored.keywords,
     action_items: stored.action_items,
+    open_questions: stored.open_questions,
     term_corrections: stored.term_corrections,
     term_corrections_pii_limited: stored.term_corrections_pii_limited,
     full_transcript: stored.full_transcript,
@@ -621,6 +636,10 @@ const reportToMarkdown = (report) => {
     lines.push("", `## ${window.t("report.action_items_title")}`, "");
     enrichment.actionItems.forEach((item) => lines.push(`- ${escapeMarkdown(item)}`));
   }
+  if (enrichment.openQuestions.length) {
+    lines.push("", `## ${window.t("report.open_questions_title")}`, "");
+    enrichment.openQuestions.forEach((item) => lines.push(`- ${escapeMarkdown(item)}`));
+  }
   const termCorrections = termCorrectionsFromReport(report);
   const termNotes = termCorrectionNotes(report);
   if (termCorrections.length || termNotes.length) {
@@ -746,6 +765,11 @@ const connectConfigSocket = () => {
 
 if (reportSelectors.downloadJson) {
   reportSelectors.downloadJson.addEventListener("click", downloadReportJson);
+}
+
+if (reportSelectors.downloadPdf) {
+  // The browser's own print-to-PDF; the @media print stylesheet shapes the page. Nothing is uploaded.
+  reportSelectors.downloadPdf.addEventListener("click", () => window.print());
 }
 
 if (reportSelectors.downloadMarkdown) {

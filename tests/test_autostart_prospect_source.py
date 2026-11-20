@@ -83,7 +83,7 @@ def _armed_monitor(trigger: str, policy: _AllowAllExcept) -> RuntimeAutostartMon
 
 
 async def _confirm(monitor: RuntimeAutostartMonitor) -> None:
-    assert monitor.confirm_consent() is True
+    assert monitor.confirm_consent(monitor._prompt_id or "no-open-prompt") is True
     await asyncio.sleep(0)
 
 
@@ -161,7 +161,7 @@ def test_confirm_consent_keeps_existing_one_argument_callback() -> None:
     )
     monitor.tick()
 
-    assert monitor.confirm_consent() is True
+    assert monitor.confirm_consent(monitor._prompt_id or "no-open-prompt") is True
     assert seen == ["fake-process"]
     assert FEATURE_AUTOSTART  # entitlement id the monitor gates on is unchanged
 

@@ -4,8 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OnCue — First-run Wizard</title>
+    <link rel="icon" type="image/svg+xml" href="../assets/oncue-mark.svg" />
     <link rel="stylesheet" href="../css/dashboard.css?v=1.2.0" />
-    <link rel="stylesheet" href="../css/wizard.css?v=1.1.0" />
+    <link rel="stylesheet" href="../css/wizard.css?v=1.1.1" />
+    <link rel="stylesheet" href="../css/oncue-loader.css?v=1.0.0" />
   </head>
   <body>
     <div class="ambient-mesh" aria-hidden="true">
@@ -98,7 +100,7 @@
       </section>
 
       <div id="wizard-steps" class="wizard-steps" role="list" aria-label="Wizard steps">
-        <p class="wizard-message" id="loading-text">Loading wizard…</p>
+        <p class="wizard-message" id="loading-text"><svg class="oncue-loader" viewBox="0 0 64 64" aria-hidden="true"><rect class="oncue-loader-tile" x="2" y="2" width="60" height="60" rx="14" /><circle class="oncue-loader-ring" cx="29" cy="36" r="14" /><line class="oncue-loader-baton" x1="24" y1="41" x2="46" y2="19" /><circle class="oncue-loader-dot" cx="48" cy="17" r="4.6" /></svg> Loading wizard…</p>
       </div>
 
       <div id="wizard-summary" class="wizard-summary hidden" aria-live="polite"></div>
@@ -125,6 +127,14 @@
         const profileTextarea = document.getElementById("profile-textarea");
         const profileSave = document.getElementById("profile-save");
         const profileMessage = document.getElementById("profile-message");
+
+        const ONCUE_LOADER =
+          '<svg class="oncue-loader" viewBox="0 0 64 64" role="img" aria-label="Busy">' +
+          '<rect class="oncue-loader-tile" x="2" y="2" width="60" height="60" rx="14" />' +
+          '<circle class="oncue-loader-ring" cx="29" cy="36" r="14" />' +
+          '<line class="oncue-loader-baton" x1="24" y1="41" x2="46" y2="19" />' +
+          '<circle class="oncue-loader-dot" cx="48" cy="17" r="4.6" />' +
+          "</svg>";
 
         let stepsData = [];
         let stateData = { completed: [], results: {} };
@@ -236,7 +246,7 @@
 
             const canRun = step.active && status !== "running" && (status === "pending" || status === "fail" || status === "incomplete");
             const buttonHtml = status === "running"
-              ? '<span class="wizard-spinner" aria-label="Busy"></span>'
+              ? ONCUE_LOADER
               : '<button class="wizard-btn wizard-btn-primary" type="button" data-run="' + step.step_id + '"' + (canRun ? "" : " disabled") + ">Check</button>";
 
             card.innerHTML =

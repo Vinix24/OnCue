@@ -97,7 +97,7 @@ def _require_key(env_var: str, provider: str) -> str:
     return key
 
 
-def build_client(provider: str, *, timeout_ms: int) -> Any:
+def build_client(provider: str, *, timeout_ms: int, max_retries: int | None = None) -> Any:
     """Construct the underlying SDK client for ``provider`` with a hard timeout injected.
 
     Args:
@@ -106,6 +106,7 @@ def build_client(provider: str, *, timeout_ms: int) -> Any:
         timeout_ms: request timeout in milliseconds. For gemini/vertex this is forwarded to
             ``HttpOptions(timeout=...)`` (milliseconds). For the OpenAI-compatible providers it
             is converted to seconds and passed as the httpx ``timeout``.
+        max_retries: SDK-level retries, honoured for openrouter only; ``None`` keeps the SDK default.
 
     Raises:
         ValueError: for an unknown provider, or when the selected provider's API key env var is empty.
@@ -133,9 +134,16 @@ def build_client(provider: str, *, timeout_ms: int) -> Any:
         from google import genai
         from google.genai import types
 
+        gcp_project = os.environ.get("GCP_PROJECT", "").strip()
+        if not gcp_project:
+            raise ValueError(
+                "LLM provider 'vertex' is selected but GCP_PROJECT is empty. "
+                "Set GCP_PROJECT to your own Google Cloud project id in your .env, "
+                "or switch LLM_PROVIDER to a configured provider."
+            )
         return genai.Client(
             vertexai=True,
-            project=os.environ.get("GCP_PROJECT", "vnx-sales-copilot"),
+            project=gcp_project,
             location=os.environ.get("GCP_LOCATION", "europe-west4"),
             http_options=types.HttpOptions(timeout=timeout_ms),
         )
@@ -163,10 +171,12 @@ def build_client(provider: str, *, timeout_ms: int) -> Any:
     if provider == "openrouter":
         from openai import OpenAI
 
+        extra: dict[str, Any] = {} if max_retries is None else {"max_retries": max_retries}
         return OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=_require_key("OPENROUTER_API_KEY", "openrouter"),
             timeout=timeout_s,
+            **extra,
         )
     if provider == "ollama":
         from openai import OpenAI
@@ -253,6 +263,26 @@ def _is_forced_tool_choice_error(exc: BaseException) -> bool:
         if is_400 and "tool_choice" in text and "not supported" in text:
             return True
     return False
+
+
+def _fallback_reason(exc: BaseException) -> str | None:
+    """Why ``exc`` allows a fallback model (429, 5xx, timeout, connection error), else ``None``.
+
+    The first HTTP status in the cause chain decides (instructor wraps the SDK error), so any
+    other 4xx never falls back; an error without such evidence does not either.
+    """
+    chain = _exception_chain(exc)
+    for err in chain:
+        status = getattr(err, "status_code", None)
+        if isinstance(status, int) and not isinstance(status, bool):
+            return f"HTTP {status}" if status == 429 or status >= 500 else None
+    for err in chain:
+        names = {cls.__name__ for cls in type(err).__mro__}
+        if isinstance(err, (httpx.TimeoutException, httpx.TransportError, TimeoutError, ConnectionError)) or (
+            names & {"APITimeoutError", "APIConnectionError"}
+        ):
+            return type(err).__name__
+    return None
 
 
 def _remember_no_forced_tool(provider: str, model: str) -> None:
@@ -484,8 +514,11 @@ class LLMClient:
         privacy: str | None = None,
         task: str | None = None,
         client_slug: str | None = None,
+        fallback_models: tuple[str, ...] = (),
     ) -> None:
         self.provider = provider.strip().lower()
+        # Client-side fallback chain; openrouter only, any other provider ignores it.
+        self._fallback_models: tuple[str, ...] = tuple(fallback_models) if self.provider == "openrouter" else ()
         # The conversation's privacy ceiling (``core.llm_routing`` passes it in). Checked
         # here once and again before every call: ``tier_of()`` reads TRUST_OWN_TENANT /
         # OLLAMA_BASE_URL from the environment, which can change while this client lives.
@@ -499,7 +532,12 @@ class LLMClient:
         # Async callers cap the in-flight thread slightly above the SDK-level timeout so a
         # hung request cannot wedge the event loop.
         self.live_timeout_s = self._timeout_s + 2.0
-        self._client = build_client(self.provider, timeout_ms=timeout_ms)
+        # With fallback models the SDK must not retry a failing model itself: the first failure
+        # moves to the next model at once. Without them the SDK default stays.
+        if self._fallback_models:
+            self._client = build_client(self.provider, timeout_ms=timeout_ms, max_retries=0)
+        else:
+            self._client = build_client(self.provider, timeout_ms=timeout_ms)
         if self._client is None:
             self._create = None
         else:
@@ -604,6 +642,71 @@ class LLMClient:
             _remember_no_forced_tool(self.provider, model)
             return self._create_without_forced_tool()(**kwargs)
 
+    def _models_for(self, model: str) -> list[str]:
+        """``model`` followed by the fallback models, without repeating one."""
+        models = [model]
+        for name in self._fallback_models:
+            if name not in models:
+                models.append(name)
+        return models
+
+    @staticmethod
+    def _parse_retry_only() -> Any:
+        """instructor retry policy for a fallback chain: re-ask on a parse/validation error, never
+        repeat a request that failed in transport (instructor's default retries any exception)."""
+        from json import JSONDecodeError
+
+        from instructor.core.exceptions import ValidationError as InstructorValidationError
+        from pydantic import ValidationError
+        from tenacity import Retrying, retry_if_exception_type, stop_after_attempt
+
+        return Retrying(
+            stop=stop_after_attempt(3),
+            retry=retry_if_exception_type((ValidationError, JSONDecodeError, InstructorValidationError)),
+        )
+
+    def _attempt_timeout_s(self, models: list[str]) -> float | None:
+        """Equal share of the timeout budget per attempt; ``None`` (SDK default) without fallback."""
+        return self._timeout_s / len(models) if len(models) > 1 else None
+
+    def _kwargs_for_model(self, kwargs: dict[str, Any], model: str, system_prompt: str) -> dict[str, Any]:
+        """``kwargs`` for another model, with the system message rebuilt (cache marker is per model)."""
+        cacheable = self._prompt_cache_enabled and _model_supports_prompt_cache(self.provider, model)
+        messages = [_system_message(system_prompt, cacheable=cacheable), *kwargs["messages"][1:]]
+        return {**kwargs, "model": model, "messages": messages}
+
+    def _log_fallback(self, failed: str, reason: str, next_model: str) -> None:
+        logger.warning(
+            "LLM fallback: task=%s provider=%s failed_model=%s status=%s next_model=%s",
+            self.task,
+            self.provider,
+            failed,
+            reason,
+            next_model,
+        )
+
+    def _invoke_with_fallback(self, model: str, kwargs: dict[str, Any], system_prompt: str) -> tuple[Any, str]:
+        """``_invoke_create`` per model in order; returns the response and the model that answered.
+
+        Only ``_fallback_reason`` errors move on; the last model's error propagates. Every attempt
+        passes the privacy ceiling first.
+        """
+        models = self._models_for(model)
+        share = self._attempt_timeout_s(models)
+        for index, current in enumerate(models):
+            self._enforce_ceiling()
+            call_kwargs = kwargs if index == 0 else self._kwargs_for_model(kwargs, current, system_prompt)
+            if share is not None:
+                call_kwargs = {**call_kwargs, "timeout": share, "max_retries": self._parse_retry_only()}
+            try:
+                return self._invoke_create(current, call_kwargs), current
+            except Exception as exc:
+                reason = _fallback_reason(exc)
+                if reason is None or index == len(models) - 1:
+                    raise
+                self._log_fallback(current, reason, models[index + 1])
+        raise AssertionError("unreachable: the last model's error is re-raised above")
+
     def create(
         self,
         *,
@@ -674,9 +777,9 @@ class LLMClient:
 
                 extra["thinking_config"] = types.ThinkingConfig(thinking_budget=budget)
             kwargs.update(extra)
-        response = self._invoke_create(model, kwargs)
+        response, answered_by = self._invoke_with_fallback(model, kwargs, system_prompt)
         self._last_usage = _extract_usage(response)
-        self._log_cache_hit(model)
+        self._log_cache_hit(answered_by)
         return response
 
     async def acreate(self, **kwargs: Any) -> Any:
@@ -810,15 +913,34 @@ class LLMClient:
         sentinel = object()
         start = loop.time()
 
+        models = self._models_for(model)
+        share = self._attempt_timeout_s(models)
+
         def _produce() -> None:
             try:
-                call_kwargs = dict(kwargs)
-                if ollama_num_ctx is not None:
-                    call_kwargs["model"] = _ensure_ollama_num_ctx_model(
-                        self._ollama_base_url, model, ollama_num_ctx
-                    )
-                for item in self._stream_partials(create_partial, model, response_model, call_kwargs):
-                    loop.call_soon_threadsafe(queue.put_nowait, item)
+                for index, current in enumerate(models):
+                    self._enforce_ceiling()
+                    call_kwargs = dict(kwargs) if index == 0 else self._kwargs_for_model(kwargs, current, system_prompt)
+                    if share is not None:
+                        call_kwargs["timeout"] = share
+                        call_kwargs["max_retries"] = self._parse_retry_only()
+                    if ollama_num_ctx is not None:
+                        call_kwargs["model"] = _ensure_ollama_num_ctx_model(
+                            self._ollama_base_url, current, ollama_num_ctx
+                        )
+                    yielded = False
+                    try:
+                        for item in self._stream_partials(create_partial, current, response_model, call_kwargs):
+                            yielded = True
+                            loop.call_soon_threadsafe(queue.put_nowait, item)
+                    except Exception as exc:
+                        # Only before the first chunk: a restart after one would mix two answers.
+                        reason = None if yielded else _fallback_reason(exc)
+                        if reason is None or index == len(models) - 1:
+                            raise
+                        self._log_fallback(current, reason, models[index + 1])
+                        continue
+                    break
             except Exception as exc:  # noqa: BLE001 -- forwarded to the consumer, never swallowed
                 loop.call_soon_threadsafe(queue.put_nowait, exc)
             finally:

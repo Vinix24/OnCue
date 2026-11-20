@@ -39,7 +39,7 @@ LOCAL (your Mac)
 LLM DESTINATION (optional, your choice)
   A local LLM of your choice (for example via Ollama)
   Your own cloud tenant (Azure OpenAI, Vertex AI)
-  A public provider with your own key (Gemini, Groq, OpenAI, OpenRouter)
+  A public provider with your own key (OpenRouter)
 
 TRANSCRIPTION DESTINATION (optional, opt-in, default: none)
   Groq (WHISPER_BACKEND=groq): audio chunks as WAV upload over HTTPS
@@ -57,8 +57,9 @@ OTHER OPTIONAL DESTINATIONS
 By default raw audio is transcribed locally with whisper.cpp (or mlx-whisper)
 and does not leave the device. Two opt-in routes change that for audio, see
 "What leaves the machine when a remote transcription route is configured"
-below. The per-conversation privacy ceiling refuses both for a client set to
-`local` or `tenant`. Whether any transcript text leaves the device depends on `LLM_PROVIDER`,
+below. In the coaching route the per-conversation privacy ceiling refuses both for a
+client set to `local` or `tenant`. The notetaker route has no ceiling check (see
+"The privacy ceiling covers transcription" below). Whether any transcript text leaves the device depends on `LLM_PROVIDER`,
 which ships as `none`:
 
 1. **No LLM (default).** `LLM_PROVIDER=none`. The live cues (embedding-based
@@ -72,7 +73,7 @@ which ships as `none`:
    or Vertex AI within your own GCP project. This keeps the text
    within your existing cloud contract/DPA and chosen region, without adding a
    new processor.
-4. **A public provider with your own key.** Gemini, Groq, OpenAI or OpenRouter.
+4. **A public provider with your own key.** OpenRouter, which gives access to many models with one key.
    The text is processed under that provider's terms, region settings, and DPA.
 
 No LLM key or model ships with OnCue. The own-tenant tier enables processing
@@ -128,7 +129,7 @@ is open a listener. With `0.0.0.0` or a LAN address the whisper-server accepts
 connections from other machines on that network, without authentication or
 encryption. That is why it does not count as local.
 
-**The privacy ceiling covers transcription.** The per-conversation ceiling
+**The privacy ceiling covers transcription in the coaching route.** The per-conversation ceiling
 (`local`, `tenant` or `public`, from `klant.yaml` or the start-call) is checked
 for the transcription backend at start-call, before any capture starts. These
 backends count as `local`:
@@ -150,6 +151,12 @@ post-call transcription of the recorded microphone channel (only with
 `RECORD_AUDIO=true`) builds its backend from `.env` alone and is checked as
 well. The ceiling is enforced at start-call only: it does not travel into the
 transcriber.
+
+The notetaker route (`scripts/record_server.py`) has no client choice and no ceiling
+check. It transcribes the recorded WAV files through `transcribe_session`, which calls
+`transcribe_file_segments` on the configured backend. The Groq backend does not
+implement that method, so a cloud transcription backend does not work in the
+notetaker. That is a missing feature, not a safeguard.
 
 For a sensitive or regulated call keep `WHISPER_BACKEND=whisper.cpp` (or
 `mlx-whisper`) and `WHISPER_CPP_SERVER_HOST=127.0.0.1`, and set the client's
@@ -204,9 +211,25 @@ The post-call report, including the full transcript, is written by
 `modules/reports/generator.py` to `data/reports/`. Every report gets a second
 file with the same prefix, `<date>T<time>_<session-id>_transcript.md`: the
 transcript as readable text, one line per segment. Both files are written with
-owner-only rights (0600, folder 0700) and no transcript text goes to the logs. Recordings (WAV, only with
-`RECORD_AUDIO=true`) go to `data/sessions/<id>/`. Both folders sit under the
-same base directory, which depends on how you run OnCue:
+owner-only rights (0600, folder 0700) and no transcript text goes to the logs.
+
+Recordings go to `data/sessions/<id>/`, and the two routes differ:
+
+- **Live copilot** (`python -m sales_copilot`): WAV files are written only with
+  `RECORD_AUDIO=true`. With `RECORD_AUDIO=false` (the default) no audio is
+  saved; transcription and detection keep working on in-memory buffers.
+- **Notetaker** ("Record and transcribe" in the app, the default choice since
+  rc.6, served by `scripts/record_server.py`): always writes both WAV tracks
+  (your mic and the system audio) to `data/sessions/<time>/`. There is no
+  setting that turns this off, and the retention sweep does not remove it (see
+  below). The WAV files and `metadata.json` are owner-only (0600, session
+  folder 0700, written by `audio/recorder.py`); the `transcript.md` the
+  notetaker writes follows the process umask. To delete a notetaker recording,
+  remove its session folder by hand: `data/sessions/<time>/`, or
+  `~/Library/Application Support/SalesCopilot/data/sessions/<time>/` in the
+  packaged macOS app.
+
+Both folders sit under the same base directory, which depends on how you run OnCue:
 
 | How you run it | Base directory | Report | Recordings |
 |---|---|---|---|
@@ -265,7 +288,7 @@ involved. It is a safety net, not a guarantee.
 
 **What it misses:**
 
-- First names that are not on the list (for example "Roswitha" or "Vincent")
+- First names that are not on the list (for example "Roswitha" or "Marinus")
 - Surnames without a tussenvoegsel
 - Company names
 - Street addresses
@@ -301,9 +324,9 @@ how well you trust the patterns.
 
 | Data type | Where processed | Retained until |
 |---|---|---|
-| Audio (mic + system) | Locally on your Mac. With `WHISPER_BACKEND=groq` or a remote `WHISPER_CPP_SERVER_HOST` (opt-in), each chunk is sent to that destination for transcription, without a PII filter | Session duration (buffer), WAV in `data/sessions/` if `RECORD_AUDIO=true` |
+| Audio (mic + system) | Locally on your Mac. With `WHISPER_BACKEND=groq` or a remote `WHISPER_CPP_SERVER_HOST` (opt-in), each chunk is sent to that destination for transcription, without a PII filter | Session duration (buffer). Live copilot: WAV in `data/sessions/` only if `RECORD_AUDIO=true`. Notetaker: WAVs always, until you delete the session folder by hand |
 | Transcript text (live) | Local (Whisper, unless a remote transcription route is configured). With an LLM provider configured, to that provider per task: detection window, rolling summary, live suggestions (see the per-task table above). PII policy applies | Session duration for buffers; post-call report in `data/reports/` |
-| Full transcript | Local in post-call report, and as a readable copy `<prefix>_transcript.md` next to it (same folder, owner-only 0600, same content as `full_transcript`, same `REPORT_REDACT_PII` rule). With an LLM provider configured, the whole transcript goes to the report provider for enrichment and term corrections (PII policy applies); optionally to the deep-insight lane destination (Pro, opt-in, PII-redacted); optionally to an operator-configured report-delivery directory/endpoint (opt-in, unredacted by default, see `REPORT_REDACT_PII`). The `.md` copy is never part of that delivery | Until you delete it (both files in `data/reports/`); `scripts/purge_session.py` and the `DATA_RETENTION_DAYS` sweep remove both |
+| Full transcript | Local in post-call report, and as a readable copy `<prefix>_transcript.md` next to it (same folder, owner-only 0600, same content as `full_transcript`, same `REPORT_REDACT_PII` rule). With an LLM provider configured, the whole transcript goes to the report provider for enrichment and term corrections (PII policy applies); optionally to the deep-insight lane destination (Pro, opt-in, PII-redacted); optionally to an operator-configured report-delivery directory/endpoint (opt-in, unredacted by default, see `REPORT_REDACT_PII`). The `.md` copy is never part of that delivery | Until you delete it (both files in `data/reports/`); `scripts/purge_session.py` and the `DATA_RETENTION_DAYS` sweep remove both for sessions registered in `sessions.db` |
 | Your own speech (mic) | Local. Not transcribed live by default. Transcribed after the call from `self.wav` when `RECORD_AUDIO=true`, then part of the report text | Until you delete it |
 | Talk-time statistics | Local in post-call report | Until you delete it |
 | API keys | Local in `.env` (gitignored) | Not logged, not sent |
@@ -316,8 +339,10 @@ how well you trust the patterns.
 RECORD_AUDIO=false
 ```
 
-If `RECORD_AUDIO=false` is set, no WAV files are stored.
+On the live copilot route, if `RECORD_AUDIO=false` is set, no WAV files are stored.
 Transcription and detection keep working unchanged via in-memory audio buffers.
+The notetaker route ignores `RECORD_AUDIO` and always records both tracks; see
+"Where the report and the recordings are stored" above.
 
 ---
 
@@ -326,7 +351,7 @@ Transcription and detection keep working unchanged via in-memory audio buffers.
 With `LLM_PROVIDER=none` (the default) no LLM provider receives anything. When
 you configure one, the system sends the text described in the per-task table
 above, after the PII policy of `core/outbound_policy.py` has run. With a public
-provider (Gemini, Groq, OpenAI, OpenRouter) that policy redacts by default
+provider (OpenRouter) that policy redacts by default
 (`PII_REDACTION=cloud_only`); `ALLOW_RAW_LLM_PII=true` disables it.
 
 What exactly is sent, per task, is listed in "What leaves the machine when an LLM
@@ -352,15 +377,22 @@ If the transcription contains personal data of the prospect (name, company), the
 personal data is being processed through an external processor.
 Required step: conclude a data processing agreement (DPA) with the LLM provider.
 
-All major providers (Anthropic, Google, OpenAI, Groq) offer a DPA for
+OpenRouter and the own-tenant providers (Azure OpenAI, Vertex AI) offer a DPA for
 business use. Consult the documentation of the specific provider.
 
 ---
 
+## Speaker identification and biometrics
+
+OnCue does not store voice profiles. Local diarization gives anonymous labels (`SPEAKER_00`, ...) within one recording and starts counting again in the next one. No voice embedding is written to disk and there is no database of enrolled voices. A voice database is biometric data used to identify a person, a special category of personal data under GDPR article 9, and explicit consent from a prospect cannot be organised before you call. The invariant, the difference between diarization, per-channel speaker assignment and speaker identification, and the not-built option of enrolling your own salespeople are in [ARCHITECTURE_BOUNDARIES.md](ARCHITECTURE_BOUNDARIES.md#speaker-boundary-no-voice-profiles-are-stored).
+
 ## Consent for recording
 
-OnCue only records conversation audio if you set `RECORD_AUDIO=true`.
-By default recording is off (`RECORD_AUDIO=false`); you turn it on explicitly.
+On the live copilot route, OnCue only records conversation audio if you set
+`RECORD_AUDIO=true`. By default recording is off (`RECORD_AUDIO=false`); you
+turn it on explicitly. The notetaker route works the other way: it records both
+WAV tracks whenever you start a recording there and ignores `RECORD_AUDIO`, so
+obtain consent before you press Record.
 
 ### Configurable consent tier
 
@@ -418,8 +450,12 @@ Guidelines for common scenarios:
 
 Implementation: delete files in `data/sessions/` (recordings) and `data/reports/` (reports with the transcript, `*_report.json` and `*_transcript.md`) according to your policy.
 Automated purge is available via `DATA_RETENTION_DAYS` in `.env` combined
-with `scripts/retention_purge.py` (to be scheduled via cron). By default
-auto-purge is off (`DATA_RETENTION_DAYS=0`).
+with `scripts/retention_purge.py` (to be scheduled via cron), and the live
+copilot runs the same sweep once at every start. By default auto-purge is off
+(`DATA_RETENTION_DAYS=0`). The sweep only removes sessions registered in
+`sessions.db` (the live copilot route). Notetaker recordings are not registered
+there, so no `DATA_RETENTION_DAYS` setting removes them; delete those folders
+by hand.
 
 ---
 
@@ -586,7 +622,9 @@ tool) owns that decision.
 
 `DATA_RETENTION_DAYS` determines how long session data is retained. `0` (default)
 disables auto-purge. The actual deletion runs via
-`scripts/retention_purge.py` (to be scheduled via cron).
+`scripts/retention_purge.py` (to be scheduled via cron); the live copilot also
+runs the same sweep once at every start. The sweep only touches sessions
+registered in `sessions.db`, so it does not remove notetaker recordings.
 
 ---
 
@@ -637,7 +675,11 @@ enforces. A network-client import in any file that is not on that list fails the
 check. The list contains the LLM client, the local transcriber backends, the
 license and audit calls (`auth/revocation_cache.py`, `core/compliance_audit.py`),
 the measurement signals (`core/measurement_signals.py`), report delivery
-(`modules/reports/delivery.py`), and the localhost WebSocket modules.
+(`modules/reports/delivery.py`), the localhost WebSocket modules, and two model
+downloads: `core/model_download.py` fetches the speech model from
+huggingface.co at first start (SHA-256 pinned), and
+`modules/reports/diarize_sherpa.py` fetches sherpa-onnx model files from GitHub
+releases. Neither download sends recording or transcript data.
 
 ---
 
@@ -651,8 +693,10 @@ prospect about recording. Seek legal advice if in doubt.
 
 **What if the prospect objects to recording?**
 
-Disable recording (`RECORD_AUDIO=false` in `.env`) and restart the system.
-Transcription and detection also work without WAV recording.
+On the live copilot route, disable recording (`RECORD_AUDIO=false` in `.env`)
+and restart the system. Transcription and detection also work without WAV
+recording. The notetaker route has no off switch: it always writes the two WAV
+tracks, so on that route the only way to avoid a recording is not to start it.
 
 **Does OnCue comply with the GDPR?**
 
@@ -664,7 +708,10 @@ configure and use the tool. Engage a lawyer for a formal assessment.
 
 By default, as long as you don't delete them. Set `DATA_RETENTION_DAYS` in `.env`
 to activate an automatic retention limit; `scripts/retention_purge.py`
-then deletes older session data, reports and their `_transcript.md` copies when run via cron. Manage
+then deletes older session data, reports and their `_transcript.md` copies when run via cron,
+and the live copilot runs the same sweep at every start. Only sessions registered
+in `sessions.db` are purged; notetaker recordings are not registered, so delete
+those `data/sessions/<time>/` folders by hand. Manage
 `data/sessions/` and `data/reports/` according to your own policy.
 
 ---

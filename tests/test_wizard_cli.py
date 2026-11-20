@@ -9,9 +9,9 @@ from sales_copilot.wizard.state import WizardState
 from sales_copilot.wizard.steps import StepResult, WizardStep
 
 
-def test_get_steps_returns_ordered_five_steps_for_free(free_feature_policy: object) -> None:
+def test_get_steps_returns_ordered_six_steps_for_free(free_feature_policy: object) -> None:
     steps = get_steps(free_feature_policy)
-    assert [s.step_id for s in steps] == ["mic", "route", "model", "provider", "doctor"]
+    assert [s.step_id for s in steps] == ["mic", "route", "model", "speed", "provider", "doctor"]
     assert all(isinstance(s, WizardStep) for s in steps)
     assert all(s.feature_id is None for s in steps)
 

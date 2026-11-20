@@ -20,11 +20,26 @@ from sales_copilot.websocket import hub, hub_core
 from sales_copilot.websocket.hub_auth import get_hub_token
 from tests.conftest_replay import WebSocketEventCollector
 
-SAMPLE_PATH = Path("data/samples/sample-aha.json")
+# (call language, sample file, expected pain point category, expected objection category).
+# An English call loads config/presets/sales_en.yaml, whose objection routes come from
+# config/objections_en.yaml, so its price objection is `price`, not the Dutch `prijs`.
+SAMPLES = [
+    pytest.param(
+        "nl", Path("data/samples/sample-aha.json"), "offerteproces", "prijs", id="nl"
+    ),
+    pytest.param(
+        "en", Path("data/samples/sample-aha_en.json"), "quote_process", "price", id="en"
+    ),
+]
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("call_language", "sample_path", "pain_category", "objection_category"), SAMPLES)
 async def test_sample_aha_pipeline_produces_pain_point_and_objection(
+    call_language: str,
+    sample_path: Path,
+    pain_category: str,
+    objection_category: str,
     running_hub: int,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -40,7 +55,9 @@ async def test_sample_aha_pipeline_produces_pain_point_and_objection(
     monkeypatch.setenv("SHUTDOWN_TOKEN", "test-sample-aha")
     monkeypatch.setenv("SALES_COPILOT_LICENSE", "")
 
-    assert SAMPLE_PATH.exists(), f"Curated sample missing: {SAMPLE_PATH}"
+    assert sample_path.exists(), f"Curated sample missing: {sample_path}"
+    monkeypatch.setenv("CALL_LANGUAGE", call_language)
+    monkeypatch.delenv("SAMPLE_AHA_PATH", raising=False)
 
     token = get_hub_token()
     auth_headers = {"X-Sales-Copilot-Token": token}
@@ -51,6 +68,7 @@ async def test_sample_aha_pipeline_produces_pain_point_and_objection(
         enable_suggestions=False,
         enable_summary=False,
         auto_phase_detection=False,
+        call_language=call_language,
     )
     # Write the case DB into tmp_path — never the repo tree — so the run leaves
     # data/ pristine (only the curated sample ships in the OSS export).
@@ -123,12 +141,23 @@ async def test_sample_aha_pipeline_produces_pain_point_and_objection(
     assert report["pain_points"] >= 1, f"Expected pain_points, got: {report}"
     assert report["objections"] >= 1, f"Expected objections, got: {report}"
     assert report["suggestions"] >= 1, f"Expected suggestions, got: {report}"
+    # The player drives the real talk-time tracker with the sample's own time, so
+    # the dashboard gets snapshots and the `coaching` channel gets an alert.
+    assert len(collector.talk_time_snapshots) >= 1, f"Expected talk-time snapshots, got: {report}"
+    assert {s["status"] for s in collector.talk_time_snapshots} != {"green"}, (
+        f"Talk-time status never left green: {collector.talk_time_snapshots}"
+    )
+    coaching_alerts = [m for m in collector.coaching if m.get("type") == "coaching_alert"]
+    assert coaching_alerts, f"Expected a coaching_alert on the coaching channel, got: {report}"
+    last_snapshot = collector.talk_time_snapshots[-1]
+    assert 0.0 < last_snapshot["cumulative_self_pct"] < 1.0
+    assert last_snapshot["cumulative_prospect_pct"] > 0.0
 
     pain_categories = {p.get("category") for p in collector.pain_points}
     objection_categories = {o.get("category") for o in collector.objections}
-    assert "offerteproces" in pain_categories, (
-        f"Expected offerteproces pain point, got: {collector.pain_points}"
+    assert pain_category in pain_categories, (
+        f"Expected {pain_category} pain point, got: {collector.pain_points}"
     )
-    assert "prijs" in objection_categories, (
-        f"Expected prijs objection, got: {collector.objections}"
+    assert objection_category in objection_categories, (
+        f"Expected {objection_category} objection, got: {collector.objections}"
     )

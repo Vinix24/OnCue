@@ -82,14 +82,8 @@ def test_resolve_prospect_source_env_audiotee_call() -> None:
 
 def test_resolve_prospect_source_start_call_overrides_env() -> None:
     # start_call config wins over the env value.
-    assert (
-        resolve_prospect_source("blackhole", {"prospect_source": "audiotee_call"})
-        == "audiotee_call"
-    )
-    assert (
-        resolve_prospect_source("audiotee_call", {"prospect_source": "blackhole"})
-        == "blackhole"
-    )
+    assert resolve_prospect_source("blackhole", {"prospect_source": "audiotee_call"}) == "audiotee_call"
+    assert resolve_prospect_source("audiotee_call", {"prospect_source": "blackhole"}) == "blackhole"
 
 
 def test_resolve_prospect_source_invalid_falls_back() -> None:
@@ -163,7 +157,7 @@ def test_calltap_missing_binary_warns_without_crash(tmp_path, monkeypatch) -> No
 
     assert stream._proc is None  # noqa: SLF001
     assert len(warnings) == 1
-    assert "niet gevonden" in warnings[0]["message"]
+    assert "binary not found" in warnings[0]["message"]
 
 
 # --- subprocess delivers chunks ---------------------------------------------
@@ -298,9 +292,7 @@ def test_calltap_covered_by_liveness_check(tmp_path) -> None:
     async def _capture(payload: dict) -> None:
         broadcast.append(payload)
 
-    flagged = asyncio.run(
-        check_streams_liveness([(stream, "prospect")], _capture, timeout=0.01)
-    )
+    flagged = asyncio.run(check_streams_liveness([(stream, "prospect")], _capture, timeout=0.01))
 
     assert flagged == ["prospect"]
     assert broadcast and broadcast[0]["type"] == "audio_warning"

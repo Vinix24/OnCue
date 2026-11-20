@@ -92,8 +92,7 @@ _NETWORK_LIBS = [
 
 # CSP connect-src directive required by the hub-localhost rule (rule 4).
 _EXPECTED_CSP_CONNECT_SRC = (
-    "connect-src 'self' http://localhost:8760 http://127.0.0.1:8760 "
-    "ws://localhost:8760 ws://127.0.0.1:8760"
+    "connect-src 'self' http://localhost:8760 http://127.0.0.1:8760 ws://localhost:8760 ws://127.0.0.1:8760"
 )
 
 # Legacy modules that currently hardcode `.vnx-data/` paths. New occurrences or
@@ -131,6 +130,11 @@ _NETWORK_ALLOWLIST: dict[str, set[str]] = {
     "src/sales_copilot/modules/reports/delivery.py": {"urllib.request"},
     # fixed https URLs for the sherpa-onnx model files; no recording or transcript data is sent
     "src/sales_copilot/modules/reports/diarize_sherpa.py": {"urllib.request"},
+    # first-start speech model download (ADR-006 point 6); the user sees it on the start page, nothing is sent
+    "src/sales_copilot/core/model_download.py": {"urllib.request"},
+    # on-demand "Check for updates" (ADR-006 point 7): one GET on a button click, fixed URL,
+    # two headers, no cookies or user data; never called at import, start, on a timer or page load
+    "src/sales_copilot/core/update_check.py": {"urllib.request", "http.client"},
     # websockets: local hub only
     "src/sales_copilot/__main__.py": {"websockets"},
     "src/sales_copilot/modules/reports/__main__.py": {"websockets"},
@@ -252,9 +256,7 @@ def check_anthropic_forbidden(root: Path) -> list[str]:
     for path in _iter_python_files(root, "."):
         rel = path.relative_to(root)
         for lineno, line in _matched_lines(_read_text(path), anthropic_re):
-            violations.append(
-                f"[anthropic-forbidden] {rel}:{lineno}: Anthropic SDK is not allowed: {line.strip()}"
-            )
+            violations.append(f"[anthropic-forbidden] {rel}:{lineno}: Anthropic SDK is not allowed: {line.strip()}")
     return violations
 
 
@@ -302,9 +304,7 @@ def check_dashboard_vanilla(root: Path) -> list[str]:
             continue
         for pattern in _DASHBOARD_BUILD_CONFIG_PATTERNS:
             if pattern.match(name):
-                violations.append(
-                    f"[dashboard-vanilla] {rel}: build-tool/config file not allowed"
-                )
+                violations.append(f"[dashboard-vanilla] {rel}: build-tool/config file not allowed")
                 break
         if path.suffix in {".jsx", ".tsx"}:
             violations.append(f"[dashboard-vanilla] {rel}: JSX/TSX not allowed")
@@ -338,25 +338,17 @@ def check_hub_localhost_only(root: Path) -> list[str]:
             if _has_ignore_pragma(line):
                 continue
             if "0.0.0.0" in line or '"::"' in line or "'::'" in line:
-                violations.append(
-                    f"[hub-localhost] {rel}:{lineno}: non-localhost bind address: {line.strip()}"
-                )
+                violations.append(f"[hub-localhost] {rel}:{lineno}: non-localhost bind address: {line.strip()}")
             if re.search(r'allow_origins\s*=\s*\[\s*"\*"', line):
-                violations.append(
-                    f"[hub-localhost] {rel}:{lineno}: wildcard CORS origin not allowed: {line.strip()}"
-                )
+                violations.append(f"[hub-localhost] {rel}:{lineno}: wildcard CORS origin not allowed: {line.strip()}")
 
     hub = hub_dir / "hub.py"
     if hub.exists():
         text = _read_text(hub)
         if 'if host not in {"localhost", "127.0.0.1"}:' not in text:
-            violations.append(
-                f"[hub-localhost] {hub.relative_to(root)}: run_hub() is missing localhost guard"
-            )
+            violations.append(f"[hub-localhost] {hub.relative_to(root)}: run_hub() is missing localhost guard")
         if 'raise ValueError("The local WebSocket hub must bind to localhost")' not in text:
-            violations.append(
-                f"[hub-localhost] {hub.relative_to(root)}: run_hub() guard has wrong error message"
-            )
+            violations.append(f"[hub-localhost] {hub.relative_to(root)}: run_hub() guard has wrong error message")
         if _EXPECTED_CSP_CONNECT_SRC not in text:
             violations.append(
                 f"[hub-localhost] {hub.relative_to(root)}: CSP connect-src must allow both hostnames for http and ws"
@@ -428,9 +420,7 @@ def check_ci_step(root: Path) -> list[str]:
         return ["[ci-step] .github/workflows/ci.yml is missing"]
     text = _read_text(ci)
     if "check_architecture_boundaries.py" not in text:
-        return [
-            "[ci-step] .github/workflows/ci.yml does not invoke scripts/check_architecture_boundaries.py"
-        ]
+        return ["[ci-step] .github/workflows/ci.yml does not invoke scripts/check_architecture_boundaries.py"]
     return []
 
 

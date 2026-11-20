@@ -18,6 +18,7 @@ from sales_copilot.wizard.detectors import (
     detect_model,
     detect_provider,
     detect_route,
+    detect_speed,
     run_mic_proof,
 )
 from sales_copilot.wizard.meter import terminal_emitter
@@ -42,6 +43,12 @@ _CORE_STEP_DEFINITIONS: list[WizardStep] = [
         step_id="model",
         title="Whisper model",
         auto_detect=detect_model,
+        needs_meter=False,
+    ),
+    WizardStep(
+        step_id="speed",
+        title="Transcription speed",
+        auto_detect=detect_speed,
         needs_meter=False,
     ),
     WizardStep(

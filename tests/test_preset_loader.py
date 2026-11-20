@@ -26,6 +26,12 @@ _requires_recruitment_pack = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _dutch_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests assert on the Dutch base presets, which load for a Dutch call."""
+    monkeypatch.setenv("CALL_LANGUAGE", "nl")
+
+
 def _available_presets() -> list[str]:
     """Presets whose YAML is present in this tree (sales always; Pro packs only in the Pro distribution)."""
     return [name for name in ("sales", "coach", "recruitment") if (_PRESETS_DIR / f"{name}.yaml").exists()]

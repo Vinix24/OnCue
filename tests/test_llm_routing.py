@@ -912,3 +912,77 @@ async def test_health_check_publishes_a_refused_task(monkeypatch: pytest.MonkeyP
 
     assert [module for module, _ in warnings] == ["detector"]
     assert "summary" in warnings[0][1]
+
+
+# The per-task model is the one that reaches the SDK at each call site.
+
+
+class _ModelRecorder(_SdkRecorder):
+    """``_SdkRecorder`` that answers with a valid instance of whatever the site asks for."""
+
+    def build_create(self, client: object, provider: str):
+        def _create(**kwargs: Any) -> Any:
+            self.calls.append(kwargs)
+            response_model = kwargs["response_model"]
+            filler: dict[Any, Any] = {str: "x", float: 0.5, int: 1}
+            values = {
+                name: filler.get(field.annotation, [])
+                for name, field in response_model.model_fields.items() if field.is_required()
+            }
+            return response_model(**values)
+
+        return _create
+
+
+@pytest.fixture()
+def model_sdk(monkeypatch: pytest.MonkeyPatch) -> _ModelRecorder:
+    recorder = _ModelRecorder()
+    monkeypatch.setattr(llm_client_mod, "build_client", recorder.build_client)
+    monkeypatch.setattr(llm_client_mod, "build_create", recorder.build_create)
+    return recorder
+
+
+async def test_confirm_sends_its_own_model_to_the_sdk(
+    model_sdk: _ModelRecorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DETECTOR_CONFIRM_LLM_MODEL", "confirm-model")
+    client = LLMConfirmClient(_config())
+
+    await client.confirm_async("we hebben een probleem met onze planning")
+
+    assert [call["model"] for call in model_sdk.calls] == ["confirm-model"]
+
+
+async def test_suggestions_send_their_own_model_to_the_sdk(
+    model_sdk: _ModelRecorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SUGGESTIONS_LLM_MODEL", "suggestions-model")
+    client = SuggestionLLMClient(_config(llm_streaming=False))
+
+    await client.suggest(["klant: de planning loopt steeds uit"])
+
+    assert [call["model"] for call in model_sdk.calls] == ["suggestions-model"]
+
+
+async def test_summary_sends_its_own_model_to_the_sdk(
+    model_sdk: _ModelRecorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SUMMARY_LLM_MODEL", "summary-model")
+    client = SummaryLLMClient(_config())
+
+    await client.summarize(["klant: de planning loopt steeds uit"], [])
+
+    assert [call["model"] for call in model_sdk.calls] == ["summary-model"]
+
+
+async def test_insight_sends_its_own_model_to_the_sdk(model_sdk: _ModelRecorder) -> None:
+    # The deep-insight lane is private and stays out of the public export (scripts/
+    # export_public.sh), so in an export tree this test skips instead of erroring.
+    pytest.importorskip("sales_copilot.modules.insight")
+    from sales_copilot.modules.insight.engine import InsightLLMClient
+
+    client = InsightLLMClient(_config(), InsightConfig(llm_model="insight-model"))
+
+    await client.generate("klant: de planning loopt steeds uit")
+
+    assert [call["model"] for call in model_sdk.calls] == ["insight-model"]

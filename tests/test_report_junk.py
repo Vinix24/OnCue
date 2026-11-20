@@ -1,4 +1,4 @@
-"""Junk decision and skipped delivery (belapp-junkfilter-rapportschema D2+D3).
+"""Junk decision and skipped delivery.
 
 junk = the report model said ``gesprek_gevoerd == False``. The prospect-word count only
 confirms it in ``junk_reason``; it never decides. These tests run the real ``decide_junk``,
@@ -42,7 +42,7 @@ def _model(gesprek_gevoerd: bool) -> ReportEnrichment:
     )
 
 
-# ---------------------------------------------------------------- D2: the edge-case table
+# ---------------------------------------------------------------- the edge-case table
 
 
 @pytest.mark.parametrize(
@@ -155,7 +155,7 @@ def test_a_custom_threshold_only_changes_the_confirmation() -> None:
     assert "boven drempel 3" in (verdict.reason or "")
 
 
-# ---------------------------------------------------------------- D3: schema and delivery
+# ---------------------------------------------------------------- schema and delivery
 
 
 @pytest.fixture()

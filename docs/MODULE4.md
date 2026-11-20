@@ -30,9 +30,9 @@ Components and locations:
 
 ## Post-call enrichment
 
-A structured LLM step over the whole transcript fills five report fields:
+A structured LLM step over the whole transcript fills six report fields:
 `gesprek_gevoerd` (did two people actually talk, or was it a voicemail, a phone menu or a
-line nobody answered), `short_summary`, `overview`, `keywords` and `action_items`, plus the
+line nobody answered), `short_summary`, `overview`, `keywords`, `action_items` and `open_questions` (questions still open at the end of the call, empty when there are none; the dashboard and the Markdown export show them as their own block after the action items), plus the
 term corrections (`docs/CONFIG.md`, "Post-call term list").
 Implementation: `src/sales_copilot/modules/reports/enrichment.py`.
 

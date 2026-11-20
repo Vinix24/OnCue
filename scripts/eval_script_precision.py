@@ -43,7 +43,6 @@ from pathlib import Path
 from typing import Any
 
 from semantic_router import Route, SemanticRouter
-from semantic_router.encoders import HuggingFaceEncoder
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -58,7 +57,7 @@ from sales_copilot.modules.detector.eval_utils import (  # noqa: E402
     compute_threshold_sweep,
     simulate_extra_route,
 )
-from sales_copilot.modules.detector.router import _normalize_model_name  # noqa: E402
+from sales_copilot.modules.detector.router import build_encoder  # noqa: E402
 
 _DEFAULT_SCRIPT_CONFIG = REPO_ROOT / "config" / "scripts" / "default.yaml"
 _DEFAULT_NEGATIVES_CONFIG = REPO_ROOT / "config" / "scripts" / "negatives.yaml"
@@ -170,7 +169,7 @@ def _build_single_route_router(name: str, utterances: list[str], embedding_model
     ``_build_single_route_router`` so both harnesses measure the negative-class
     hypothesis the same way.
     """
-    encoder = HuggingFaceEncoder(name=_normalize_model_name(embedding_model))
+    encoder = build_encoder(embedding_model)
     route = Route(name=name, utterances=utterances)
     router = SemanticRouter(encoder=encoder, routes=[], aggregation="max")
     router.add([route])

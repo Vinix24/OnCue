@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 from collections import defaultdict
 from typing import Any
 
@@ -20,6 +21,7 @@ from sales_copilot.auth.feature_policy import (
     FeaturePolicy,
     get_feature_policy,
 )
+from sales_copilot.core.autostart_monitor import get_active_monitor
 from sales_copilot.core.config import (
     DetectorConfig,
     InsightConfig,
@@ -115,6 +117,9 @@ async def _broadcast_to_channel(channel: str, data: Any, *, skip: WebSocket | No
         _logger.info("Suppressing insights broadcast: deep insights not entitled.")
         return
     if channel == "transcript" and _call_active and _is_transcript_event(data):
+        # Stamp the publish time here so a sticky replay to a late subscriber
+        # carries the original time instead of the subscriber's receive time.
+        data.setdefault("timestamp_ms", int(time.time() * 1000))
         _transcript_buffer.append(data)
         if len(_transcript_buffer) > _TRANSCRIPT_BUFFER_MAX:
             del _transcript_buffer[: len(_transcript_buffer) - _TRANSCRIPT_BUFFER_MAX]
@@ -172,6 +177,11 @@ def status_state() -> str:
 
 def apply_start_call(config: dict[str, Any] | None) -> None:
     global _latest_config, _call_active
+    # Every start passes here. A manual start withdraws an open consent prompt
+    # first; for the autostart path the monitor is already armed, so this is a no-op.
+    monitor = get_active_monitor()
+    if monitor is not None:
+        monitor.withdraw_pending()
     _latest_config = config or {}
     _call_active = True
     _transcript_buffer.clear()
@@ -563,6 +573,23 @@ async def ws_channel(websocket: WebSocket, channel: str) -> None:
             await _send(
                 websocket,
                 {"type": "call_started", "config": _latest_config or {}},
+            )
+        except Exception:
+            async with _subscribers_lock:
+                _subscribers[channel].discard(websocket)
+                if not _subscribers[channel]:
+                    _subscribers.pop(channel, None)
+            return
+
+    # Sticky replay of the consent state: a display that connects while a
+    # prompt is open must see it; with none open it clears any prompt it
+    # still shows.
+    if channel == "system":
+        monitor = get_active_monitor()
+        try:
+            await _send(
+                websocket,
+                {"type": "consent_snapshot", "pending": monitor.pending_prompt() if monitor is not None else None},
             )
         except Exception:
             async with _subscribers_lock:

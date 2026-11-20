@@ -2,10 +2,10 @@
 
 User-facing strings live in per-language YAML catalogs under ``config/i18n``
 (``nl.yaml``, ``en.yaml``, ...). ``t()`` resolves a dotted message key against
-the configured language and falls back to the default language (``nl``) when a
+the configured language and falls back to the default language (``en``) when a
 language catalog or an individual key is missing, so a partial translation can
-never crash a call. ``en`` remains a fully-supported first-class toggle via
-the ``LANGUAGE`` env var -- only the default/fallback direction is Dutch.
+never crash a call. ``nl`` is a fully-supported first-class toggle via the
+``LANGUAGE`` env var -- English is the default and the fallback.
 
 The configured language is read from the ``LANGUAGE`` environment variable
 (see ``I18nConfig`` in ``sales_copilot.core.config`` for the documented config
@@ -20,8 +20,10 @@ throwaway directory with ``set_catalog_dir()`` and reset shared state with
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import yaml
@@ -33,9 +35,15 @@ logger = logging.getLogger(__name__)
 #: Environment variable holding the configured product/UI language.
 LANGUAGE_ENV_VAR = "LANGUAGE"
 #: Default and fallback language. Every other catalog resolves against this one.
-DEFAULT_LANGUAGE = "nl"
+DEFAULT_LANGUAGE = "en"
 #: Catalog directory, relative to the app-support base (repo root in dev).
 CATALOG_DIRNAME = "config/i18n"
+#: Neutral speaker labels per language, ``(self, prospect)``: the microphone and everything
+#: else. The one definition behind the report, its prompt and the notetaker transcript.
+NEUTRAL_SPEAKER_LABELS: dict[str, tuple[str, str]] = {
+    "nl": ("Ik", "Gesprekspartner"),
+    "en": ("Me", "Other"),
+}
 
 _CACHE: dict[str, dict[str, object]] = {}
 _CATALOG_DIR_OVERRIDE: Path | None = None
@@ -50,6 +58,22 @@ def set_catalog_dir(path: str | Path | None) -> None:
     global _CATALOG_DIR_OVERRIDE
     _CATALOG_DIR_OVERRIDE = Path(path) if path is not None else None
     clear_cache()
+
+
+@contextlib.contextmanager
+def catalog_dir(path: str | Path | None) -> Iterator[None]:
+    """Use ``path`` as the catalog directory inside the block, then restore the previous override.
+
+    The cache is cleared on entry and again on exit, so neither side sees catalogs
+    loaded from the other directory. The previous override (possibly ``None``) is
+    restored even when the block raises.
+    """
+    previous = _CATALOG_DIR_OVERRIDE
+    set_catalog_dir(path)
+    try:
+        yield
+    finally:
+        set_catalog_dir(previous)
 
 
 def clear_cache() -> None:

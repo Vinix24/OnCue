@@ -194,6 +194,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return args
 
 
+def display_path(path: Path) -> str:
+    """Repo-relative (posix) path when ``path`` lies inside REPO_ROOT, else the absolute path."""
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
 def load_fragment(path: Path) -> list[str]:
     """Return the prospect lines of a dialogue script, capped like ``SuggestionEngine`` does.
 
@@ -362,7 +371,7 @@ async def run_all(args: argparse.Namespace, lines: list[str]) -> dict[str, Any]:
         "call_timeout_ms": CALL_TIMEOUT_MS,
         "max_output_tokens": task_max_output_tokens("suggestions"),
         "fragment": {
-            "path": str(args.fragment),
+            "path": display_path(args.fragment),
             "sha256": hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()[:16],
             "lines": len(lines),
             "chars": sum(len(line) for line in lines),

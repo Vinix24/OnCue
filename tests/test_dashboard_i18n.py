@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 
 _DASHBOARD_ROOT = Path(__file__).parent.parent / "dashboard"
 _INDEX_HTML = _DASHBOARD_ROOT / "index.html"
+_LIBRARY_HTML = _DASHBOARD_ROOT / "library.html"
 _JS_ROOT = _DASHBOARD_ROOT / "js"
 _NL_CATALOG = _DASHBOARD_ROOT / "i18n" / "nl.json"
 _EN_CATALOG = _DASHBOARD_ROOT / "i18n" / "en.json"
@@ -30,8 +31,9 @@ _EN_CATALOG = _DASHBOARD_ROOT / "i18n" / "en.json"
 _DATA_I18N_RE = re.compile(r'data-i18n="([^"]+)"')
 _DATA_I18N_ATTR_RE = re.compile(r'data-i18n-attr="([^"]+)"')
 _JS_T_CALL_RE = re.compile(
-    r'(?:window\.SalesCopilotI18n\.t|window\.t|(?<![\w.])t)\(\s*[\"\'](?P<key>[a-zA-Z0-9_.]+)[\"\']'
+    r"(?:window\.SalesCopilotI18n\.t|window\.t|(?<![\w.])t)\(\s*[\"\'](?P<key>[a-zA-Z0-9_.]+)[\"\']"
 )
+_LIBRARY_TR_CALL_RE = re.compile(r'\btr\(\s*["\'](?P<key>[a-zA-Z0-9_.]+)["\']')
 
 
 def _flatten(catalog: dict, prefix: str = "") -> set[str]:
@@ -136,6 +138,30 @@ def test_html_wires_i18n_script() -> None:
     assert "js/i18n.js" in html, "i18n.js script tag missing from dashboard/index.html"
 
 
+def test_library_update_button_is_wired_to_i18n() -> None:
+    """The library start screen's update button has both an id for its handler
+    and a data-i18n key, so its label is translated like every other string."""
+    html = _LIBRARY_HTML.read_text(encoding="utf-8")
+    assert 'id="update-btn"' in html
+    assert 'data-i18n="library.update_button"' in html
+
+
+def test_library_update_keys_resolve_in_both_catalogs(nl_catalog: dict, en_catalog: dict) -> None:
+    """Every literal tr("update_...") key in dashboard/library.html (the inline
+    script prefixes them with "library.") must exist in both catalogs."""
+    html = _LIBRARY_HTML.read_text(encoding="utf-8")
+    keys = {
+        f"library.{match.group('key')}"
+        for match in _LIBRARY_TR_CALL_RE.finditer(html)
+        if match.group("key").startswith("update_")
+    }
+    assert "library.update_available" in keys
+    assert "library.update_error" in keys
+    for catalog, name in ((nl_catalog, "nl"), (en_catalog, "en")):
+        missing = keys - _flatten(catalog)
+        assert not missing, f"library.html update keys missing from {name}.json: {sorted(missing)}"
+
+
 def test_shared_close_dialog_key_used_on_both_dismiss_buttons() -> None:
     """common.close_dialog is intentionally reused across two elements
     (see design doc "Reusable keys") -- guard against a future edit
@@ -163,10 +189,7 @@ def test_reused_i18n_keys_appear_expected_number_of_times() -> None:
         "talktime.you_label": 2,
     }
     for key, expected in expected_counts.items():
-        assert counts[key] == expected, (
-            f"expected {key!r} to be referenced {expected} times, "
-            f"found {counts[key]}"
-        )
+        assert counts[key] == expected, f"expected {key!r} to be referenced {expected} times, found {counts[key]}"
 
 
 def test_index_html_no_longer_has_bare_untranslated_static_strings() -> None:
@@ -207,7 +230,7 @@ def test_index_html_no_longer_has_bare_untranslated_static_strings() -> None:
 def test_backend_api_config_exposes_default_language(monkeypatch: pytest.MonkeyPatch) -> None:
     """The dashboard reads its active language from /api/config -- the single
     source of truth shared with the backend LANGUAGE env var. Unset LANGUAGE
-    must resolve to the Dutch-native default (nl is default for the pilot)."""
+    must resolve to the English default (Dutch is a setting, LANGUAGE=nl)."""
     monkeypatch.delenv("LANGUAGE", raising=False)
 
     from sales_copilot.websocket import hub
@@ -216,7 +239,7 @@ def test_backend_api_config_exposes_default_language(monkeypatch: pytest.MonkeyP
     response = client.get("/api/config")
 
     assert response.status_code == 200
-    assert response.json().get("language") == "nl"
+    assert response.json().get("language") == "en"
 
 
 def test_backend_api_config_language_follows_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -244,9 +267,8 @@ def test_backend_api_config_language_follows_env_nl(monkeypatch: pytest.MonkeyPa
     assert response.json().get("language") == "nl"
 
 
-def test_js_i18n_default_language_is_nl() -> None:
+def test_js_i18n_default_language_is_en() -> None:
     """dashboard/js/i18n.js's fallback constant must match the backend's
-    Dutch-native default (nl is default for the pilot) -- a missing key or catalog
-    must never fall back to English on the dashboard."""
+    English default -- a missing key or catalog falls back to English."""
     js = (_JS_ROOT / "i18n.js").read_text(encoding="utf-8")
-    assert 'const DEFAULT_LANGUAGE = "nl";' in js
+    assert 'const DEFAULT_LANGUAGE = "en";' in js

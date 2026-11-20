@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Build OnCue's native macOS programs (whisper-cli, whisper-server, audiotee)
+# Build OnCue's native macOS programs (whisper-cli, whisper-server, audiotee,
+# OnCue Bar.app)
 # once, portable, and package them as a release asset.
 #
 # Usage: scripts/build_macos_binaries.sh <out_dir>
 #
 # Output in <out_dir>:
-#   oncue-macos-arm64.tar.gz          whisper-cli, whisper-server, audiotee, BUILD_INFO.txt
+#   oncue-macos-arm64.tar.gz          whisper-cli, whisper-server, audiotee, OnCue Bar.app, BUILD_INFO.txt
 #   oncue-macos-arm64.tar.gz.sha256   `shasum -a 256` format
 #   build.log                         full build output
 #   work/                             build trees, verification copy and the tiny test model
@@ -18,6 +19,8 @@ set -euo pipefail
 
 DEPLOYMENT_TARGET="14.2"
 ARCHIVE_NAME="oncue-macos-arm64.tar.gz"
+BAR_APP_NAME="OnCue Bar.app"
+BAR_BUNDLE_ID="nl.vnxdigital.oncue.bar"
 EXPECTED_PHRASE="ask not what your country can do for you"
 
 # Only system libraries may be linked dynamically. Anything else (@rpath,
@@ -138,6 +141,39 @@ oncue_version() {
   sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT_DIR/pyproject.toml" | head -n 1
 }
 
+# check_bar_bundle <app> <expected_version>
+# Window-free smoke check of the bar bundle (the app is never launched): the
+# Info.plist carries the expected bundle id and a CFBundleVersion equal to the
+# expected version, and Contents/MacOS/OnCueBar is executable. Returns 1, reason
+# on stderr, on anything else, including a missing or unreadable value.
+check_bar_bundle() {
+  local app="$1" expected="$2" plist id version
+  plist="$app/Contents/Info.plist"
+  if [[ -z "$expected" ]]; then
+    printf 'bar check: no expected version given\n' >&2
+    return 1
+  fi
+  if [[ ! -f "$plist" ]]; then
+    printf 'bar check: %s has no Info.plist\n' "$app" >&2
+    return 1
+  fi
+  id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" 2>/dev/null)" || id=""
+  if [[ "$id" != "$BAR_BUNDLE_ID" ]]; then
+    printf 'bar check: CFBundleIdentifier is "%s", expected %s\n' "$id" "$BAR_BUNDLE_ID" >&2
+    return 1
+  fi
+  version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" 2>/dev/null)" || version=""
+  if [[ "$version" != "$expected" ]]; then
+    printf 'bar check: CFBundleVersion is "%s", expected %s\n' "$version" "$expected" >&2
+    return 1
+  fi
+  if [[ ! -x "$app/Contents/MacOS/OnCueBar" ]]; then
+    printf 'bar check: %s/Contents/MacOS/OnCueBar is not executable\n' "$app" >&2
+    return 1
+  fi
+  return 0
+}
+
 build_whisper() {
   local build_dir="$1"
   progress "Building whisper.cpp (whisper-cli, whisper-server; static, Metal embedded)"
@@ -161,6 +197,14 @@ build_audiotee() {
     --package-path "$AUDIOTEE_DIR" --scratch-path "$scratch"
 }
 
+build_bar() {
+  local stage="$1"
+  progress "Building OnCue Bar (swift, release, signed ad-hoc as a bundle)"
+  run_logged "oncue bar build" bash "$ROOT_DIR/scripts/build_oncue_bar.sh" "$stage"
+  [[ -d "$stage/$BAR_APP_NAME" ]] || fail "$BAR_APP_NAME was not built"
+  run_logged "codesign oncue bar" codesign --force --deep --sign - "$stage/$BAR_APP_NAME"
+}
+
 verify_binaries() {
   local dir="$1" model_dir="$2"
   local bin
@@ -174,6 +218,11 @@ verify_binaries() {
   for bin in whisper-cli whisper-server audiotee; do
     run_logged "codesign --verify $bin" codesign --verify --strict "$dir/$bin"
   done
+  run_logged "codesign --verify $BAR_APP_NAME" codesign --verify --deep --strict "$dir/$BAR_APP_NAME"
+
+  progress "Check: OnCue Bar bundle (id, version, executable; not launched)"
+  check_bar_bundle "$dir/$BAR_APP_NAME" "$(oncue_version)" || fail "$BAR_APP_NAME failed its bundle check"
+  check_no_external_deps "$dir/$BAR_APP_NAME/Contents/MacOS/OnCueBar" || fail "OnCueBar links non-system libraries"
 
   progress "Check: --help exits cleanly"
   run_logged "whisper-cli --help" "$dir/whisper-cli" --help
@@ -217,6 +266,7 @@ main() {
   ensure_whisper_sources
   build_whisper "$work/whisper-build"
   build_audiotee "$work/swift-build"
+  build_bar "$work/stage"
 
   progress "Packaging"
   local stage="$work/stage"
@@ -233,13 +283,14 @@ main() {
     printf 'whisper.cpp:        %s\n' "$(whisper_version_string)"
     printf 'audiotee source:    sha256 %s\n' "$(audiotee_source_hash)"
     printf 'oncue version:      %s\n' "$(oncue_version)"
+    printf 'oncue bar:          %s version %s\n' "$BAR_BUNDLE_ID" "$(oncue_version)"
     printf 'build date:         %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf 'deployment target:  macOS %s\n' "$DEPLOYMENT_TARGET"
     printf 'architecture:       arm64\n'
   } >"$stage/BUILD_INFO.txt"
 
   local archive="$out_dir/$ARCHIVE_NAME"
-  tar -czf "$archive" -C "$stage" whisper-cli whisper-server audiotee BUILD_INFO.txt
+  tar -czf "$archive" -C "$stage" whisper-cli whisper-server audiotee "$BAR_APP_NAME" BUILD_INFO.txt
 
   # Verify what users will actually download: a fresh extraction, not the build tree.
   tar -xzf "$archive" -C "$work/verify"

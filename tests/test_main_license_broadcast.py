@@ -107,7 +107,8 @@ async def test_broadcast_reaches_system_subscriber(running_hub, monkeypatch) -> 
     ws_config = WebSocketConfig(host="127.0.0.1", port=port)
 
     async with websockets.connect(ws_url("127.0.0.1", port, "system")) as subscriber:
-        await asyncio.sleep(0.1)  # let the hub register the subscriber
+        snapshot = json.loads(await asyncio.wait_for(subscriber.recv(), timeout=2.0))
+        assert snapshot["type"] == "consent_snapshot"  # every /ws/system connect starts with the consent state
         await main_mod._broadcast_license_status(ws_config)
         raw = await asyncio.wait_for(subscriber.recv(), timeout=2.0)
 

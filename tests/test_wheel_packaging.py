@@ -62,6 +62,7 @@ def test_wheel_contains_config_defaults(built_wheel: Path) -> None:
 def test_wheel_contains_sample_aha_data(built_wheel: Path) -> None:
     members = _members(built_wheel)
     assert "sales_copilot/_resources/data/samples/sample-aha.json" in members
+    assert "sales_copilot/_resources/data/samples/sample-aha_en.json" in members
 
 
 def test_wheel_excludes_dev_secrets(built_wheel: Path) -> None:

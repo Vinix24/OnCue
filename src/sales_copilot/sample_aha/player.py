@@ -19,21 +19,43 @@ from typing import Any
 
 import websockets
 
-from sales_copilot.core.config import WebSocketConfig, env, env_float
+from sales_copilot.core.config import (
+    TalkTimeConfig,
+    WebSocketConfig,
+    configured_call_language,
+    env,
+    env_float,
+)
 from sales_copilot.core.paths import resolve_app_resource
+from sales_copilot.modules.talk_time.tracker import TalkTimeTracker
 from sales_copilot.websocket.hub_auth import get_hub_token
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_SAMPLE_PATH = "data/samples/sample-aha.json"
+SAMPLE_PATH_BY_LANGUAGE = {
+    "nl": DEFAULT_SAMPLE_PATH,
+    "en": "data/samples/sample-aha_en.json",
+}
+FALLBACK_SAMPLE_LANGUAGE = "en"
 DEFAULT_SPEED = 1.0
 
 
+def sample_path_for_language(language: str) -> str:
+    """The bundled sample for a call language; unknown languages get English."""
+    relative = SAMPLE_PATH_BY_LANGUAGE.get(
+        (language or "").strip().lower(),
+        SAMPLE_PATH_BY_LANGUAGE[FALLBACK_SAMPLE_LANGUAGE],
+    )
+    return str(resolve_app_resource(relative))
+
+
 def default_sample_path() -> str:
+    """``SAMPLE_AHA_PATH`` when set, else the sample matching ``CALL_LANGUAGE``."""
     configured = env("SAMPLE_AHA_PATH")
     if configured:
         return configured
-    return str(resolve_app_resource(DEFAULT_SAMPLE_PATH))
+    return sample_path_for_language(configured_call_language())
 
 
 def default_speed() -> float:
@@ -48,29 +70,6 @@ def _channel_url(host: str, port: int, channel: str) -> str:
 def _auth_headers(token: str) -> dict[str, str]:
     credentials = base64.b64encode(f"token:{token}".encode()).decode("ascii")
     return {"Authorization": f"Basic {credentials}"}
-
-
-def _talk_time_payload(
-    self_ms: int,
-    prospect_ms: int,
-    call_duration_ms: int,
-    phase: str = "discovery",
-) -> dict[str, Any]:
-    total_ms = max(1, self_ms + prospect_ms)
-    cumulative_self = self_ms / total_ms
-    cumulative_prospect = prospect_ms / total_ms
-    return {
-        "type": "talk_time",
-        "rolling_self_pct": cumulative_self,
-        "rolling_prospect_pct": cumulative_prospect,
-        "cumulative_self_pct": cumulative_self,
-        "cumulative_prospect_pct": cumulative_prospect,
-        "current_monologue_ms": 0,
-        "monologue_speaker": None,
-        "call_duration_ms": call_duration_ms,
-        "phase": phase,
-        "status": "green",
-    }
 
 
 class SampleAhaPlayer:
@@ -150,9 +149,17 @@ class SampleAhaPlayer:
                     additional_headers=auth_headers,
                 )
             )
+            coaching_ws = await stack.enter_async_context(
+                websockets.connect(
+                    _channel_url(self._host, self._port, "coaching"),
+                    additional_headers=auth_headers,
+                )
+            )
 
-            self_ms = 0
-            prospect_ms = 0
+            # The same tracker and config the live talk-time module uses. The
+            # sample's own timestamps drive it, never the wall clock, so the
+            # meter and the alerts do not depend on the replay speed.
+            tracker = TalkTimeTracker(TalkTimeConfig.from_env())
             call_duration_ms = 0
             suggestion_index = 0
 
@@ -176,17 +183,17 @@ class SampleAhaPlayer:
                     }
                     await transcript_ws.send(json.dumps(payload))
 
-                    duration = int(event.get("end_ms", 0)) - int(event.get("start_ms", 0))
-                    duration = max(0, duration)
-                    if payload["speaker"] == "self":
-                        self_ms += duration
-                    else:
-                        prospect_ms += duration
-                    call_duration_ms += duration
+                    start_ms = int(event.get("start_ms", 0))
+                    end_ms = max(start_ms, int(event.get("end_ms", 0)))
+                    speaker = "self" if payload["speaker"] == "self" else "prospect"
+                    tracker.record_speech(speaker, start_ms, end_ms)
+                    state = tracker.get_state(end_ms)
+                    call_duration_ms = state.call_duration_ms
 
-                    await talk_time_ws.send(
-                        json.dumps(_talk_time_payload(self_ms, prospect_ms, call_duration_ms))
-                    )
+                    await talk_time_ws.send(json.dumps(state.to_dict()))
+                    alert = tracker.check_alerts(end_ms)
+                    if alert is not None:
+                        await coaching_ws.send(json.dumps(alert.to_dict()))
 
                 while (
                     suggestion_index < len(suggestions)

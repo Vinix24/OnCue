@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -59,6 +61,15 @@ TRIGGER_TELEPHONY = "telephony"
 
 DetectFn = Callable[[tuple[str, ...]], tuple[str | None, int | None, list[str]]]
 ConsentArmCheckFn = Callable[[], StepResult]
+
+OUTCOME_ACCEPTED = "accepted"
+OUTCOME_DECLINED = "declined"
+OUTCOME_EXPIRED = "expired"
+
+# ADR-003 decision 3: an observation older than this no longer backs an open prompt.
+OBSERVATION_MAX_AGE_S = 10.0
+# A source without a successful observation for this long is logged as an error once.
+OBSERVATION_STALE_AFTER_S = 30.0
 
 
 @dataclass(frozen=True)
@@ -117,8 +128,11 @@ class RuntimeAutostartMonitor:
     detect_fn: DetectFn = resolve_meeting_app_target
     telephony_detect_fn: DetectFn = resolve_telephony_call_target
     consent_arm_check: ConsentArmCheckFn = detect_autostart_consent_arm
-    on_consent_required: Callable[[str], None] | None = None
+    on_consent_required: Callable[[str, str, str], None] | None = None
+    on_consent_resolved: Callable[[str, str], None] | None = None
     on_session_arm: Callable[[str], None] | None = None
+    clock: Callable[[], float] = time.monotonic
+    other_route_running: Callable[[], bool] = lambda: False
 
     state: str = field(default=STATE_IDLE, init=False)
     _present_streak: int = field(default=0, init=False)
@@ -127,6 +141,11 @@ class RuntimeAutostartMonitor:
     _telephony_absent_streak: int = field(default=0, init=False)
     _detected_process: str | None = field(default=None, init=False)
     _active_trigger: str | None = field(default=None, init=False)
+    _prompt_id: str | None = field(default=None, init=False)
+    _started_at: float | None = field(default=None, init=False)
+    _last_observed: dict[str, float] = field(default_factory=dict, init=False)
+    _stale_logged: set[str] = field(default_factory=set, init=False)
+    _paused: bool = field(default=False, init=False)
 
     def tick(self) -> str:
         """Run one detection poll (both trigger sources) and advance the state machine.
@@ -136,13 +155,31 @@ class RuntimeAutostartMonitor:
         ``resolve_meeting_app_target`` and ``resolve_telephony_call_target``
         only return a process name when exactly one candidate is running, so
         auto-arm never has to guess which app/process is the real call.
+
+        While the other route runs (ADR-004 decision 8) the poll is skipped: an
+        open prompt expires and nothing is observed or advanced.
         """
 
-        video_process, _pid, _running = self.detect_fn(self.config.candidates)
-        self._update_streak(video_process is not None, telephony=False)
+        if self.other_route_running():
+            if not self._paused:
+                self._paused = True
+                logger.info("Runtime auto-arm: the other route is running; polls paused.")
+            if self.state == STATE_CONSENT_PENDING:
+                self._resolve(OUTCOME_EXPIRED)
+            return self.state
+        if self._paused:
+            self._paused = False
+            logger.info("Runtime auto-arm: the other route stopped; polls resume.")
 
-        telephony_process, _tpid, _trunning = self.telephony_detect_fn(self.config.telephony_candidates)
-        self._update_streak(telephony_process is not None, telephony=True)
+        now = self.clock()
+        if self._started_at is None:
+            self._started_at = now
+
+        video_process = self._observe(TRIGGER_VIDEO, self.detect_fn, self.config.candidates, now)
+        telephony_process = self._observe(
+            TRIGGER_TELEPHONY, self.telephony_detect_fn, self.config.telephony_candidates, now
+        )
+        self._enforce_observation_age(now)
 
         if self.state == STATE_IDLE:
             self._advance_from_idle(video_process, telephony_process)
@@ -152,6 +189,63 @@ class RuntimeAutostartMonitor:
             self._reset_if_gone_while_armed()
 
         return self.state
+
+    def _observe(self, source: str, detect: DetectFn, candidates: tuple[str, ...], now: float) -> str | None:
+        """Poll one source. A call that returns is an observation; one that raises is not."""
+
+        try:
+            process, _pid, _running = detect(candidates)
+        except Exception:
+            logger.warning("Runtime auto-arm: %s detection raised; not an observation.", source, exc_info=True)
+            return None
+        self._last_observed[source] = now
+        self._stale_logged.discard(source)
+        self._update_streak(process is not None, telephony=source == TRIGGER_TELEPHONY)
+        return process
+
+    def _source_age(self, source: str, now: float) -> float:
+        # A source never observed ages from the first tick, so a permanently
+        # broken detector still reaches the stale threshold.
+        last = self._last_observed.get(source, self._started_at)
+        return now - (now if last is None else last)
+
+    def _enforce_observation_age(self, now: float) -> None:
+        for source in (TRIGGER_VIDEO, TRIGGER_TELEPHONY):
+            age = self._source_age(source, now)
+            if source not in self._last_observed or age > OBSERVATION_MAX_AGE_S:
+                self._zero_streaks(telephony=source == TRIGGER_TELEPHONY)
+            if age > OBSERVATION_STALE_AFTER_S and source not in self._stale_logged:
+                self._stale_logged.add(source)
+                logger.error(
+                    "Runtime auto-arm: no successful %s observation for %.0f s; detection is blind.",
+                    source,
+                    age,
+                )
+        if self.state == STATE_CONSENT_PENDING and not self._prompt_observation_fresh(now):
+            logger.info("Runtime auto-arm: observation too old; the prompt expired.")
+            self._resolve(OUTCOME_EXPIRED)
+
+    def _prompt_observation_fresh(self, now: float) -> bool:
+        source = self._active_trigger or TRIGGER_VIDEO
+        return source in self._last_observed and self._source_age(source, now) <= OBSERVATION_MAX_AGE_S
+
+    @property
+    def observation_stale(self) -> bool:
+        """``True`` when a source has had no successful observation for over 30 s."""
+
+        now = self.clock()
+        return any(
+            self._started_at is not None and self._source_age(source, now) > OBSERVATION_STALE_AFTER_S
+            for source in (TRIGGER_VIDEO, TRIGGER_TELEPHONY)
+        )
+
+    def _zero_streaks(self, *, telephony: bool) -> None:
+        if telephony:
+            self._telephony_present_streak = 0
+            self._telephony_absent_streak = 0
+        else:
+            self._present_streak = 0
+            self._absent_streak = 0
 
     def _update_streak(self, present: bool, *, telephony: bool) -> None:
         if telephony:
@@ -199,9 +293,10 @@ class RuntimeAutostartMonitor:
 
         self._detected_process = process_name
         self._active_trigger = trigger
+        self._prompt_id = uuid.uuid4().hex
         self.state = STATE_CONSENT_PENDING
         if self.on_consent_required is not None:
-            self.on_consent_required(process_name)
+            self.on_consent_required(self._prompt_id, process_name, trigger)
         return True
 
     @property
@@ -225,33 +320,86 @@ class RuntimeAutostartMonitor:
     def _reset_if_gone_while_pending(self) -> None:
         if self._active_absent_streak() >= self.config.debounce_disarm_polls:
             logger.info("Runtime auto-arm: trigger source gone before consent tick; resetting.")
-            self._reset()
+            self._resolve(OUTCOME_EXPIRED)
 
     def _reset_if_gone_while_armed(self) -> None:
         if self._active_absent_streak() >= self.config.debounce_disarm_polls:
             self._reset()
 
-    def confirm_consent(self) -> bool:
-        """Record the explicit per-call consent tick and trigger the session-arm.
+    def pending_prompt(self) -> dict[str, str] | None:
+        """The open, valid prompt as ``{"prompt_id", "process", "source"}``, else ``None``."""
 
-        Returns ``True`` when a pending prompt was armed, ``False`` when there
-        was nothing pending (already armed, idle, or the prompt was declined /
-        expired before the tick arrived).
+        if (
+            self.state != STATE_CONSENT_PENDING
+            or self._prompt_id is None
+            or self._detected_process is None
+            or self._active_trigger is None
+            or not self._prompt_observation_fresh(self.clock())
+        ):
+            return None
+        return {"prompt_id": self._prompt_id, "process": self._detected_process, "source": self._active_trigger}
+
+    def _prompt_is_current(self, prompt_id: str, action: str) -> bool:
+        """Whether ``prompt_id`` names the open prompt; refuses (and logs once) otherwise.
+
+        A prompt whose observation has gone too old is resolved as expired here,
+        so a Yes or No between two ticks cannot act on it.
         """
 
-        if self.state != STATE_CONSENT_PENDING:
+        if self.state != STATE_CONSENT_PENDING or not prompt_id or prompt_id != self._prompt_id:
+            logger.info("Runtime auto-arm: %s refused; the prompt id is not the open prompt.", action)
+            return False
+        if self.other_route_running():
+            logger.info("Runtime auto-arm: %s refused; the other route is running.", action)
+            self._resolve(OUTCOME_EXPIRED)
+            return False
+        if not self._prompt_observation_fresh(self.clock()):
+            logger.info("Runtime auto-arm: %s refused; the observation behind the prompt is too old.", action)
+            self._resolve(OUTCOME_EXPIRED)
+            return False
+        return True
+
+    def confirm_consent(self, prompt_id: str) -> bool:
+        """Record the explicit per-call consent tick and trigger the session-arm.
+
+        Returns ``True`` when the open prompt with this id was armed. Anything
+        else (an unknown or old id, nothing pending, an observation older than
+        ``OBSERVATION_MAX_AGE_S``) changes nothing and returns ``False``.
+        """
+
+        if not self._prompt_is_current(prompt_id, "consent"):
             return False
         process_name = self._detected_process
-        self.state = STATE_ARMED
+        self._resolve(OUTCOME_ACCEPTED, arm=True)
         if self.on_session_arm is not None and process_name is not None:
             self.on_session_arm(process_name)
         return True
 
-    def decline_consent(self) -> None:
-        """User declined the auto-arm prompt for this detected call."""
+    def decline_consent(self, prompt_id: str) -> bool:
+        """User declined the prompt with this id. ``False`` when it is not the open, valid prompt."""
+
+        if not self._prompt_is_current(prompt_id, "decline"):
+            return False
+        self._resolve(OUTCOME_DECLINED)
+        return True
+
+    def withdraw_pending(self) -> None:
+        """Expire an open prompt because a recording is starting by hand (ADR-004 decision 4)."""
 
         if self.state == STATE_CONSENT_PENDING:
+            self._resolve(OUTCOME_EXPIRED)
+
+    def _resolve(self, outcome: str, *, arm: bool = False) -> None:
+        """The one exit from ``STATE_CONSENT_PENDING``: leave it and tell the displays, once."""
+
+        prompt_id = self._prompt_id
+        if arm:
+            self.state = STATE_ARMED
+            self._prompt_id = None
+        else:
             self._reset()
+        if prompt_id is not None and self.on_consent_resolved is not None:
+            self.on_consent_resolved(prompt_id, outcome)
 
     def notify_call_ended(self) -> None:
         """Reset immediately once the armed session's call has ended.
@@ -272,6 +420,7 @@ class RuntimeAutostartMonitor:
         self._telephony_absent_streak = 0
         self._detected_process = None
         self._active_trigger = None
+        self._prompt_id = None
 
 
 _active_monitor: RuntimeAutostartMonitor | None = None

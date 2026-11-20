@@ -143,6 +143,10 @@ struct AudioTee {
       chunkDuration: chunkDuration)
     try recorder.startRecording()
 
+    // Log only: reports output-device and route changes on stderr.
+    let deviceMonitor = DeviceChangeMonitor(aggregateDeviceID: deviceID)
+    deviceMonitor.start()
+
     // Run until the run loop is stopped (by signal handler)
     while true {
       let result = CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0.1, false)
@@ -152,6 +156,7 @@ struct AudioTee {
     }
 
     AudioTeeLogging.logger.info("Shutting down...")
+    deviceMonitor.stop()
     recorder.stopRecording()
   }
 

@@ -22,6 +22,7 @@ from sales_copilot.audio.tap_health import (
     describe_silent_stream,
     stream_tap_health,
 )
+from sales_copilot.core.i18n import t
 from sales_copilot.core.paths import resolve_app_resource
 
 if TYPE_CHECKING:
@@ -120,6 +121,16 @@ class AudioConfig:
     # set but no endpoint matches, the stream warns once and falls back to the
     # default device instead of failing the call.
     wasapi_endpoint_name: str | None = None
+    # Windows capture route (WINDOWS_CAPTURE_ROUTE): "endpoint" (default, the
+    # WASAPI endpoint loopback above) or "process" (opt-in process loopback,
+    # see audio/wasapi_process.py). Unknown values fall back to "endpoint".
+    windows_capture_route: str = "endpoint"
+    # --- Windows endpoint follow (ADR-008; WINDOWS_ENDPOINT_FOLLOW) ---
+    # Off by default: the loopback taps the default output exactly as before
+    # and no extra COM call is made. On (and with no matched
+    # AUDIO_WASAPI_ENDPOINT_NAME): follow the render endpoint where a call app
+    # has an active session.
+    windows_endpoint_follow: bool = False
 
 
 @runtime_checkable
@@ -355,16 +366,8 @@ def _meeting_app_detection_warning(running_candidates: list[str]) -> str:
 
     if running_candidates:
         apps = ", ".join(running_candidates)
-        return (
-            f"Meerdere meeting-apps tegelijk actief ({apps}); de copilot kan niet automatisch "
-            "kiezen welke het gesprek is. Sluit de app(s) die je niet gebruikt, of zet "
-            "TARGET_PROCESS_NAME handmatig in .env. Prospect-audio valt terug op BlackHole."
-        )
-    return (
-        "Geen meeting-app gevonden (Google Chrome / Microsoft Teams / zoom.us). Open Google Meet, "
-        "Microsoft Teams of Zoom voordat je het gesprek start, of zet TARGET_PROCESS_NAME handmatig "
-        "in .env. Prospect-audio valt terug op BlackHole."
-    )
+        return t("audio.meeting_apps_ambiguous", apps=apps)
+    return t("audio.meeting_app_not_found")
 
 
 def _audiotee_setup_failure_message(process_label: str, diagnostic: str) -> str:
@@ -379,12 +382,7 @@ def _audiotee_setup_failure_message(process_label: str, diagnostic: str) -> str:
     """
 
     detail = f" (audiotee: {diagnostic})" if diagnostic else ""
-    return (
-        f"AudioTee kon geen audio-tap starten voor '{process_label}'{detail}. Meest voorkomende "
-        "oorzaak: de macOS-toestemming voor Core Audio process-taps ontbreekt. Geef toestemming via "
-        "Systeeminstellingen > Privacy en beveiliging > Audio-opname (macOS 14.4+) en start het "
-        "gesprek opnieuw. Tot die tijd blijft de prospect-stream stil."
-    )
+    return t("audio.tap_setup_failed", process=process_label, detail=detail)
 
 
 def normalize_capture_method(method: str | None, *, platform: str = sys.platform) -> str:
@@ -728,6 +726,8 @@ class MicStream:
     def device_label(self) -> str:
         if self._label is not None:
             return self._label
+        if self._orig_name is not None:
+            return self._orig_name
         value = self._resolved_device if self._resolved_device is not None else self._device
         if value is None or (isinstance(value, str) and not value.strip()):
             return "default"
@@ -811,7 +811,7 @@ class MicStream:
             except Exception as exc:
                 self._stream = None
                 _unregister_stream()
-                self._health.mark_attach_failed("InputStream kon niet openen")
+                self._health.mark_attach_failed(t("audio.detail_inputstream_open_failed"))
                 if self._resolved_device is None:
                     raise RuntimeError(
                         f"Could not open the default microphone ({exc}). Available input "
@@ -1026,7 +1026,7 @@ class MicStream:
         outage_s = now - (self._outage_since or now)
         self._outage_since = None
         self._install(stream, label, is_original, now)
-        logger.info(
+        logger.warning(
             "Mic device reopened: %s -> %s after %.1fs outage%s.",
             old_label,
             label,
@@ -1285,8 +1285,8 @@ class AudioTeeStream:
 
         if not os.path.exists(self._config.audiotee_path):
             self._fail_start(
-                f"AudioTee-binary niet gevonden ({self._config.audiotee_path}); prospect-tap kan niet starten.",
-                "binary ontbreekt",
+                t("audio.binary_missing", path=self._config.audiotee_path),
+                t("audio.detail_binary_missing"),
             )
             return
 
@@ -1302,18 +1302,16 @@ class AudioTeeStream:
         if not self._tap_all:
             if not self._config.target_process:
                 self._fail_start(
-                    "Geen doelproces ingesteld voor de AudioTee-prospect-tap en geen "
-                    "meeting-app automatisch gedetecteerd.",
-                    "geen doelproces",
+                    t("audio.no_target_process"),
+                    t("audio.detail_no_target_process"),
                 )
                 return
 
             pid = _find_pid(self._config.target_process)
             if pid is None:
                 self._fail_start(
-                    f"Meeting-app '{self._config.target_process}' niet (meer) gevonden. "
-                    "Open de app en start het gesprek opnieuw.",
-                    f"doelproces '{self._config.target_process}' niet gevonden",
+                    t("audio.target_gone", process=self._config.target_process),
+                    t("audio.detail_target_not_found", process=self._config.target_process),
                 )
                 return
 
@@ -1338,15 +1336,15 @@ class AudioTeeStream:
             )
         except OSError:
             self._fail_start(
-                f"Kon AudioTee niet starten ({self._config.audiotee_path}).",
-                "subprocess kon niet starten",
+                t("audio.start_failed", path=self._config.audiotee_path),
+                t("audio.detail_subprocess_start_failed"),
             )
             return
 
         if proc.stdout is None or proc.stderr is None:
             self._fail_start(
-                "AudioTee-subprocess heeft geen stdout/stderr pipes.",
-                "geen stdout/stderr pipes",
+                t("audio.no_pipes"),
+                t("audio.detail_no_pipes"),
             )
             return
 
@@ -1495,13 +1493,11 @@ class AudioTeeStream:
         self._setup_failure_emitted = True
         with self._stderr_lock:
             diagnostic = " | ".join(self._stderr_lines[-3:])
-        self._health.mark_detached(diagnostic or "subprocess gestopt", already_warned=True)
+        self._health.mark_detached(diagnostic or t("audio.detail_subprocess_stopped"), already_warned=True)
         self._degraded = True
         detail = f" (audiotee: {diagnostic})" if diagnostic else ""
         self._emit_warning(
-            f"De AudioTee-tap ({self.device_label}) is tijdens het gesprek gestopt na "
-            f"{self._chunks_received} frames{detail}. Er komt geen prospect-audio meer binnen. "
-            "De tap wordt automatisch opnieuw gestart; tot die tijd neemt het prospect-spoor stilte op."
+            t("audio.tap_stopped", device=self.device_label, frames=self._chunks_received, detail=detail)
         )
 
     def _fail_start(self, message: str, detail: str) -> None:
@@ -1541,10 +1537,10 @@ class AudioTeeStream:
         with self._stderr_lock:
             diagnostic = " | ".join(self._stderr_lines[-3:])
         if self._tap_all:
-            process_label = "alle processen"
+            process_label = t("audio.all_processes")
         else:
-            process_label = self._config.target_process or "onbekend proces"
-        self._health.mark_attach_failed(diagnostic or "subprocess stopte voor het eerste frame")
+            process_label = self._config.target_process or t("audio.unknown_process")
+        self._health.mark_attach_failed(diagnostic or t("audio.detail_subprocess_stopped_early"))
         self._degraded = True
         self._emit_warning(_audiotee_setup_failure_message(process_label, diagnostic))
 
@@ -1817,7 +1813,7 @@ class DualAudioCapture:
             from sales_copilot.auth.feature_policy import FEATURE_CALLTAP
 
             if not self._feature_policy.allows(FEATURE_CALLTAP):
-                _warn("Telefonie-capture via AudioTee vereist een geldige Sales Pro-licentie.")
+                _warn(t("audio.calltap_needs_pro"))
                 from .blackhole import BlackHoleStream
 
                 return mic, BlackHoleStream(self._config)
@@ -1849,9 +1845,9 @@ class DualAudioCapture:
             system = BlackHoleStream(self._config)
             return mic, system
         if capture_method == "wasapi":
-            from .wasapi import WasapiLoopbackStream
+            from .wasapi_process import build_windows_prospect_stream
 
-            return mic, WasapiLoopbackStream(self._config, on_warning=on_warning)
+            return mic, build_windows_prospect_stream(self._config, on_warning=on_warning)
 
         raise ValueError(f"Unsupported capture_method: {capture_method}")
 

@@ -12,6 +12,7 @@ This document describes the hard architecture invariants of the OnCue project. T
 | 4 | **WebSocket localhost-only** | The hub is only reachable on the same machine. | `hub.py`/`hub_core.py` bind/CORS only to `localhost`/`127.0.0.1`; `0.0.0.0`, `::`, and wildcard CORS are rejected. |
 | 5 | **Config via `.env` / YAML** | No hardcoded configuration values or secrets in application code. | This invariant is partially automated: the check rejects hardcoded API keys. The rest of the configuration defaults are reviewed manually (see "Non-automated rules"). |
 | 6 | **`.vnx-data/` writes stay app-support-scoped** | `.vnx-data/` is a local runtime data directory (local audit log and session state) that only exists on the user's machine — in an installed app under `~/Library/Application Support/SalesCopilot/`, not in shared or external storage. App code introduces no new writes there outside the app-support-scoped creation. | Literal `.vnx-data` in `src/` is forbidden, except in the five legacy modules and the app-support-scoped directory creation in `src/sales_copilot/core/paths.py::ensure_app_support_tree()`. |
+| 7 | **No voice profiles: diarization labels stay anonymous per recording** | Speaker diarization produces anonymous labels (`SPEAKER_00`, ...) within one recording, and the next recording starts counting again. No voice embedding is written to disk and there is no database of enrolled voices. A voice database is biometric data, a special category of personal data under GDPR article 9, and explicit consent from a prospect cannot be organised before you call. See "Speaker boundary" below. | `tests/test_speaker_boundary_docs.py` scans the diarization modules and fails on any disk write other than the model-file download. |
 
 ## Privacy/cloud spectrum (product positioning)
 
@@ -20,9 +21,33 @@ Invariants 1 and 2 together define a spectrum, not an on/off switch:
 1. **No LLM (default)**: `LLM_PROVIDER=none`. The live cues run fully local and no transcript text leaves the device. Default for sensitive/regulated conversations (invariant 1).
 2. **Local LLM of the user's choice**: for example `LLM_PROVIDER=ollama` with a model the user runs themselves. The text stays on the machine.
 3. **Own cloud tenant**: the user's own Azure OpenAI or Vertex AI tenant and keys, via `core/llm_client.py` (invariant 2). Also cloud, but within boundaries organizations already accept: data stays in their own, managed tenant.
-4. **Public provider with the user's own key**: a public API (e.g. OpenAI, OpenRouter, Groq, Gemini), likewise allowed via `core/llm_client.py` (invariant 2), opt-in when the sensitivity of that specific conversation allows it.
+4. **Public provider with the user's own key**: a public API, which is OpenRouter (one key gives access to many models; other providers are a do-it-yourself extension), likewise allowed via `core/llm_client.py` (invariant 2), opt-in when the sensitivity of that specific conversation allows it.
 
 The choice is made **per conversation**, not per customer and not once at installation: the same user can pick tier 1 for a sensitive customer conversation and tier 4 for an internal sales training. Privacy stays the default; cloud is a deliberate, explicit choice, never the silent default. See also `docs/PRIVACY.md` (configurable privacy tiers) and the root `CLAUDE.md` (product positioning).
+
+## Speaker boundary: no voice profiles are stored
+
+Three concepts are easy to mix up. Only the first two exist in OnCue.
+
+| Concept | What it answers | Needs | Status |
+|---|---|---|---|
+| **Diarization** | Who spoke when, within one recording. | Audio only, a local model (pyannote, or sherpa-onnx with a speaker-embedding model; see `src/sales_copilot/modules/reports/diarize_*.py`). | Built. Output is an anonymous label (`speaker_id`, for example `SPEAKER_00`). Labels are valid inside one recording only. |
+| **Speaker assignment per channel** | Which channel is whom. | Two tracks: the microphone is the user, the system audio is the other side. No model, so nothing that can be wrong about a voice. | Built. |
+| **Speaker identification** | Which known person is speaking. | A database of enrolled voice embeddings. | **Not built, on purpose.** |
+
+The embeddings that diarization computes live in memory for the length of one run. They are used to cluster segments into anonymous labels and are then discarded. They are not written to the session folder, the session database or any cache. Only the model files themselves (segmentation and embedding ONNX weights) are cached on disk, and those contain no voice data from a call.
+
+### Why a meeting bot can show names and OnCue cannot
+
+A meeting bot joins the meeting as a participant and reads the platform's participant list. That list is metadata from the platform, not voice recognition. A local audio tap has no such list: it only hears audio, so it can say "another speaker" but not "this is the named person".
+
+### Why there is no voice database
+
+A stored voice embedding identifies a natural person and is therefore biometric data under GDPR article 9. Processing it needs explicit consent from the person whose voice it is. A prospect on a sales call cannot give that consent beforehand in a way you can organise, so the product does not build such a store.
+
+### Explicitly not built: enrolling your own salespeople
+
+The defensible variant would enrol only your own salespeople, with their own explicit consent and a fixed retention period, and use the profiles to label their side of a call. This is **not built**. Today the user's side is already known from the microphone channel, so it is not needed. If it is ever built it needs its own ADR and an update of this section and `docs/PRIVACY.md` first.
 
 ## Transcription outbound class (opt-in, default off)
 
@@ -110,6 +135,13 @@ config-driven, timeout-bounded outbound POSTs. It is listed in
 purpose: the first-use download of the sherpa-onnx model files from fixed https URLs
 (GitHub releases). It is a GET of public model files; no recording, transcript or
 speaker data is sent. It is on the same allow-list.
+
+`src/sales_copilot/core/update_check.py` uses `urllib.request`/`http.client` for one
+GET to the fixed GitHub releases endpoint, with a five-second timeout and only
+`Accept: application/vnd.github+json` and `User-Agent: OnCue/<version>` as headers:
+no cookies, no machine or user data, no query string. It runs only when the user
+clicks **Check for updates** in the library page (ADR-006 point 7); nothing calls it
+at import, at start, on a timer or when a page loads. It is on the same allow-list.
 
 ## How the check works
 

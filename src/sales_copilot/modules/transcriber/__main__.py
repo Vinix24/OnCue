@@ -33,12 +33,14 @@ from sales_copilot.core.config import (
     TranscriberConfig,
     WebSocketConfig,
     env,
+    env_bool,
     env_float,
     env_int,
     live_backend_name,
     load_env,
     load_transcription_engine,
 )
+from sales_copilot.core.i18n import t
 from sales_copilot.core.logging import configure_logging
 from sales_copilot.modules.transcriber.audio_bufferer import AudioBufferer, TurnState
 from sales_copilot.modules.transcriber.backends import create_backend
@@ -65,11 +67,7 @@ def _hub_available(host: str, port: int, *, timeout: float = 0.2) -> bool:
 def _print_banner(config: TranscriberConfig, ws_config: WebSocketConfig, engine: TranscriptionEngine) -> None:
     logger.info("OnCue — Transcriber Module")
     logger.info("Transcription engine: %s | backend: %s (%s)", engine, config.backend, config.model)
-    logger.info(
-        "Language: %s | diarization fallback: %s",
-        config.language,
-        config.diarization_backend,
-    )
+    logger.info("Language: %s", config.language)
     logger.info("Whisper WS ports: mic=%s system=%s", config.port, config.system_port)
     logger.info("WebSocket hub: ws://%s:%s", ws_config.host, ws_config.port)
     logger.info(
@@ -109,6 +107,8 @@ def _load_audio_config() -> AudioConfig:
         replay_session_dir=env("REPLAY_SESSION_DIR"),
         replay_speed=env_float("REPLAY_SPEED", 1.0) or 1.0,
         wasapi_endpoint_name=env("AUDIO_WASAPI_ENDPOINT_NAME"),
+        windows_capture_route=env("WINDOWS_CAPTURE_ROUTE", "endpoint") or "endpoint",
+        windows_endpoint_follow=bool(env_bool("WINDOWS_ENDPOINT_FOLLOW", False)),
     )
 
 
@@ -464,7 +464,7 @@ async def main(
                     {
                         "type": "system_status",
                         "state": "warming_up",
-                        "message": "AI opwarmen...",
+                        "message": t("coaching.status_warming_up"),
                     }
                 )
                 await shared_backend.warmup()
@@ -515,7 +515,7 @@ async def main(
                     {
                         "type": "system_status",
                         "state": "warming_up",
-                        "message": "AI opwarmen...",
+                        "message": t("coaching.status_warming_up"),
                     }
                 )
 

@@ -32,6 +32,7 @@ import numpy as np
 
 from sales_copilot.core.config import TranscriberConfig, load_env
 from sales_copilot.modules.transcriber.backends import create_backend
+from sales_copilot.modules.transcriber.backends.model_names import resolve_mlx_repo
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,7 @@ async def _transcribe(
     backend = create_backend({
         "backend": effective_backend,
         "language": cfg.language,
-        "model_repo": f"mlx-community/whisper-{model}",
+        "model_repo": resolve_mlx_repo(model),
         "whisper_cpp_binary": cfg.whisper_cpp_binary,
         "whisper_cpp_model_path": whisper_cpp_model_path,
         "whisper_cpp_threads": cfg.whisper_cpp_threads,

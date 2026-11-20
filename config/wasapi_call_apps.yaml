@@ -1,0 +1,12 @@
+# Executables whose active audio session marks a Windows render endpoint as
+# "the endpoint where the call plays" (ADR-008). Matched case-insensitively
+# against the process image name. Used only when WINDOWS_ENDPOINT_FOLLOW=true.
+# Call detection keeps its own list (_MEETING_APP_CANDIDATES_WIN32).
+call_apps:
+  - chrome.exe
+  - msedge.exe
+  - Teams.exe
+  - ms-teams.exe
+  - Zoom.exe
+  - WhatsApp.exe
+  - PhoneExperienceHost.exe

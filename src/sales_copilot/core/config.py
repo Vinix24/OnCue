@@ -11,6 +11,7 @@ import yaml
 from dotenv import load_dotenv
 
 from sales_copilot.core import i18n, lang_router
+from sales_copilot.core.model_download import model_path
 from sales_copilot.core.paths import is_frozen_app, resolve_app_path, resolve_app_resource
 from sales_copilot.core.privacy_gate import validate_privacy
 
@@ -71,6 +72,11 @@ def load_env(path: str | Path = "") -> bool:
 
 def env(name: str, default: str | None = None) -> str | None:
     return os.getenv(name, default)
+
+
+def configured_call_language() -> str:
+    """The call language from ``CALL_LANGUAGE`` (default ``en``); blank falls back too."""
+    return (os.getenv("CALL_LANGUAGE") or "en").strip().lower() or "en"
 
 
 def env_int(name: str, default: int | None = None) -> int | None:
@@ -164,21 +170,72 @@ class TalkTimeConfig:
         )
 
 
+def _whisper_cpp_model_path(backend: str, model: str) -> str:
+    """The whisper.cpp model file.
+
+    WHISPER_CPP_MODEL_PATH wins. The packaged app uses the model it downloaded into
+    Application Support. Otherwise the ggml file for the WHISPER_MODEL alias, resolved
+    only when whisper.cpp is the selected backend, so an mlx repo id never has to be an
+    alias; an unknown alias on whisper.cpp still fails fast.
+    """
+    explicit = env("WHISPER_CPP_MODEL_PATH")
+    if explicit:
+        return explicit
+    if is_frozen_app() or backend.strip().lower() not in {"whisper.cpp", "whisper_cpp"}:
+        return str(model_path())
+    # Lazy import: the backends package imports this module.
+    from sales_copilot.modules.transcriber.backends.model_names import resolve_ggml_filename
+
+    return str(resolve_app_resource(f"vendor/whisper.cpp/models/{resolve_ggml_filename(model)}"))
+
+
+@dataclass(frozen=True)
+class AutoStopConfig:
+    """Stop a recording once both tracks stay below their threshold for ``silence_seconds``.
+
+    Thresholds are dBFS on the scale of ``audio.levels.rms_dbfs``: ``prospect_db``
+    for the other side's track (system audio), ``self_db`` for the microphone,
+    where room noise sits higher. ``silence_seconds`` of 0 or less switches it off.
+    """
+
+    silence_seconds: float = 0.0
+    prospect_db: float = -50.0
+    self_db: float = -40.0
+
+    @property
+    def enabled(self) -> bool:
+        return self.silence_seconds > 0
+
+    def threshold_db(self, label: str) -> float:
+        return self.prospect_db if label == "prospect" else self.self_db
+
+    @classmethod
+    def from_env(cls, default_seconds: float = 0.0) -> AutoStopConfig:
+        """Read the RECORDER_AUTOSTOP_* values; ``default_seconds`` applies when the window is unset or blank.
+
+        The window is read with an explicit blank check because 0 is a valid
+        value (off) and must not fall back to the default like ``or`` would.
+        """
+        raw = (os.getenv("RECORDER_AUTOSTOP_SILENCE_SECONDS") or "").strip()
+        seconds = default_seconds if not raw else env_float("RECORDER_AUTOSTOP_SILENCE_SECONDS", default_seconds)
+        prospect = (os.getenv("RECORDER_AUTOSTOP_PROSPECT_DB") or "").strip()
+        mic = (os.getenv("RECORDER_AUTOSTOP_SELF_DB") or "").strip()
+        return cls(
+            silence_seconds=float(seconds),
+            prospect_db=env_float("RECORDER_AUTOSTOP_PROSPECT_DB", -50.0) if prospect else -50.0,
+            self_db=env_float("RECORDER_AUTOSTOP_SELF_DB", -40.0) if mic else -40.0,
+        )
+
+
 @dataclass(frozen=True)
 class TranscriberConfig:
     backend: str = "whisper.cpp"
     model: str = "large-v3-turbo"
-    language: str = "nl"
-    diarization_backend: str = "sortformer"
-    min_speakers: int = 2
-    max_speakers: int = 2
+    language: str = "en"
     port: int = 8761
     system_port: int = 8761
     whisper_cpp_binary: str = str(resolve_app_resource("vendor/whisper.cpp/build/bin/whisper-cli"))
-    whisper_cpp_model_path: str = str(
-        resolve_app_resource("vendor/whisper.cpp/models/ggml-large-v3-turbo.bin")
-    )
-    whisper_cpp_chunk_ms: int = 3000
+    whisper_cpp_model_path: str = str(model_path())
     whisper_cpp_threads: int = 4
     whisper_cpp_timeout_s: float = 30.0
     whisper_cpp_server_enabled: bool = True
@@ -202,15 +259,18 @@ class TranscriberConfig:
     queue_max_size: int = 32
     self_priority: str = "low"
     transcribe_self_live: bool = False
-    vocabulary_config: str = "config/transcription_vocabulary.yaml"
+    vocabulary_config: str = lang_router.route_vocabulary_config(i18n.DEFAULT_LANGUAGE)
     vocabulary_enabled: bool = True
     vocabulary_initial_prompt: str | None = None
 
     @classmethod
     def from_env(cls) -> TranscriberConfig:
-        # Transcription-vocabulary/biasing config is routed by the configured
-        # LANGUAGE via lang_router (default nl -> config/transcription_vocabulary.yaml).
-        default_vocabulary_config = lang_router.route_vocabulary_config()
+        # Transcription-vocabulary/biasing config follows the spoken language
+        # (the one that sets the Whisper language), not the UI LANGUAGE.
+        spoken_language = (
+            (env("WHISPER_LANGUAGE", env("CALL_LANGUAGE", "en")) or "en").strip().lower()
+        )
+        default_vocabulary_config = lang_router.route_vocabulary_config(spoken_language)
         mic_port = env_int("WHISPER_PORT_MIC", env_int("WHISPER_PORT", 8761)) or 8761
         system_port = (
             env_int(
@@ -219,13 +279,12 @@ class TranscriberConfig:
             )
             or 8761
         )
+        model = env("WHISPER_MODEL", "large-v3-turbo") or "large-v3-turbo"
+        backend = env("WHISPER_BACKEND", "whisper.cpp") or "whisper.cpp"
         return cls(
-            backend=env("WHISPER_BACKEND", "whisper.cpp") or "whisper.cpp",
-            model=env("WHISPER_MODEL", "large-v3-turbo") or "large-v3-turbo",
-            language=(env("WHISPER_LANGUAGE", env("CALL_LANGUAGE", "nl")) or "nl").strip().lower(),
-            diarization_backend=env("DIARIZATION_BACKEND", "sortformer") or "sortformer",
-            min_speakers=env_int("MIN_SPEAKERS", 2) or 2,
-            max_speakers=env_int("MAX_SPEAKERS", 2) or 2,
+            backend=backend,
+            model=model,
+            language=spoken_language,
             port=mic_port,
             system_port=system_port,
             whisper_cpp_binary=env(
@@ -233,12 +292,7 @@ class TranscriberConfig:
                 str(resolve_app_resource("vendor/whisper.cpp/build/bin/whisper-cli")),
             )
             or str(resolve_app_resource("vendor/whisper.cpp/build/bin/whisper-cli")),
-            whisper_cpp_model_path=env(
-                "WHISPER_CPP_MODEL_PATH",
-                str(resolve_app_resource("vendor/whisper.cpp/models/ggml-large-v3-turbo.bin")),
-            )
-            or str(resolve_app_resource("vendor/whisper.cpp/models/ggml-large-v3-turbo.bin")),
-            whisper_cpp_chunk_ms=env_int("WHISPER_CPP_CHUNK_MS", 3000) or 3000,
+            whisper_cpp_model_path=_whisper_cpp_model_path(backend, model),
             whisper_cpp_threads=env_int("WHISPER_CPP_THREADS", 4) or 4,
             whisper_cpp_timeout_s=env_float("WHISPER_CPP_TIMEOUT_S", 30.0) or 30.0,
             whisper_cpp_server_enabled=bool(env_bool("WHISPER_CPP_SERVER_ENABLED", True)),
@@ -303,7 +357,7 @@ class DetectorConfig:
     enable_script_tracking: bool = True
     script_tracking_config: str = "config/scripts/default.yaml"
     only_classify_prospect: bool = True
-    call_language: str = "nl"
+    call_language: str = "en"
     sliding_window_size: int = 5
     min_chunks_to_classify: int = 3
     classification_debounce_seconds: float = 5.0
@@ -400,7 +454,7 @@ class DetectorConfig:
             script_tracking_config=env("SCRIPT_TRACKING_CONFIG", "config/scripts/default.yaml")
             or "config/scripts/default.yaml",
             only_classify_prospect=only_classify,
-            call_language=(env("CALL_LANGUAGE", "nl") or "nl").strip().lower(),
+            call_language=configured_call_language(),
             sliding_window_size=env_int("DETECTOR_WINDOW_SIZE", 5) or 5,
             min_chunks_to_classify=env_int("DETECTOR_MIN_CHUNKS", 3) or 3,
             classification_debounce_seconds=env_float("DETECTOR_DEBOUNCE_S", 5.0) or 5.0,
@@ -549,7 +603,7 @@ class CallConfig:
     llm_model: str | None = None
     preset_name: str | None = None
     context_docs: list[str] = field(default_factory=list)
-    call_language: str = "nl"
+    call_language: str = "en"
     transcribe_self_live: bool | None = None
     # PR-D4: optional client-dossier link for this session. None means no
     # dossier (the opt-in itself -- a session with no client_slug never loads
@@ -729,6 +783,13 @@ def build_module_configs(call_config: CallConfig) -> dict[str, Any]:
     # ceiling must not inherit anything, and every call gets its own fresh DetectorConfig.
     detector = replace(detector, privacy=call_config.privacy, client_slug=call_config.client_slug)
     transcriber = with_overrides(transcriber, language=call_config.call_language)
+    if not (os.getenv("WHISPER_VOCABULARY_CONFIG") or "").strip():
+        # The vocabulary biases Whisper on the language of THIS call; an explicit
+        # WHISPER_VOCABULARY_CONFIG in the environment still wins.
+        transcriber = replace(
+            transcriber,
+            vocabulary_config=lang_router.route_vocabulary_config(call_config.call_language),
+        )
     transcriber = with_overrides(transcriber, transcribe_self_live=call_config.transcribe_self_live)
     slides = with_overrides(slides, prospect_industry=call_config.prospect_industry)
 

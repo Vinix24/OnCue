@@ -595,3 +595,61 @@ def test_build_app_without_icon_warns_and_still_builds(tmp_path: Path) -> None:
     assert (app / "Contents" / "Info.plist").is_file()
     verify = _run(["codesign", "--verify", "--strict", str(app)], env)
     assert verify.returncode == 0, verify.stderr
+
+
+# ── recording bar check in install.sh ────────────────────────────────────────
+
+
+def _bar_current(root: Path, env: dict[str, str]) -> bool:
+    """Runs install.sh's real _bar_current function against `root`."""
+    import re
+
+    text = INSTALL.read_text()
+    match = re.search(r"^_bar_current\(\) \{.*?^\}\n", text, re.S | re.M)
+    assert match, "_bar_current not found in install.sh"
+    script = (
+        f'ROOT_DIR="{root}"; BAR_APP="$ROOT_DIR/bin/OnCue Bar.app"\n{match.group(0)}\n_bar_current'
+    )
+    return _run(["bash", "-c", script], env).returncode == 0
+
+
+def _write_bar(root: Path, version: str, executable: bool = True) -> Path:
+    app = root / "bin" / "OnCue Bar.app"
+    (app / "Contents" / "MacOS").mkdir(parents=True, exist_ok=True)
+    (app / "Contents" / "Info.plist").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>\n'
+        f"<key>CFBundleVersion</key><string>{version}</string>\n</dict></plist>\n"
+    )
+    exe = app / "Contents" / "MacOS" / "OnCueBar"
+    exe.write_text("#!/bin/sh\nexit 0\n")
+    exe.chmod(0o755 if executable else 0o644)
+    return app
+
+
+@pytest.mark.skipif(not Path("/usr/libexec/PlistBuddy").exists(), reason="needs PlistBuddy (macOS)")
+def test_install_checks_the_bar_by_version_and_executable(tmp_path: Path) -> None:
+    env = _base_env(tmp_path)
+    root = tmp_path / "tree"
+    root.mkdir()
+    (root / "pyproject.toml").write_text('[project]\nname = "x"\nversion = "1.2.3"\n')
+
+    assert not _bar_current(root, env)  # missing
+    _write_bar(root, "1.2.3")
+    assert _bar_current(root, env)
+    _write_bar(root, "1.2.2")
+    assert not _bar_current(root, env)  # old version
+    _write_bar(root, "1.2.3", executable=False)
+    assert not _bar_current(root, env)  # not executable
+    _write_bar(root, "1.2.3")
+    (root / "pyproject.toml").write_text('[project]\nname = "x"\n')
+    assert not _bar_current(root, env)  # no version to compare with: never current
+
+
+def test_source_route_builds_the_bar_and_never_fails_on_it() -> None:
+    text = INSTALL.read_text()
+    start = text.index("# The recording bar (macOS 14.2 and later)")
+    block = text[start : text.index("# ── 7.", start)]
+    assert 'scripts/build_oncue_bar.sh" "$ROOT_DIR/bin"' in block
+    assert "_fail" not in block and "AUDIO_REASON" not in block and "NOT_OK" not in block
+    assert block.count("$BAR_NOTE") == 1
+    assert "the recording page in the browser stays the full control" in text

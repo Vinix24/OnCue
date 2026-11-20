@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=340, initial-scale=1" />
+  <title>OnCue</title>
+  <style>
+    :root {
+      --bg: #0d0f14; --panel: #161a22; --line: #242a36;
+      --text: #e7ebf2; --muted: #8b94a7; --green: #34d27b; --amber: #f5b53d; --red: #ef4146;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); overflow: hidden; }
+    body { color: var(--text); font: 11px/1.2 -apple-system, system-ui, sans-serif; }
+    .bar {
+      width: 340px; height: 56px; padding: 0 10px; background: var(--panel);
+      border: 1px solid var(--line); display: flex; flex-direction: column; justify-content: center;
+    }
+    .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .rec {
+      width: 34px; height: 34px; flex: 0 0 auto; border: none; border-radius: 50%; cursor: pointer;
+      background: var(--muted); display: flex; align-items: center; justify-content: center;
+    }
+    .rec::after { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--bg); }
+    .rec:disabled { opacity: .5; cursor: default; }
+    .recording .rec { background: var(--red); animation: pulse 1.3s ease-in-out infinite; }
+    .recording .rec::after { border-radius: 2px; background: #fff; }
+    .recording.paused .rec { background: var(--amber); animation: none; }
+    .recording.paused .meters { opacity: .45; }
+    .ctl {
+      flex: 0 0 auto; display: none; width: 24px; height: 24px; padding: 0; cursor: pointer;
+      background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 50%;
+      align-items: center; justify-content: center; font-size: 11px; line-height: 1;
+    }
+    .recording .ctl { display: flex; }
+    .ctl:hover:not(:disabled) { border-color: var(--green); }
+    .ctl:disabled { opacity: .5; cursor: default; }
+    .pause-tag { margin-left: 5px; color: var(--amber); font-size: 11px; }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 65, 70, .55); }
+      50% { box-shadow: 0 0 0 6px rgba(239, 65, 70, 0); }
+    }
+    .info { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .info.ok { color: var(--green); }
+    .info.bad { color: var(--red); }
+    .recording .info { flex: 0 0 auto; color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums; }
+    .meters { flex: 1; min-width: 0; display: none; flex-direction: column; gap: 5px; }
+    .recording .meters { display: flex; }
+    .meter { display: flex; align-items: center; gap: 5px; }
+    .meter .name { width: 34px; color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .track {
+      position: relative; flex: 1; height: 12px; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+    }
+    .fill { height: 100%; width: 0; background: var(--green); transition: width .08s linear; }
+    .meter.silent .fill { background: var(--amber); }
+    .meter.dead .fill { background: var(--red); width: 100%; opacity: .35; }
+    .note { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; font-size: 9px; }
+    .meter.silent .note { display: flex; color: var(--amber); }
+    .meter.dead .note { display: flex; color: var(--red); font-weight: 600; }
+    .recording.tap-lost { border-color: var(--amber); }
+    .recording.tap-lost .info, .recording.tap-recovered .info, .recording.tap-nosys .info { max-width: 200px; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+    .tap-tag { margin-left: 5px; color: var(--amber); font-size: 11px; }
+    .tap-recovered .tap-tag { color: var(--green); }
+    .tap-nosys .tap-tag { color: var(--muted); }
+    .mark { flex: 0 0 auto; display: block; width: 28px; height: 28px; }
+    .mark svg { display: block; width: 100%; height: 100%; }
+    .lost {
+      background: repeating-linear-gradient(45deg, var(--panel) 0 8px, var(--line) 8px 16px);
+    }
+  </style>
+</head>
+<body>
+  <div class="bar" id="bar">
+    <div class="row">
+      <button class="rec" id="rec" disabled></button>
+      <button class="ctl" id="pause"></button>
+      <button class="ctl" id="mark">&#9873;</button>
+      <div class="info" id="info"></div>
+      <div class="meters" id="meters"></div>
+      <a class="mark" href="/" target="_blank" title="Open OnCue">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="OnCue"><defs><linearGradient id="oncue-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgb(251, 146, 60)"/><stop offset="1" stop-color="rgb(249, 115, 22)"/></linearGradient></defs><rect width="1024" height="1024" rx="230" fill="url(#oncue-bg)"/><g fill="#fff"><rect x="181" y="437" width="90" height="150" rx="45"/><rect x="324" y="372" width="90" height="280" rx="45"/><rect x="467" y="297" width="90" height="430" rx="45"/><rect x="610" y="372" width="90" height="280" rx="45"/><rect x="753" y="437" width="90" height="150" rx="45"/></g><circle cx="856" cy="856" r="46" fill="rgb(34, 211, 238)"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <script>
+    window.__configPromise = fetch("/api/config").then((r) => r.json()).catch(() => ({}));
+  </script>
+  <script src="/js/i18n.js"></script>
+  <script>
+    const barEl = document.getElementById("bar");
+    const recBtn = document.getElementById("rec");
+    const infoEl = document.getElementById("info");
+    const metersEl = document.getElementById("meters");
+    const pauseBtn = document.getElementById("pause");
+    const markBtn = document.getElementById("mark");
+    const MARK_SHOW_MS = 2000;
+    const READY_MS = 4000;
+    let ws = null;
+    let synced = false;
+    let phase = "idle";
+    let reason = null;
+    let autoStopS = null;
+    let elapsed = 0;
+    let stopping = false;
+    let startError = null;
+    let showReady = false;
+    let readyTimer = null;
+    let meters = {};
+    let paused = false;
+    let markerCount = 0;
+    let markerShown = null;
+    let markTimer = null;
+    let pendingCtl = false;
+    let tapState = "ok";
+    const tr = (key, params) => window.t("recorder." + key, params);
+    // Render only once the catalog has loaded (or failed to load, then t() falls back
+    // to the key); before that render() is a no-op so no raw key flashes in the bar.
+    let i18nReady = false;
+    window.SalesCopilotI18n.ready.catch(() => {}).then(() => { i18nReady = true; render(); });
+
+    function setTap(tap) {
+      const next = tap && tap.state ? tap.state : "ok";
+      if (next === tapState) return;
+      tapState = next;
+      render();
+    }
+
+    function fmt(sec) {
+      const t = Math.floor(sec || 0);
+      const h = Math.floor(t / 3600);
+      const m = String(Math.floor((t % 3600) / 60)).padStart(2, "0");
+      const s = String(t % 60).padStart(2, "0");
+      return h ? h + ":" + m + ":" + s : m + ":" + s;
+    }
+    function dbPct(db) {
+      if (db === null || db === undefined) return 0;
+      return Math.max(0, Math.min(1, (db + 60) / 60)) * 100;
+    }
+
+    function setInfo(text, cls, title) {
+      infoEl.textContent = text;
+      infoEl.className = "info" + (cls ? " " + cls : "");
+      infoEl.title = title || "";
+    }
+
+    function setTime() {
+      infoEl.className = "info";
+      infoEl.title = "";
+      if (markerShown !== null) { infoEl.textContent = tr("bar_marker", { time: fmt(markerShown) }); return; }
+      infoEl.textContent = fmt(elapsed);
+      if (paused) {
+        const tag = document.createElement("span");
+        tag.className = "pause-tag";
+        tag.textContent = tr("bar_paused");
+        infoEl.appendChild(tag);
+      }
+      const lost = tapState === "lost" || tapState === "gave_up";
+      if (lost || tapState === "recovered" || tapState === "no_system_audio") {
+        const tap = document.createElement("span");
+        tap.className = "tap-tag";
+        tap.textContent = tr(tapState === "gave_up" ? "tap_gave_up" : lost ? "tap_lost" : tapState === "recovered" ? "tap_reattached" : "tap_no_system_audio");
+        tap.title = tap.textContent;
+        infoEl.appendChild(tap);
+      }
+    }
+
+    function sendCtl(action) {
+      if (!synced || pendingCtl || !ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ action }));
+      pendingCtl = true;
+      render();
+    }
+
+    function render() {
+      if (!i18nReady) return;
+      const recording = synced && phase === "recording";
+      barEl.classList.toggle("lost", !synced);
+      barEl.classList.toggle("recording", recording);
+      barEl.classList.toggle("paused", recording && paused);
+      barEl.classList.toggle("tap-lost", recording && (tapState === "lost" || tapState === "gave_up"));
+      barEl.classList.toggle("tap-recovered", recording && tapState === "recovered");
+      barEl.classList.toggle("tap-nosys", recording && tapState === "no_system_audio");
+      if (!synced) {
+        recBtn.disabled = true;
+        recBtn.title = "";
+        setInfo(tr("bar_connection_lost"), "");
+        return;
+      }
+      recBtn.disabled = phase === "transcribing" || (recording && stopping);
+      recBtn.title = tr(recording ? "bar_stop_title" : "rec_title");
+      pauseBtn.disabled = pendingCtl || stopping;
+      markBtn.disabled = pendingCtl || stopping;
+      pauseBtn.innerHTML = paused ? "&#9654;" : "&#10074;&#10074;";
+      pauseBtn.title = tr(paused ? "resume_title" : "pause_title");
+      markBtn.title = tr("mark_title");
+      if (recording) setTime();
+      else if (autoStopS && (phase === "transcribing" || (phase === "ready" && showReady))) setInfo(tr("auto_stopped", { seconds: autoStopS }), "ok");
+      else if (phase === "transcribing") setInfo(tr("bar_transcribing"), "");
+      else if (startError !== null) setInfo(tr("bar_start_failed"), "bad", startError);
+      else if (phase === "failed") setInfo(tr("bar_failed"), "bad", reason || "");
+      else if (phase === "ready" && showReady) setInfo(tr("bar_done"), "ok");
+      else setInfo(tr("bar_ready"), "");
+    }
+
+    function meterFor(label) {
+      if (meters[label]) return meters[label];
+      const el = document.createElement("div");
+      el.className = "meter";
+      el.innerHTML = '<span class="name"></span><div class="track"><div class="fill"></div><span class="note"></span></div>';
+      el.querySelector(".name").textContent = label;
+      metersEl.appendChild(el);
+      meters[label] = {
+        el, fill: el.querySelector(".fill"), note: el.querySelector(".note"), track: el.querySelector(".track"),
+      };
+      return meters[label];
+    }
+
+    function onLevel(msg) {
+      if (phase !== "recording") return;
+      elapsed = msg.elapsed_s;
+      setTap(msg.tap);
+      setTime();
+      for (const s of msg.streams) {
+        const m = meterFor(s.label);
+        const dead = s.started === false;
+        m.el.classList.toggle("dead", dead);
+        m.el.classList.toggle("silent", !dead && !!s.silent);
+        m.note.textContent = tr(dead ? "bar_not_started" : "meter_silent");
+        m.track.title = dead && s.error ? s.error : "";
+        m.fill.style.width = dead ? "" : dbPct(s.db) + "%";
+      }
+    }
+
+    function onState(msg) {
+      synced = true;
+      phase = msg.phase;
+      reason = msg.reason || null;
+      autoStopS = msg.auto_stop_s || null;
+      elapsed = msg.elapsed_s || 0;
+      stopping = false;
+      startError = null;
+      pendingCtl = false;
+      paused = phase === "recording" && !!msg.paused;
+      tapState = phase === "recording" && msg.tap && msg.tap.state ? msg.tap.state : "ok";
+      const count = (msg.markers || []).length;
+      if (phase !== "recording") {
+        markerCount = 0;
+        markerShown = null;
+      } else if (count > markerCount) {
+        markerShown = msg.markers[count - 1].offset_ms / 1000;
+        clearTimeout(markTimer);
+        markTimer = setTimeout(() => { markerShown = null; render(); }, MARK_SHOW_MS);
+        markerCount = count;
+      } else {
+        markerCount = count;
+      }
+      if (phase !== "recording") { metersEl.textContent = ""; meters = {}; }
+      clearTimeout(readyTimer);
+      showReady = phase === "ready";
+      if (showReady) readyTimer = setTimeout(() => { showReady = false; render(); }, READY_MS);
+      render();
+    }
+
+    function connect() {
+      ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "level") onLevel(msg);
+        else if (msg.type === "state") onState(msg);
+        else if (msg.type === "error") { startError = msg.reason || ""; render(); }
+      };
+      ws.onclose = () => {
+        synced = false;
+        render();
+        setTimeout(connect, 2000);
+      };
+    }
+
+    function toggle() {
+      if (!synced || recBtn.disabled || !ws || ws.readyState !== WebSocket.OPEN) return;
+      if (phase === "recording") {
+        ws.send(JSON.stringify({ action: "stop" }));
+        stopping = true;
+      } else {
+        startError = null;
+        ws.send(JSON.stringify({ action: "start", mic: null }));
+      }
+      render();
+    }
+    recBtn.addEventListener("click", toggle);
+    pauseBtn.addEventListener("click", () => sendCtl(paused ? "resume" : "pause"));
+    markBtn.addEventListener("click", () => sendCtl("mark"));
+    window.oncueBar = { toggle };
+
+    connect();
+  </script>
+</body>
+</html>

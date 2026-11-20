@@ -1,0 +1,186 @@
+# English sales preset. Same structure and the same routes as sales.yaml (the Dutch
+# base), written as natural English sales speech. Route names match the English
+# route files (pain_points_en.yaml, objections_en.yaml).
+default_consent_tier: audit
+
+ui_labels:
+  prospect: "prospect"
+  self: "salesperson"
+
+system_prompt_addendum: ""
+
+pain_points:
+  routes:
+    - name: quote_process
+      label: Quote process
+      utterances:
+        - "putting together quotes eats up so much of our time"
+        - "mistakes keep creeping into our quotes"
+        - "customers wait way too long for a quote"
+        - "we still do all our quotes in Word"
+        - "every quote is custom work, it takes hours"
+        - "our quoting process is honestly a mess"
+        - "we sometimes forget things when we write up a quote"
+
+    - name: capacity
+      label: Capacity
+      utterances:
+        - "we don't have enough people to keep up with everything"
+        - "the team is stretched thin"
+        - "we're growing but we can't find anyone to hire"
+        - "everyone is doing three jobs at once"
+        - "we have to turn work down because we can't take it on"
+        - "the workload is just too heavy"
+
+    - name: cross_sell
+      label: Cross-sell
+      utterances:
+        - "we're leaving opportunities on the table with existing customers"
+        - "we have no view of what else our customers could buy"
+        - "we don't really upsell in any structured way"
+        - "we don't know which accounts still have potential"
+        - "nobody actively reaches out to our existing customers"
+
+    - name: lead_generation
+      label: Lead generation
+      utterances:
+        - "we just don't have enough leads"
+        - "we depend on word of mouth"
+        - "we don't really have a pipeline"
+        - "new customers mostly come through our network"
+        - "we barely do any outbound at all"
+        - "the pipeline is empty"
+
+    - name: knowledge_transfer
+      label: Knowledge transfer
+      utterances:
+        - "the knowledge sits in the heads of a few people"
+        - "if that colleague leaves, we're lost"
+        - "we rely too much on individual people"
+        - "nothing is written down about how things work"
+        - "new hires have to ask the senior people about everything"
+
+    - name: customer_service
+      label: Customer service
+      utterances:
+        - "customers wait too long for an answer"
+        - "we keep getting the same questions over and over"
+        - "we can't see which customer questions are still open"
+        - "our response time is too slow"
+        - "complaints sometimes fall through the cracks"
+
+    - name: manual_work
+      label: Manual work
+      utterances:
+        - "we still do a lot of this by hand"
+        - "it's a lot of copy and paste"
+        - "we still live in Excel for most of it"
+        - "there's a lot of double work"
+        - "the same data has to be entered in three different systems"
+        - "we retype everything"
+
+    - name: data_quality
+      label: Data quality
+      utterances:
+        - "we can't trust our data"
+        - "the data is all over the place"
+        - "we don't have a single source of truth"
+        - "every system shows something different"
+        - "our CRM data is a mess"
+
+    - name: reporting
+      label: Reporting
+      utterances:
+        - "we have no real insight into the numbers"
+        - "building reports takes us days"
+        - "we don't have a dashboard"
+        - "management asks for figures we can't pull together quickly"
+        - "we honestly don't know where we stand"
+
+    - name: onboarding
+      label: Onboarding
+      utterances:
+        - "it takes new hires months to get up to speed"
+        - "handing over knowledge takes too long"
+        - "training someone new costs a lot of time"
+        - "we don't have a structured onboarding program"
+
+    - name: compliance
+      label: Compliance
+      utterances:
+        - "we have to meet more and more regulation"
+        - "GDPR is a real challenge for us"
+        - "we're missing audit trails"
+        - "our compliance documentation isn't in order"
+        - "we're not sure whether we're compliant"
+
+    - name: costs
+      label: Costs
+      utterances:
+        - "it's too expensive"
+        - "we don't have the budget for it"
+        - "the ROI isn't clear to us"
+        - "we have to cut costs"
+        - "what does it actually deliver in concrete terms"
+        - "we already spend a lot on tooling"
+
+objections:
+  routes:
+    - name: price
+      utterances:
+        - this is too expensive for us
+        - we don't have the budget for this
+        - it doesn't fit into our budget right now
+        - the investment is too high
+        - we can't spend that kind of money right now
+        - you're above what we planned to spend
+
+    - name: timing
+      utterances:
+        - not right now
+        - we're not ready for this yet
+        - let's pick this up again later
+        - this isn't the right moment
+        - we want to take this on next quarter
+        - it's not a priority at the moment
+
+    - name: competitor
+      utterances:
+        - we already work with someone else
+        - our current vendor already does this
+        - we're already with a competitor
+        - we already have something for this
+        - we're happy with our current vendor
+        - we already use another system
+
+    - name: scope
+      utterances:
+        - we'd like to start small first
+        - that's too big for us
+        - we're looking for something simpler
+        - this feels like too much at once
+        - we'd rather run a smaller pilot first
+        - we don't want to roll out that broadly
+
+    - name: authority
+      utterances:
+        - I need to run this by someone first
+        - I don't decide this on my own
+        - my manager still needs to look at this
+        - finance has to sign off on this first
+        - I'm not the only decision maker
+        - leadership has to approve this first
+
+buying_signals:
+  subcategories:
+    - vraag-naar-prijs
+    - vraag-naar-implementatie
+    - timeline-vraag
+    - referentie-vraag
+    - vergelijking-vraag
+
+doubts:
+  subcategories:
+    - sceptisch
+    - twijfel
+    - bedenktijd

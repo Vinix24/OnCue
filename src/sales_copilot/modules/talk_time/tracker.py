@@ -147,7 +147,10 @@ class TalkTimeTracker:
         current_monologue_ms, monologue_speaker = self._current_monologue(now_ms)
 
         status: Status = "green"
-        if current_monologue_ms >= self._config.monologue_warning_seconds * 1000:
+        if (
+            monologue_speaker == "self"
+            and current_monologue_ms >= self._config.monologue_warning_seconds * 1000
+        ):
             status = "red"
         elif rolling_total:
             target_self = self._target_ratio()
@@ -171,10 +174,14 @@ class TalkTimeTracker:
 
     def check_alerts(self, now_ms: int) -> CoachingAlert | None:
         state = self.get_state(now_ms)
-        if state.current_monologue_ms == 0 or state.monologue_speaker is None:
+        if state.current_monologue_ms == 0 or state.monologue_speaker != "self":
+            # The monologue ended or passed to the prospect: re-arm for the next seller monologue.
             self._last_monologue_alert_ms = None
 
-        if state.current_monologue_ms >= self._config.monologue_warning_seconds * 1000:
+        if (
+            state.monologue_speaker == "self"
+            and state.current_monologue_ms >= self._config.monologue_warning_seconds * 1000
+        ):
             if self._should_emit(self._last_monologue_alert_ms, now_ms, 20000):
                 self._last_monologue_alert_ms = now_ms
                 return CoachingAlert(

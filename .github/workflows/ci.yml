@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main, feat/cold-call-objections]
 
+# A new push to a pull request supersedes the run in progress. Runs on main and
+# develop are never cancelled: cancel-in-progress is true for pull_request only.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     # Apple Silicon for mlx-whisper compatibility
@@ -96,7 +102,9 @@ jobs:
       - name: Tests (pytest)
         run: |
           source .venv/bin/activate
-          python -m pytest tests/ -v --tb=short
+          python -m pytest tests/ -v --tb=short -n "${PYTEST_WORKERS:-2}" --dist loadgroup
+      - name: Swift tests (OnCue Bar)
+        run: swift test --package-path native/oncue-bar
       - name: Pre-launch auth hardening acceptance
         run: |
           source .venv/bin/activate

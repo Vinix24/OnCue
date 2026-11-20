@@ -50,6 +50,7 @@ from sales_copilot.auth.revocation_cache import (
     is_degraded,
     mark_degraded,
 )
+from sales_copilot.core import i18n
 
 __all__ = [
     "FEATURE_AUTOSTART",
@@ -65,6 +66,8 @@ __all__ = [
     "FEATURE_SCRIPT_TRACKING_COMPUTE",
     "FEATURE_SCRIPT_TRACKING_LIVE",
     "RESPONSE_LOCKED_TEASER",
+    "RESPONSE_LOCKED_TEASER_KEY",
+    "response_locked_teaser",
     "FeaturePolicy",
     "get_feature_policy",
     "resolve_response_suggestion",
@@ -72,7 +75,11 @@ __all__ = [
 
 # Free/Pro seam for the response layer ("detectie free, kaartenbak Pro"): the
 # card itself always fires on Free, only the curated response text is gated.
-RESPONSE_LOCKED_TEASER = "\U0001f512 Pro: bekijk de beste tegenreactie"
+#: English text of the teaser, equal to ``config/i18n/en.yaml``
+#: ``policy.response_locked_teaser``. What a session actually sees comes from
+#: ``response_locked_teaser()``, which follows the configured language (OI-045).
+RESPONSE_LOCKED_TEASER = "\U0001f512 Pro: see the best counter-response"
+RESPONSE_LOCKED_TEASER_KEY = "policy.response_locked_teaser"
 
 _LICENSE_ENV = "SALES_COPILOT_LICENSE"
 _PRO_TIERS = frozenset({"pro", "enterprise"})
@@ -246,6 +253,11 @@ def get_feature_policy() -> FeaturePolicy:
     return _FEATURE_POLICY
 
 
+def response_locked_teaser(lang: str | None = None) -> str:
+    """Return the Pro-lock teaser in ``lang`` (default: the configured LANGUAGE)."""
+    return i18n.t(RESPONSE_LOCKED_TEASER_KEY, lang=lang)
+
+
 def resolve_response_suggestion(
     curated: str | None,
     *,
@@ -262,4 +274,4 @@ def resolve_response_suggestion(
     policy = feature_policy or get_feature_policy()
     if policy.allows(FEATURE_RESPONSE_PLAYBOOK):
         return curated
-    return RESPONSE_LOCKED_TEASER
+    return response_locked_teaser()

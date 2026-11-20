@@ -1,4 +1,4 @@
-"""Junk decision for a finished call report (belapp-junkfilter-rapportschema D2).
+"""Junk decision for a finished call report.
 
 A report is junk -- a voicemail, a network announcement, a phone menu, a line nobody
 answered -- exactly when the report model said so: ``gesprek_gevoerd == False``. The word

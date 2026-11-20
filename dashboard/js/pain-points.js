@@ -3,7 +3,11 @@ const DEFAULT_WS_BASE_URL = typeof location !== "undefined" ? `ws://${location.h
 const getPainPointsWsUrl = () => `${window.WS_BASE_URL || DEFAULT_WS_BASE_URL}/ws/pain-points`;
 const painPointsPanel = document.getElementById("pain-points-panel");
 const MAX_PAIN_POINTS = 12;
-const RESPONSE_LOCKED_TEASER = "\u{1F512} Pro: bekijk de beste tegenreactie";
+// The server sends the teaser in the configured language (policy.response_locked_teaser).
+const RESPONSE_LOCKED_TEASERS = [
+  "\u{1F512} Pro: see the best counter-response",
+  "\u{1F512} Pro: bekijk de beste tegenreactie",
+];
 
 const formatTimestamp = (ms) => {
   if (typeof ms !== "number" || Number.isNaN(ms)) {
@@ -136,7 +140,7 @@ const addPainPointCard = (payload) => {
   if (payload.response_suggestion) {
     const response = document.createElement("div");
     response.className = "pain-point-response";
-    if (payload.response_suggestion === RESPONSE_LOCKED_TEASER) {
+    if (RESPONSE_LOCKED_TEASERS.includes(payload.response_suggestion)) {
       response.classList.add("is-locked");
     }
     response.textContent = payload.response_suggestion;

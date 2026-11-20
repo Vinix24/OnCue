@@ -121,7 +121,7 @@ class CallReport:
     # downstream automation could not tell "when" a call happened.
     call_started_at: str | None = None
     call_ended_at: str | None = None
-    # Post-call enrichment (belapp-junkfilter-rapportschema D1, ``enrichment.py``): written
+    # Post-call enrichment (``enrichment.py``): written
     # after the LLM step, into the local copy that already exists. The defaults are the
     # fail-open result, so a report the step never reached (or could not enrich) reads as
     # "conversation held, nothing to add" -- never as hidden, never with invented text.
@@ -130,7 +130,8 @@ class CallReport:
     overview: str = ""
     keywords: list[str] = field(default_factory=list)
     action_items: list[str] = field(default_factory=list)
-    # Junk decision (D2+D3, ``junk.py``): the model said no conversation took place. The
+    open_questions: list[str] = field(default_factory=list)
+    # Junk decision (``junk.py``): the model said no conversation took place. The
     # local copy is kept and marked; delivery to the sinks is skipped. ``junk_reason`` is a
     # fixed category plus a count, never transcript text. Reports written before this
     # existed lack both keys and read as not junk.
@@ -391,6 +392,7 @@ def _redact_report(report: CallReport) -> CallReport:
         overview=redact_pii(report.overview)[0],
         keywords=[redact_pii(keyword)[0] for keyword in report.keywords],
         action_items=[redact_pii(item)[0] for item in report.action_items],
+        open_questions=[redact_pii(item)[0] for item in report.open_questions],
         term_corrections=[
             replace(
                 entry,
@@ -538,6 +540,7 @@ def rewrite_with_enrichment(
         overview=enrichment.overview,
         keywords=list(enrichment.keywords),
         action_items=list(enrichment.action_items),
+        open_questions=list(enrichment.open_questions),
         junk=junk,
         junk_reason=junk_reason,
         term_corrections=[

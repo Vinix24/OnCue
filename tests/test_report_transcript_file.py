@@ -38,6 +38,7 @@ def reports_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture(autouse=True)
 def _language_nl(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LANGUAGE", "nl")
+    monkeypatch.setenv("CALL_LANGUAGE", "nl")  # the Dutch base preset labels (verkoper)
     monkeypatch.delenv("REPORT_REDACT_PII", raising=False)
 
 

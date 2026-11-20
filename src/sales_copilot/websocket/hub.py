@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 
+from sales_copilot.core import route_runtime
 from sales_copilot.core.autostart_monitor import (
     TRIGGER_TELEPHONY,
     AutostartMonitorConfig,
@@ -63,11 +64,24 @@ def _build_autostart_call_config(trigger: str | None = None) -> dict[str, Any]:
 
 
 def _make_autostart_monitor() -> RuntimeAutostartMonitor:
-    def _on_consent_required(process_name: str) -> None:
+    def _on_consent_required(prompt_id: str, process_name: str, source: str) -> None:
         asyncio.create_task(
             hub_core.broadcast(
                 "system",
-                {"type": "autostart_consent_required", "process": process_name},
+                {
+                    "type": "autostart_consent_required",
+                    "prompt_id": prompt_id,
+                    "process": process_name,
+                    "source": source,
+                },
+            )
+        )
+
+    def _on_consent_resolved(prompt_id: str, outcome: str) -> None:
+        asyncio.create_task(
+            hub_core.broadcast(
+                "system",
+                {"type": "consent_resolved", "prompt_id": prompt_id, "outcome": outcome},
             )
         )
 
@@ -99,6 +113,15 @@ def _make_autostart_monitor() -> RuntimeAutostartMonitor:
                 logger.warning("Runtime auto-arm blocked: missing entitlements %s", missing)
                 return
             async with hub_core._config_lock:
+                if route_runtime.other_route_running(route_runtime.COPILOT):
+                    # ADR-004 decision 8: the notetaker records this call now.
+                    logger.info("Runtime auto-arm: the other route is running; nothing started.")
+                    return
+                if hub_core._call_active:
+                    # ADR-004 decision 4: a Yes is a normal start, and a normal
+                    # start never replaces a call that is already running.
+                    logger.info("Runtime auto-arm: a call is already active; nothing started.")
+                    return
                 hub_core.apply_start_call(config)
             await hub_core.broadcast("config", {"type": "start_call", "config": config})
 
@@ -107,15 +130,22 @@ def _make_autostart_monitor() -> RuntimeAutostartMonitor:
     monitor = RuntimeAutostartMonitor(
         config=AutostartMonitorConfig.from_env(),
         on_consent_required=_on_consent_required,
+        on_consent_resolved=_on_consent_resolved,
         on_session_arm=_on_session_arm,
+        other_route_running=lambda: route_runtime.other_route_running(route_runtime.COPILOT),
     )
     return monitor
+
+
+_hub_port: int | None = None
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     global _heartbeat, _autostart_monitor_task, _autostart_stop_event
     _heartbeat = start_pro_license_heartbeat()
+    if _hub_port is not None:
+        route_runtime.write_runtime_file(route_runtime.COPILOT, _hub_port)
 
     monitor = _make_autostart_monitor()
     set_active_monitor(monitor)
@@ -142,6 +172,8 @@ async def _lifespan(app: FastAPI):
         except (TimeoutError, asyncio.CancelledError):
             _autostart_monitor_task.cancel()
     set_active_monitor(None)
+    if _hub_port is not None:
+        route_runtime.remove_runtime_file(route_runtime.COPILOT)
 
 
 app = FastAPI(lifespan=_lifespan)
@@ -198,6 +230,8 @@ close_all_connections = hub_core.close_all_connections
 def run_hub(host: str, port: int) -> None:
     import uvicorn
 
+    global _hub_port
     if host not in {"localhost", "127.0.0.1"}:
         raise ValueError("The local WebSocket hub must bind to localhost")
+    _hub_port = port
     uvicorn.run(app, host=host, port=port, log_level="info")

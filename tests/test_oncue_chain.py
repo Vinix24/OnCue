@@ -354,3 +354,27 @@ def test_detector_check_message_matches_post_206_behaviour() -> None:
     content = SCRIPT_PATH.read_text()
     assert "applyPreset(presets[0])" not in content
     assert "verse browser" in content
+
+
+def test_check_hub_ignores_a_client_socket_on_the_hub_port(tmp_path: Path) -> None:
+    """A client socket whose local port equals the hub port, with nothing
+    listening there, is not a hub that fails to answer."""
+    script_copy = _build_fake_repo(tmp_path, with_venv=True)
+    bindir = tmp_path / "bin"
+    _write_claude_stub(bindir, exit_code=1)
+    hub_port = _free_port()
+    (tmp_path / ".env").write_text(f"WS_HUB_PORT={hub_port}\n")
+    with socket.socket() as remote:
+        remote.bind(("127.0.0.1", 0))
+        remote.listen(1)
+        client = socket.socket()
+        client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            client.bind(("127.0.0.1", hub_port))
+            client.connect(remote.getsockname())
+            result = _run(script_copy, ["check"], cwd=tmp_path, extra_path=bindir)
+        finally:
+            client.close()
+
+    assert "niets luistert op poort" in result.stdout
+    assert "bezet maar antwoordt niet" not in result.stdout

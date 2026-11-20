@@ -125,7 +125,10 @@ def _config(**kwargs: Any) -> DetectorConfig:
     return DetectorConfig(llm_provider="ollama", llm_model="m", **kwargs)
 
 
-async def test_notetaker_prompt_is_neutral_and_uses_the_preset_labels(recorder: _Recorder) -> None:
+async def test_notetaker_prompt_is_neutral_and_uses_the_preset_labels(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LANGUAGE", "nl")
     roles = _report_roles({}, _config(preset_name="sales", call_language="nl"))
     assert roles is not None
 
@@ -173,12 +176,21 @@ async def test_sales_prompt_is_unchanged_for_the_sales_presets(recorder: _Record
     assert call["response_model"] is ReportEnrichment
 
 
-def test_call_without_a_preset_gets_neutral_roles() -> None:
+def test_call_without_a_preset_gets_neutral_roles(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGUAGE", "nl")
     roles = _report_roles(None, None)
 
     assert roles is not None
     assert roles.own == "Ik"
     assert roles.other == "Gesprekspartner"
+
+
+def test_call_without_a_preset_gets_english_neutral_roles_by_default() -> None:
+    roles = _report_roles(None, None)
+
+    assert roles is not None
+    assert roles.own == "Me"
+    assert roles.other == "Other"
 
 
 def test_neutral_prompts_for_terms_and_combined_call_carry_no_sales_words() -> None:

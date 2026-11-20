@@ -28,7 +28,7 @@ from sales_copilot.wizard.steps import StepResult, WizardStep
 def test_step_descriptors_include_core_pro_doctor(free_feature_policy: object) -> None:
     descriptors = get_step_descriptors(free_feature_policy)
     ids = [d["step_id"] for d in descriptors]
-    assert ids == ["mic", "route", "model", "provider", "autostart", "calltap", "doctor"]
+    assert ids == ["mic", "route", "model", "speed", "provider", "autostart", "calltap", "doctor"]
 
 
 def test_step_descriptors_lock_pro_steps_for_free(free_feature_policy: object) -> None:
@@ -86,6 +86,7 @@ def test_get_wizard_steps_endpoint(
         "mic",
         "route",
         "model",
+        "speed",
         "provider",
         "autostart",
         "calltap",

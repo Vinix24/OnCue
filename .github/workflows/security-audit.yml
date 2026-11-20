@@ -3,11 +3,27 @@ name: Security audit
 # Aparte workflow zodat een nieuw upstream advisory als eigen rode run verschijnt
 # en niet de CI-badge (tests) op de README laat falen. Dagelijkse schedule vangt
 # advisories die verschijnen zonder dat er een commit is.
+#
+# Push en pull_request draaien alleen als de afhankelijkheden (of deze workflow)
+# veranderen: pip-audit leest alleen pyproject.toml, constraints.txt en uv.lock,
+# dus een run op elke andere commit vindt niets nieuws en kost een runner-slot en
+# een venv-controle. Nieuwe advisories op ongewijzigde afhankelijkheden vangt de
+# dagelijkse schedule; workflow_dispatch blijft voor een handmatige run.
 on:
   push:
     branches: [main]
+    paths:
+      - pyproject.toml
+      - constraints.txt
+      - uv.lock
+      - .github/workflows/security-audit.yml
   pull_request:
     branches: [main]
+    paths:
+      - pyproject.toml
+      - constraints.txt
+      - uv.lock
+      - .github/workflows/security-audit.yml
   schedule:
     - cron: '17 5 * * *'
   workflow_dispatch:

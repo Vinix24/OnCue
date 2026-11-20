@@ -37,6 +37,7 @@ from sales_copilot.audio.capture import (  # noqa: E402
 )
 from sales_copilot.audio.levels import render_meter_bar  # noqa: E402
 from sales_copilot.audio.recorder_engine import EngineSnapshot, RecorderEngine  # noqa: E402
+from sales_copilot.core.config import AutoStopConfig, load_env  # noqa: E402
 
 AUDIOTEE_PATH = str(REPO_ROOT / "bin" / "audiotee")
 RESET = "\033[0m"
@@ -76,6 +77,12 @@ def _color(text: str, code: str, *, enabled: bool) -> str:
     return f"{code}{text}{RESET}" if enabled else text
 
 
+def _auto_stop_config() -> AutoStopConfig:
+    """Auto-stop settings, with `.env` loaded first like the notetaker server does."""
+    load_env()
+    return AutoStopConfig.from_env()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mic", help="Mic device name (substring) or index. Default: system default input.")
@@ -107,6 +114,7 @@ def main() -> int:
         silence_db=args.silence_db,
         silence_seconds=args.silence_seconds,
         audiotee_path=AUDIOTEE_PATH,
+        auto_stop=_auto_stop_config(),
     )
     directory = engine.start()
 
@@ -136,6 +144,9 @@ def main() -> int:
     try:
         while not stop["flag"]:
             snap = engine.snapshot()
+            if snap.auto_stop_s is not None:
+                sys.stdout.write(f"\nGestopt na {snap.auto_stop_s} s stilte.")
+                break
             _draw(snap, color)
             _maybe_warn_silence(snap, warned, color)
             time.sleep(0.1)

@@ -87,15 +87,15 @@
   },
   "degrade": {
     "banner_intro": "Your Pro license is no longer active. The app keeps working for free:",
-    "banner_active_features": "live transcript, summary and post-call diagnosis",
+    "banner_active_features": "live transcript, live coaching, summary and post-call diagnosis",
     "banner_active_suffix": "remain active.",
-    "banner_disabled_features": "Live coaching, slide injection, autostart and central audit are disabled.",
+    "banner_disabled_features": "Slide injection, autostart and central audit are disabled.",
     "upgrade_cta": "Upgrade to Sales Pro"
   },
   "pro_upgrade": {
     "modal_title": "Sales Pro feature",
     "desc_intro": "Phone capture (FaceTime / iPhone relay via AudioTee) is part of",
-    "desc_outro": "Upgrade to get live coaching during real phone calls.",
+    "desc_outro": "Upgrade to capture real phone calls.",
     "cta": "View Sales Pro",
     "later": "Maybe later",
     "badge_label": "🔒 Pro"
@@ -153,6 +153,7 @@
     "decline_button": "No",
     "confirmed": "Session started.",
     "declined": "Skipped.",
+    "expired": "The prompt expired.",
     "process_phone_call": "Phone call"
   },
   "coaching": {
@@ -181,7 +182,7 @@
   "detector": {
     "status_waiting": "Detection not started yet",
     "status_listening": "Listening, nothing in yet",
-    "status_active": "Listening \u00b7 {received} heard \u00b7 {detections} detected",
+    "status_active": "Listening · {received} heard · {detections} detected",
     "status_no_input": "Listening, but nothing is coming in",
     "status_stale": "No signal from detection",
     "status_stopped": "Detection stopped",
@@ -288,6 +289,7 @@
     "transcript_title": "Transcript",
     "download_json": "Download Report (JSON)",
     "download_markdown": "Download Report (Markdown)",
+    "download_pdf": "Download PDF",
     "new_call_button": "New Call",
     "key_moment_fallback_label": "Moment",
     "no_scorecard": "No scorecard available.",
@@ -303,6 +305,7 @@
     "overview_title": "Overview",
     "keywords_title": "Keywords",
     "action_items_title": "Action items",
+    "open_questions_title": "Open questions",
     "term_corrections_title": "Term corrections",
     "term_corrections_original_label": "Original",
     "term_corrections_corrected_label": "Correction",
@@ -317,5 +320,20 @@
     "talktime_self_prospect_label": "Talk-time (self/prospect)",
     "monologue_warnings_label": "Monologue warnings",
     "markdown_none": "None"
+  },
+  "library": {
+    "update_button": "Check for updates",
+    "update_checking": "Checking…",
+    "update_latest": "You have the latest version ({version}).",
+    "update_available": "Version {version} is available.",
+    "update_open_release": "Open the release page",
+    "update_download_dmg": "Download the .dmg there and drag OnCue to Applications.",
+    "update_run_line": "Run this line again in Terminal:",
+    "update_in_checkout": "In your checkout, run:",
+    "update_copy": "Copy",
+    "update_copied": "Copied",
+    "update_error": "Could not check for updates: {message}",
+    "update_unreachable": "the server did not answer.",
+    "update_invalid_response": "the answer could not be read."
   }
 }

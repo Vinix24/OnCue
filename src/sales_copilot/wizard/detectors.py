@@ -7,7 +7,6 @@ reads/probes only).
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import plistlib
 import subprocess
@@ -17,6 +16,7 @@ from typing import Any
 from dotenv import dotenv_values
 
 from sales_copilot.core.config import TranscriberConfig, env, load_env
+from sales_copilot.modules.transcriber.backends.model_names import resolve_mlx_repo
 from sales_copilot.wizard.steps import StepResult
 
 
@@ -344,44 +344,23 @@ def _whisper_cpp_model_present(config: TranscriberConfig) -> bool:
     return path.exists() and path.stat().st_size > 0
 
 
-def _load_install_whisper_model() -> Any:
-    """Load scripts/install_whisper_model.py as a module so we can reuse MODEL_MAP."""
-
-    script_path = Path("scripts/install_whisper_model.py")
-    if not script_path.exists():
-        return None
-    spec = importlib.util.spec_from_file_location("install_whisper_model", script_path)
-    if spec is None or spec.loader is None:
-        return None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def _mlx_model_present(model_alias: str) -> bool:
     """Check whether an MLX Whisper model snapshot exists in the HF cache."""
 
-    module = _load_install_whisper_model()
-    if module is None:
-        return False
-    model_map = getattr(module, "MODEL_MAP", None)
-    if model_map is None:
-        return False
-    spec = model_map.get(model_alias)
-    if spec is None:
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import HFValidationError, LocalEntryNotFoundError
+
+    try:
+        repo_id = resolve_mlx_repo(model_alias)
+    except ValueError:
+        # Unknown alias: there is no repo to look for, so the model is not present.
         return False
 
     try:
-        from huggingface_hub import snapshot_download
-
-        snapshot_download(
-            repo_id=spec.repo_id,
-            local_files_only=True,
-            resume_download=True,
-        )
-        return True
-    except Exception:  # noqa: BLE001
+        snapshot_download(repo_id=repo_id, local_files_only=True)
+    except (LocalEntryNotFoundError, HFValidationError):
         return False
+    return True
 
 
 def detect_model() -> StepResult:
@@ -435,6 +414,27 @@ def detect_model() -> StepResult:
         ok=False,
         message=f"Unknown Whisper backend '{backend}'.",
         details={**details, "error": "unknown_backend"},
+    )
+
+
+def detect_speed() -> StepResult:
+    """Measure speed, write the model choice to ``.env``. A failed measurement is reported, never a pass."""
+
+    from sales_copilot.core import i18n
+    from sales_copilot.core.setup_speed import SpeedCheckError, run_speed_check
+
+    try:
+        choice, measurement, message = run_speed_check()
+    except (SpeedCheckError, ValueError) as exc:
+        return StepResult(
+            ok=True,
+            message=i18n.t("setup_speed.failed", detail=str(exc)),
+            details={"error": "speed_check_failed", "detail": str(exc)},
+        )
+    return StepResult(
+        ok=True,
+        message=message,
+        details={"tier": choice.tier, "model": choice.model, "rtf": round(measurement.rtf, 3)},
     )
 
 

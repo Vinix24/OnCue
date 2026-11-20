@@ -1,10 +1,25 @@
+"""Draw the OnCue app icon (concept C: the "O with baton") and its SVG counterparts.
+
+The geometry lives in a 64×64 viewBox and every raster coordinate is this
+constant multiplied by ``SCALE``, so the Dock icon and the in-app mark can never
+drift apart. On the macOS .icns the tile uses the system squircle radius
+(22.5% of the size) instead of the SVG's rx=14.
+"""
+
 import shutil
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from PIL import Image, ImageDraw
+# Pillow is only needed for the raster path; importing this module (for example
+# from a test that checks the SVG output) works without it.
+if TYPE_CHECKING:
+    from PIL import Image, ImageDraw
 
+# Raster master and the design grid it is drawn on.
 SIZE = 1024
+VIEWBOX = 64
+SCALE = SIZE / VIEWBOX
 RADIUS = int(SIZE * 0.225)  # macOS squircle
 OUT_DIR = Path(__file__).parent
 ICONSET_DIR = OUT_DIR / "sales-copilot.iconset"
@@ -18,21 +33,32 @@ SVG_PATHS = (
     _REPO / "presentation" / "assets" / "oncue-mark.svg",
 )
 
-# OnCue brand orange (dashboard/css/dashboard.css --secondary / --secondary-light)
-GRADIENT_TOP = (251, 146, 60)  # #fb923c — lighter, catches the light from above
-GRADIENT_BOTTOM = (249, 115, 22)  # #f97316 — base brand orange, gives depth
-BAR_COLOR = (255, 255, 255, 255)  # white — highest contrast on orange at small sizes
-STATUS_DOT_COLOR = (34, 211, 238, 255)  # #22d3ee — dashboard's "self/live" cyan accent
+# Concept C: "O with baton". A dark tile, a white ring (the O), a baton that
+# crosses it diagonally from the grip, and a red cue dot at the baton's tip.
+TILE_COLOR = "#14171f"
+MARK_COLOR = "#f5f5f4"
+DOT_COLOR = "#ef4444"
 
-# Waveform glyph: symmetric low-mid-high-mid-low bar silhouette
-BAR_HEIGHT_FRACTIONS = (0.35, 0.65, 1.0, 0.65, 0.35)
-BAR_WIDTH = int(SIZE * 0.088)
-BAR_GAP = int(SIZE * 0.052)
-BAR_MAX_HEIGHT = int(SIZE * 0.42)
-BAR_RADIUS = BAR_WIDTH // 2
+TILE_X = 2
+TILE_Y = 2
+TILE_W = 60
+TILE_H = 60
+TILE_RX = 14
 
-STATUS_DOT_RADIUS = int(SIZE * 0.045)
-STATUS_DOT_MARGIN = int(SIZE * 0.12)
+RING_CX = 29
+RING_CY = 36
+RING_R = 14
+RING_STROKE = 5
+
+BATON_X1 = 24
+BATON_Y1 = 41
+BATON_X2 = 46
+BATON_Y2 = 19
+BATON_WIDTH = 3
+
+DOT_CX = 48
+DOT_CY = 17
+DOT_R = 4.6
 
 ICONSET_SIZES = (
     ("icon_16x16.png", 16),
@@ -48,120 +74,138 @@ ICONSET_SIZES = (
 )
 
 
-def make_background():
-    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    for y in range(SIZE):
-        t = y / (SIZE - 1)
-        r = round(GRADIENT_TOP[0] * (1 - t) + GRADIENT_BOTTOM[0] * t)
-        g = round(GRADIENT_TOP[1] * (1 - t) + GRADIENT_BOTTOM[1] * t)
-        b = round(GRADIENT_TOP[2] * (1 - t) + GRADIENT_BOTTOM[2] * t)
-        draw.line([(0, y), (SIZE, y)], fill=(r, g, b, 255))
-    return img
+def hex_rgb(color: str) -> tuple[int, int, int]:
+    value = color.lstrip("#")
+    return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
 
 
-def apply_squircle_mask(img):
-    mask = Image.new("L", (SIZE, SIZE), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([(0, 0), (SIZE, SIZE)], radius=RADIUS, fill=255)
-    img.putalpha(mask)
-    return img
+def px(value: float, scale: float = SCALE) -> int:
+    return round(value * scale)
 
 
-def draw_waveform(img):
-    draw = ImageDraw.Draw(img)
-    n = len(BAR_HEIGHT_FRACTIONS)
-    total_width = n * BAR_WIDTH + (n - 1) * BAR_GAP
-    start_x = (SIZE - total_width) // 2
-    center_y = SIZE // 2
+def baton_width_for(size: int) -> float:
+    """Thicker baton on the smallest rasters, where a 3/64 stroke fades out.
 
-    for i, frac in enumerate(BAR_HEIGHT_FRACTIONS):
-        height = round(BAR_MAX_HEIGHT * frac)
-        x0 = start_x + i * (BAR_WIDTH + BAR_GAP)
-        x1 = x0 + BAR_WIDTH
-        y0 = center_y - height // 2
-        y1 = center_y + height // 2
-        draw.rounded_rectangle([(x0, y0), (x1, y1)], radius=BAR_RADIUS, fill=BAR_COLOR)
-    return img
-
-
-def draw_status_dot(img):
-    draw = ImageDraw.Draw(img)
-    cx = SIZE - STATUS_DOT_MARGIN - STATUS_DOT_RADIUS
-    cy = SIZE - STATUS_DOT_MARGIN - STATUS_DOT_RADIUS
-    draw.ellipse(
-        [(cx - STATUS_DOT_RADIUS, cy - STATUS_DOT_RADIUS), (cx + STATUS_DOT_RADIUS, cy + STATUS_DOT_RADIUS)],
-        fill=STATUS_DOT_COLOR,
-    )
-    return img
-
-
-def write_svg():
-    """Emit the mark as SVG for the dashboard header.
-
-    Same geometry as the raster path, so the Dock icon and the in-app mark can
-    never drift apart. Vector keeps it sharp at the 34px the headers render it at.
+    At 16 px the 3-unit baton is 0.75 px and disappears; 5 units (1.25 px) keeps
+    it visible without changing the mark's geometry at normal sizes.
     """
-    n = len(BAR_HEIGHT_FRACTIONS)
-    total_width = n * BAR_WIDTH + (n - 1) * BAR_GAP
-    start_x = (SIZE - total_width) // 2
-    center_y = SIZE // 2
+    if size <= 16:
+        return 5.0
+    if size <= 32:
+        return 3.8
+    return BATON_WIDTH
 
-    bars = []
-    for i, frac in enumerate(BAR_HEIGHT_FRACTIONS):
-        height = round(BAR_MAX_HEIGHT * frac)
-        x0 = start_x + i * (BAR_WIDTH + BAR_GAP)
-        y0 = center_y - height // 2
-        bars.append(
-            f'  <rect x="{x0}" y="{y0}" width="{BAR_WIDTH}" height="{height}" '
-            f'rx="{BAR_RADIUS}" fill="rgb{BAR_COLOR[:3]}" />'
+
+def _draw_tile(draw: "ImageDraw.ImageDraw", draw_size: int, scale: float) -> None:
+    draw.rounded_rectangle(
+        [(px(TILE_X, scale), px(TILE_Y, scale)), (px(TILE_X + TILE_W, scale), px(TILE_Y + TILE_H, scale))],
+        radius=round(draw_size * 0.225),  # macOS squircle
+        fill=(*hex_rgb(TILE_COLOR), 255),
+    )
+
+
+def _draw_ring(draw: "ImageDraw.ImageDraw", scale: float) -> None:
+    outer = RING_R + RING_STROKE / 2
+    draw.ellipse(
+        [
+            (px(RING_CX - outer, scale), px(RING_CY - outer, scale)),
+            (px(RING_CX + outer, scale), px(RING_CY + outer, scale)),
+        ],
+        outline=(*hex_rgb(MARK_COLOR), 255),
+        width=px(RING_STROKE, scale),
+    )
+
+
+def _draw_baton(draw: "ImageDraw.ImageDraw", scale: float, width: float) -> None:
+    stroke = px(width, scale)
+    color = (*hex_rgb(MARK_COLOR), 255)
+    draw.line(
+        [(px(BATON_X1, scale), px(BATON_Y1, scale)), (px(BATON_X2, scale), px(BATON_Y2, scale))],
+        fill=color,
+        width=stroke,
+    )
+    # Round caps: PIL has no cap style, so cover both ends with a disc.
+    for cx, cy in ((BATON_X1, BATON_Y1), (BATON_X2, BATON_Y2)):
+        draw.ellipse(
+            [
+                (px(cx, scale) - stroke // 2, px(cy, scale) - stroke // 2),
+                (px(cx, scale) + stroke // 2, px(cy, scale) + stroke // 2),
+            ],
+            fill=color,
         )
 
-    dot = SIZE - STATUS_DOT_MARGIN - STATUS_DOT_RADIUS
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SIZE} {SIZE}" role="img" aria-label="OnCue">
-  <defs>
-    <linearGradient id="oncue-bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="rgb{GRADIENT_TOP}" />
-      <stop offset="1" stop-color="rgb{GRADIENT_BOTTOM}" />
-    </linearGradient>
-  </defs>
-  <rect width="{SIZE}" height="{SIZE}" rx="{RADIUS}" fill="url(#oncue-bg)" />
-{chr(10).join(bars)}
-  <circle cx="{dot}" cy="{dot}" r="{STATUS_DOT_RADIUS}" fill="rgb{STATUS_DOT_COLOR[:3]}" />
-</svg>
-"""
+
+def _draw_cue_dot(draw: "ImageDraw.ImageDraw", scale: float) -> None:
+    draw.ellipse(
+        [
+            (px(DOT_CX - DOT_R, scale), px(DOT_CY - DOT_R, scale)),
+            (px(DOT_CX + DOT_R, scale), px(DOT_CY + DOT_R, scale)),
+        ],
+        fill=(*hex_rgb(DOT_COLOR), 255),
+    )
+
+
+def render(size: int, baton_width: float = BATON_WIDTH) -> "Image.Image":
+    """Render the mark at ``size`` px, supersampled and then downscaled for clean edges."""
+    from PIL import Image, ImageDraw
+
+    supersample = 8 if size <= 32 else 4 if size <= 256 else 2
+    draw_size = size * supersample
+    scale = draw_size / VIEWBOX
+    img = Image.new("RGBA", (draw_size, draw_size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    _draw_tile(draw, draw_size, scale)
+    _draw_ring(draw, scale)
+    _draw_baton(draw, scale, baton_width)
+    _draw_cue_dot(draw, scale)
+    return img.resize((size, size), Image.LANCZOS)
+
+
+def build_svg() -> str:
+    """Return the mark as SVG for the dashboard header, favicon and presentation."""
+    lines = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VIEWBOX} {VIEWBOX}" role="img" aria-label="OnCue">',
+        f'  <rect x="{TILE_X}" y="{TILE_Y}" width="{TILE_W}" height="{TILE_H}" rx="{TILE_RX}" fill="{TILE_COLOR}" />',
+        f'  <circle cx="{RING_CX}" cy="{RING_CY}" r="{RING_R}" fill="none" '
+        f'stroke="{MARK_COLOR}" stroke-width="{RING_STROKE}" />',
+        f'  <line x1="{BATON_X1}" y1="{BATON_Y1}" x2="{BATON_X2}" y2="{BATON_Y2}" '
+        f'stroke="{MARK_COLOR}" stroke-width="{BATON_WIDTH}" stroke-linecap="round" />',
+        f'  <circle cx="{DOT_CX}" cy="{DOT_CY}" r="{DOT_R}" fill="{DOT_COLOR}" />',
+        "</svg>",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def write_svg() -> None:
+    svg = build_svg()
     for path in SVG_PATHS:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(svg, encoding="utf-8")
         print(f"Wrote {path}")
 
 
-def write_iconset(master):
+def write_iconset() -> None:
     if ICONSET_DIR.exists():
         shutil.rmtree(ICONSET_DIR)
     ICONSET_DIR.mkdir()
     for name, size in ICONSET_SIZES:
-        resized = master.resize((size, size), Image.LANCZOS)
-        resized.save(ICONSET_DIR / name, "PNG")
+        render(size, baton_width_for(size)).save(ICONSET_DIR / name, "PNG")
     print(f"Wrote iconset to {ICONSET_DIR}")
 
 
-def build_icns():
+def build_icns() -> None:
     subprocess.run(["iconutil", "-c", "icns", str(ICONSET_DIR), "-o", str(ICNS_PATH)], check=True)
     print(f"Built {ICNS_PATH}")
 
 
-def main():
-    img = make_background()
-    img = apply_squircle_mask(img)
-    img = draw_waveform(img)
-    img = draw_status_dot(img)
-
+def main() -> None:
+    master = render(SIZE)
     master_path = OUT_DIR / "icon_1024.png"
-    img.save(master_path, "PNG")
+    master.save(master_path, "PNG")
     print(f"Generated {master_path}")
 
     write_svg()
-    write_iconset(img)
+    write_iconset()
     build_icns()
 
 

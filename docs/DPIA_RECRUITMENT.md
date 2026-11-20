@@ -85,7 +85,7 @@ The processing is proportionate because:
 - Audio does not leave the machine in the default configuration (local-first architecture). `WHISPER_BACKEND=groq` sends audio off the machine without a PII filter, and a non-loopback `WHISPER_CPP_SERVER_HOST` opens an unencrypted listener on the network; leave both off for candidate calls and set the client's privacy ceiling to `local`, which refuses them
 - The PII filter is active with the recruitment preset (`apply_pii_filter=True`): BSN, phone number, IBAN, email address, postal code, and date of birth are replaced with placeholders before any LLM processing
 - With an LLM provider configured, the LLM receives redacted transcript text per task, including a rolling summary input and, after the call, the whole transcript for the report enrichment (see `docs/PRIVACY.md`). With `LLM_PROVIDER=none` or a local Ollama model, no text leaves the machine
-- Audio recording can be disabled via `RECORD_AUDIO=false` in `.env`
+- On the live copilot route, audio recording is off by default (`RECORD_AUDIO` defaults to `false`); the notetaker route ("Record and transcribe") always writes the two WAV tracks to `data/sessions/` and has no off switch
 
 **Minimization (GDPR Art. 5(1)(c))**
 
@@ -93,7 +93,7 @@ The audit ledger in the Pro tier stores redacted fragments, not raw transcript s
 
 **Retention periods**
 
-By default 30 days for session files in `data/sessions/`. Configurable via `.env` (retention script in sprint+1). Transcripts and audio can also be deleted earlier at the candidate's request (see §7).
+The default is no automatic deletion (`DATA_RETENTION_DAYS=0`). Set `DATA_RETENTION_DAYS` in `.env` to enable the retention sweep, which only purges sessions registered in `sessions.db`; notetaker recordings are not registered there and must be deleted by hand. Transcripts and audio can also be deleted earlier at the candidate's request (see §7).
 
 ---
 
@@ -163,7 +163,7 @@ Measure: NDJSON append-only writing. HMAC-SHA256 signing per record via the `AUD
 - Recruiter onboarding (15 minutes): scope and limits of the system, consent script, PII filter explanation
 - Conclude a DPA with the LLM provider for business use (Google, Groq, or others)
 - Acknowledgment + opt-in script per candidate (template in §8)
-- Document the retention policy: 30 days by default, recruiter-configurable
+- Document the retention policy: no automatic deletion by default (`DATA_RETENTION_DAYS=0`), recruiter-configurable
 
 **Legal measures**
 
@@ -202,7 +202,7 @@ is required for actual deletion. Bulk purge by date is possible via
 
 **Right to object (GDPR Art. 21)**
 
-The candidate can indicate during the conversation that they object to recording. The recruiter disables recording via `RECORD_AUDIO=false` and restarts the system. Detection and transcription continue via in-memory buffers without persistent storage.
+The candidate can indicate during the conversation that they object to recording. On the live copilot route the recruiter disables recording via `RECORD_AUDIO=false` and restarts the system; detection and transcription continue via in-memory buffers without persistent storage. The notetaker route has no off switch and always writes the two WAV tracks, so a conversation that must not be recorded should not be started there.
 
 **Right to data portability (GDPR Art. 20)**
 
@@ -214,11 +214,11 @@ JSON export of session data is planned for sprint+1. Until then: the recruiter m
 
 **Spoken script (recruiter reads aloud at the start of the conversation):**
 
-> "In preparation for this conversation, I use an AI tool that listens along to take notes. The audio stays on my computer (default setup) and is automatically deleted after 30 days. The tool does not store any recording with an external party. Do you agree to this?"
+> "In preparation for this conversation, I use an AI tool that listens along to take notes. The audio stays on my computer (default setup) and is deleted after the period I set, or by hand. The tool does not store any recording with an external party. Do you agree to this?"
 
 **Written confirmation (optional, by email before the conversation):**
 
-> "I want to let you know that during this conversation I use OnCue, an AI tool that helps with taking conversation notes. The tool runs locally on my computer. In the default setup audio and transcription are not sent to external parties, except for short anonymized fragments to my AI provider for keyword detection. All data is deleted after 30 days. You always have the right to access or have your data deleted. Do you have questions or objections? Let me know before or during the conversation."
+> "I want to let you know that during this conversation I use OnCue, an AI tool that helps with taking conversation notes. The tool runs locally on my computer. In the default setup audio and transcription are not sent to external parties, except for short anonymized fragments to my AI provider for keyword detection. All data is deleted after the period I set, or by hand. You always have the right to access or have your data deleted. Do you have questions or objections? Let me know before or during the conversation."
 
 **Tip:** mention the name of the tool explicitly ("OnCue") in the communication. This ensures traceability in the event of a complaint to the Autoriteit Persoonsgegevens (the Dutch DPA).
 

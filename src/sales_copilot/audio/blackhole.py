@@ -9,6 +9,8 @@ from typing import Any
 
 import numpy as np
 
+from sales_copilot.core.i18n import t
+
 from .capture import (
     SYSTEM_CATCHUP_THRESHOLD_S,
     SYSTEM_RESTART_BACKOFF_MAX_S,
@@ -143,7 +145,7 @@ class BlackHoleStream:
                 self._stream = self._open()
             except Exception:
                 self._stream = None
-                self._health.mark_attach_failed(f"InputStream kon niet openen op '{self._device_name}'")
+                self._health.mark_attach_failed(t("audio.detail_inputstream_open_failed_on", device=self._device_name))
                 raise
             self._health.mark_attached(f"blackhole:{self._device_name}")
             self._watchdog_stop = threading.Event()

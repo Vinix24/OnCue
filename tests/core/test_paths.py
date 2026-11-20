@@ -23,6 +23,17 @@ def _repo_root() -> Path:
     return here.parents[2]
 
 
+def test_is_frozen_app_accepts_the_py2app_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "frozen", "macosx_app", raising=False)
+    assert paths.is_frozen_app() is True
+
+
+@pytest.mark.parametrize("value", [False, None, ""])
+def test_is_frozen_app_false_for_unset_markers(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
+    monkeypatch.setattr(sys, "frozen", value, raising=False)
+    assert paths.is_frozen_app() is False
+
+
 def test_is_frozen_app_defaults_to_false_in_dev() -> None:
     assert paths.is_frozen_app() is False
 

@@ -1,0 +1,39 @@
+# One path per line: the FORBIDDEN_PATHS of scripts/export_public.sh, for a bundle gate that runs
+# in the public tree (where export_public.sh is absent). tests/test_check_bundle_gate.py fails
+# when this list drifts from the export script.
+.vnx
+.claude
+.vnx-data
+claudedocs
+bin
+docs/PRD.md
+docs/TTD.md
+docs/architecture
+docs/contracts
+docs/LANDING_DEPLOY.md
+docs/PUBLIC_RELEASE.md
+docs/OPERATOR_TEST_PLAN.md
+docs/FEEDBACK_FORM_SPEC.md
+docs/TEAM_DASHBOARD_DESIGN.md
+docs/plans
+.mcp.json
+src/sales_copilot/auth/_dev_keys.py
+scripts/sign_license.py
+config/objection_responses.yaml
+config/objection_responses_de.yaml
+config/objection_responses_en.yaml
+config/opportunity_responses.yaml
+config/presets/coach.yaml
+config/presets/recruitment.yaml
+config/presets/acquisitie.yaml
+src/sales_copilot/modules/insight
+src/sales_copilot/mcp_bridge
+tests/test_mcp_bridge.py
+tests/test_insight_engine.py
+tests/test_llm_output_limits_insight.py
+tests/test_entity_trigger.py
+docs/MCP_BRIDGE.md
+tests/test_mcp_bridge_export_boundary.py
+tests/test_export_public_gate3_cleanup.py
+tests/test_pip_audit_ignore_parity.py
+tests/test_ttd_tap_message_schemas.py

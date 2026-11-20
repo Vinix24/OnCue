@@ -34,6 +34,7 @@ from sales_copilot.core.config import (
     WebSocketConfig,
     blank_to_none,
     build_module_configs,
+    configured_call_language,
     env_bool,
     env_float,
     env_int,
@@ -62,6 +63,7 @@ from sales_copilot.core.session_store import SessionStore
 from sales_copilot.modules.talk_time.__main__ import main as talk_time_main
 from sales_copilot.modules.transcriber.__main__ import main as transcriber_main
 from sales_copilot.modules.transcriber.backends import create_backend
+from sales_copilot.modules.transcriber.backends.model_names import resolve_mlx_repo
 from sales_copilot.websocket import hub
 from sales_copilot.websocket.hub import run_hub
 from sales_copilot.websocket.hub_auth import channel_ws_url
@@ -132,7 +134,7 @@ async def _eager_warmup_at_startup() -> None:
         backend = create_backend({
             "backend": cfg.backend,
             "language": cfg.language,
-            "model_repo": f"mlx-community/whisper-{cfg.model}",
+            "model_repo": resolve_mlx_repo(cfg.model),
             "whisper_cpp_binary": cfg.whisper_cpp_binary,
             "whisper_cpp_model_path": cfg.whisper_cpp_model_path,
             "whisper_cpp_threads": cfg.whisper_cpp_threads,
@@ -292,7 +294,7 @@ def _parse_call_config(payload: dict[str, Any]) -> CallConfig:
             "post_call_report", payload.get("enable_reports", True)
         ),
         "transcript_backend": payload_transcript_backend(payload),
-        "call_language": transcript_payload.get("language", payload.get("language", "nl")),
+        "call_language": transcript_payload.get("language", payload.get("language")),
         "prospect_name": prospect_payload.get("name", payload.get("prospect_name")),
         "prospect_company": prospect_payload.get(
             "company", payload.get("prospect_company")
@@ -320,9 +322,9 @@ def _parse_call_config(payload: dict[str, Any]) -> CallConfig:
     if isinstance(transcribe_self_live_raw, bool):
         data["transcribe_self_live"] = transcribe_self_live_raw
     if isinstance(data["call_language"], str):
-        data["call_language"] = data["call_language"].strip().lower() or "nl"
+        data["call_language"] = data["call_language"].strip().lower() or configured_call_language()
     else:
-        data["call_language"] = "nl"
+        data["call_language"] = configured_call_language()
     return CallConfig(**data)
 
 

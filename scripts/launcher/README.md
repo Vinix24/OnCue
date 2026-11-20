@@ -6,13 +6,13 @@
 De installer (`scripts/bootstrap.sh`, de regel uit [INSTALL.md](../../INSTALL.md)) zet de app in `~/Applications/OnCue.app`. Open hem via Launchpad of dubbelklik in Finder. Er is geen Gatekeeper-stap: de app wordt op je eigen Mac gebouwd en niets komt via een browser binnen.
 
 ### Vanuit het Dock
-Klik op `OnCue.app` (of `Start OnCue.app` in `scripts/launcher/` bij een checkout). Je krijgt een keuze:
+Klik op `OnCue.app` (of `Start OnCue.app` in `scripts/launcher/` bij een checkout). Je krijgt een keuze. Het venster volgt de taal van de installatie (`LANGUAGE` in `.env`, gelezen door `oncue-language.sh`): Engels als er niets staat, Nederlands bij `LANGUAGE=nl`. In het Engels heten de knoppen **Cancel**, **Live coach** en **Record and transcribe**; hieronder staan de Nederlandse namen.
 
 - **Opnemen en uitschrijven** (standaard): neemt beide kanten van het gesprek
   op, met twee volume-meters en een meelopende timer, zodat je ziet dat zowel de
   tegenpartij als je eigen stem binnenkomt. Na Stop schrijft OnCue het gesprek
   lokaal uit naar `transcript.md` in de sessiemap (`data/sessions/<tijdstip>/`),
-  met de regels `[mm:ss] Jij: ...` en `[mm:ss] Ander: ...`. De pagina toont
+  met de regels `[mm:ss] Ik: ...` en `[mm:ss] Gesprekspartner: ...`. De pagina toont
   "Open transcript" en op macOS "Toon in Finder". Geen dashboard, geen
   presentatie. Alles blijft op deze computer. Draait op poort 8780.
 - **Live coach**: de volledige versie van het dashboard: live transcriptie,
@@ -21,6 +21,20 @@ Klik op `OnCue.app` (of `Start OnCue.app` in `scripts/launcher/` bij een checkou
 Beide modi kunnen tegelijk draaien — ze zitten op verschillende poorten. Start
 je de ene terwijl de andere al draait, dan laat de launcher die staan en meldt
 dat via een notificatie.
+
+#### De opnamebalk
+In de opname-modus start de launcher na de server ook de opnamebalk
+(`bin/OnCue Bar.app`), met `--port` en de sneltoets uit `BAR_HOTKEY` in `.env`
+(standaard `ctrl+option+r`). Het pid staat in `/tmp/oncue-launcher-bar.pid`,
+de log in `data/logs/launcher-bar.log`. Een tweede start stopt eerst de oude
+balk. Ontbreekt de balk, dan werkt OnCue gewoon door: de launcher schrijft een
+regel in die log en toont de eerste keer een melding (marker
+`data/.bar-missing-notified`). Rechtsklik op de balk toont "OnCue afsluiten".
+
+`stop-oncue.command` leest `/status` van de opname-server. Bij een lopende
+opname vraagt het "Opname afronden en OnCue stoppen? [j/N]"; zonder antwoord
+van de server vraagt het "Toch stoppen? [j/N]". Daarna gaat SIGTERM naar de
+server (tot 60 seconden wachten, nooit SIGKILL) en naar de balk.
 
 #### App in het Dock plaatsen
 1. Open `scripts/launcher/` in Finder
@@ -59,10 +73,13 @@ Server sluit graceful af. Browser-tab toont bevestiging.
 
 ## App-icon
 
-Het Dock-icon is een eigen OnCue-beeldmerk: een gestileerde audio-golfvorm (witte staven)
-op een oranje verloop (`#fb923c` → `#f97316`, de dashboard-merkkleuren), met een cyaan
-statusstip (`#22d3ee`) rechtsonder. Volledig programmatisch getekend met PIL — geen emoji,
-geen font-afhankelijkheid.
+Het Dock-icon is OnCue's beeldmerk concept C, "O with baton": een witte ring (de O) met
+daardoorheen een dirigeerstokje dat eindigt in een rode cue-stip, op een donker tegeltje
+(`#14171f`). Ring en stok zijn `#f5f5f4`, de stip `#ef4444`. De macOS-versie gebruikt de
+systeem-squircle (22,5% van de grootte) in plaats van de SVG-afronding. Dezelfde maten staan
+als constanten in `generate_icon.py`; daaruit komen ook de SVG's voor dashboard en presentatie.
+Volledig programmatisch getekend met PIL — geen emoji, geen font-afhankelijkheid. Bij 16 en
+32 px wordt alleen de stok iets dikker getekend, anders valt hij op die formaten weg.
 
 ### Bronbestanden
 
@@ -72,6 +89,8 @@ geen font-afhankelijkheid.
 | `scripts/launcher/icon/sales-copilot.iconset/` | Alle iconset-resoluties (16…512@2x) |
 | `scripts/launcher/icon/sales-copilot.icns` | macOS icon-bundle (alle resoluties) |
 | `scripts/launcher/icon/generate_icon.py` | Generator-script |
+| `dashboard/assets/oncue-mark.svg` | Hetzelfde merk als SVG (dashboard, favicon) |
+| `presentation/assets/oncue-mark.svg` | Hetzelfde merk als SVG (presentatie) |
 | `Start OnCue.app/Contents/Resources/applet.icns` | Geïnstalleerd icon in .app |
 
 ### Icoon regenereren

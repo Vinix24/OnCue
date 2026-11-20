@@ -63,6 +63,7 @@ ONCUE_ARCHIVE="oncue-macos-arm64.tar.gz"
 ONCUE_UV_PINNED_VERSION="0.9.0"
 RELEASE_MARKER=".oncue-release"
 BINARIES_MARKER=".oncue-binaries"
+BAR_APP="OnCue Bar.app"
 
 # ── Output helpers ───────────────────────────────────────────────────────────
 # Colour only when stdout is a terminal. The decision is made before output is
@@ -309,6 +310,16 @@ step_download() {
     _fail "$dir already exists and is not an OnCue folder, so I leave it alone. Move it away or choose another place: ONCUE_DIR=/other/path (then run this command again)."
 }
 
+# Measures transcription speed once the model is installed and writes the model choice to
+# .env. Advisory: a failure never fails the install. A hand-set WHISPER_MODEL is kept.
+step_speed_check() {
+    local py="$ONCUE_DIR/.venv/bin/python"
+    [[ -x "$py" ]] || { _warn "Speed check skipped: the Python environment was not found."; return 0; }
+    _blue "Measuring how fast this Mac transcribes (about a minute)..."
+    ( cd "$ONCUE_DIR" && PYTHONPATH="$ONCUE_DIR/src" "$py" -m sales_copilot.core.setup_speed ) \
+        || _warn "The speed check could not run. OnCue keeps the default speech model."
+}
+
 step_install() {
     _step 5 "Installing OnCue (this takes about 5-15 minutes the first time)"
     if [[ "$DRY_RUN" == true ]]; then
@@ -320,6 +331,7 @@ step_install() {
         return 0
     fi
     bash "$ONCUE_DIR/scripts/install.sh" --auto-yes
+    step_speed_check
 }
 
 # ── Release route (no compiler) ──────────────────────────────────────────────
@@ -380,13 +392,24 @@ release_dir_state() {
     fi
 }
 
-# True when $1 holds the prebuilt programs of RELEASE_TAG, all executable.
+# The release tag in the form of the package version (v1.0.0-rc.1 -> 1.0.0rc1),
+# which is what the bar bundle carries as CFBundleVersion.
+release_bundle_version() {
+    printf '%s' "$RELEASE_TAG" | sed -e 's/^v//' -e 's/-//g' -e 's/\([A-Za-z]\)\./\1/g'
+}
+
+# True when $1 holds the prebuilt programs of RELEASE_TAG, all executable, and a
+# recording bar whose bundle version is that release. A missing or unreadable
+# version counts as not current, so the programs are placed again.
 release_binaries_current() {
-    local root="$1"
+    local root="$1" bar_version
     [[ -f "$root/$BINARIES_MARKER" && "$(<"$root/$BINARIES_MARKER")" == "$RELEASE_TAG" ]] || return 1
     [[ -x "$root/vendor/whisper.cpp/build/bin/whisper-cli" \
         && -x "$root/vendor/whisper.cpp/build/bin/whisper-server" \
-        && -x "$root/bin/audiotee" ]]
+        && -x "$root/bin/audiotee" \
+        && -x "$root/bin/$BAR_APP/Contents/MacOS/OnCueBar" ]] || return 1
+    bar_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$root/bin/$BAR_APP/Contents/Info.plist" 2>/dev/null)" || return 1
+    [[ -n "$bar_version" && "$bar_version" == "$(release_bundle_version)" ]]
 }
 
 release_fetch() {
@@ -429,6 +452,10 @@ release_download() {
                 return 2
             fi
         done
+        if [[ ! -s "$DL_DIR/bins/$BAR_APP/Contents/MacOS/OnCueBar" ]]; then
+            RELEASE_NOTE="the downloaded programs are incomplete ($BAR_APP is missing)"
+            return 2
+        fi
     fi
 }
 
@@ -446,6 +473,9 @@ release_place_binaries() {
     cp "$DL_DIR/bins/audiotee" "$root/bin/audiotee.part" || _fail "$why"
     chmod 755 "$root/bin/audiotee.part" || _fail "$why"
     mv "$root/bin/audiotee.part" "$root/bin/audiotee" || _fail "$why"
+    # The bar is a bundle. ditto overwrites an older one in place and keeps the
+    # signature; the marker below is only written once every program is placed.
+    ditto "$DL_DIR/bins/$BAR_APP" "$root/bin/$BAR_APP" || _fail "$why"
     if [[ -f "$DL_DIR/bins/BUILD_INFO.txt" ]]; then
         cp "$DL_DIR/bins/BUILD_INFO.txt" "$root/bin/BUILD_INFO.txt" || _fail "$why"
     fi
@@ -637,6 +667,7 @@ step_release_install() {
         return 0
     fi
     bash "$ONCUE_DIR/scripts/install.sh" --auto-yes --prebuilt
+    step_speed_check
 }
 
 # Chooses ROUTE (release or build). A git checkout always stays on the build

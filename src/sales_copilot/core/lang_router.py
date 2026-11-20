@@ -31,10 +31,12 @@ logger = logging.getLogger(__name__)
 
 SupportedLang = Literal["nl", "en", "de"]
 
-#: Vocabulary/biasing config for the default (Dutch) language. Language-specific
-#: variants follow the ``transcription_vocabulary_<lang>.yaml`` naming convention
-#: and are picked up automatically when present.
-_DEFAULT_VOCABULARY_CONFIG = "config/transcription_vocabulary.yaml"
+#: Vocabulary/biasing config for Dutch (the original base file). Every other
+#: language uses ``transcription_vocabulary_<lang>.yaml`` when present.
+_DUTCH_VOCABULARY_CONFIG = "config/transcription_vocabulary.yaml"
+#: Vocabulary used for a language without its own file: the default language's
+#: vocabulary, so a Dutch word list is never forced onto a non-Dutch call.
+_DEFAULT_VOCABULARY_CONFIG = f"config/transcription_vocabulary_{i18n.DEFAULT_LANGUAGE}.yaml"
 
 
 @dataclass(frozen=True)
@@ -52,7 +54,7 @@ def route_coaching_prompts(language: str | None = None) -> CoachingPrompts:
     """Return the coaching-prompt set for ``language`` (default: configured LANGUAGE).
 
     Strings are resolved from the i18n message catalog, so a language that is
-    only partially translated transparently falls back to Dutch per key.
+    only partially translated transparently falls back to the default language per key.
     """
     lang = language if language is not None else i18n.configured_language()
     lang = lang.strip().lower() or i18n.DEFAULT_LANGUAGE
@@ -65,17 +67,19 @@ def route_coaching_prompts(language: str | None = None) -> CoachingPrompts:
     )
 
 
-def route_vocabulary_config(language: str | None = None) -> str:
-    """Return the transcription-vocabulary config path for ``language``.
+def route_vocabulary_config(language: str) -> str:
+    """Return the transcription-vocabulary config path for the spoken ``language``.
 
-    The default language maps to the base ``config/transcription_vocabulary.yaml``.
-    Other languages use ``config/transcription_vocabulary_<lang>.yaml`` when that
-    file exists, and fall back to the base config otherwise.
+    The language is required: the vocabulary biases Whisper on the language of
+    the call (``WHISPER_LANGUAGE`` / ``CALL_LANGUAGE``), never the UI language.
+
+    Dutch maps to the base ``config/transcription_vocabulary.yaml``. Other
+    languages use ``config/transcription_vocabulary_<lang>.yaml`` when that file
+    exists, and fall back to the default language's file (English) otherwise.
     """
-    lang = language if language is not None else i18n.configured_language()
-    lang = lang.strip().lower() or i18n.DEFAULT_LANGUAGE
-    if lang == i18n.DEFAULT_LANGUAGE:
-        return _DEFAULT_VOCABULARY_CONFIG
+    lang = language.strip().lower() or i18n.DEFAULT_LANGUAGE
+    if lang == "nl":
+        return _DUTCH_VOCABULARY_CONFIG
     candidate = f"config/transcription_vocabulary_{lang}.yaml"
     if resolve_app_path(candidate).exists():
         return candidate

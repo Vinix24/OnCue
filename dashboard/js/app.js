@@ -177,14 +177,16 @@ const showSystemStatusWarmup = (message) => {
   selectors.systemStatus.classList.remove("hidden", "is-fading");
   selectors.systemStatus.classList.add("warming");
 
-  const spinner = document.createElement("span");
-  spinner.className = "system-status-spinner";
-  spinner.setAttribute("aria-hidden", "true");
+  const template = document.getElementById("oncue-loader-template");
+  const loader = template ? template.content.cloneNode(true) : null;
+  if (loader) {
+    loader.querySelector(".oncue-loader")?.classList.add("oncue-loader-sm");
+  }
 
   const text = document.createElement("span");
   text.textContent = message || window.t("header.system_status_warming_default");
 
-  selectors.systemStatus.replaceChildren(spinner, text);
+  selectors.systemStatus.replaceChildren(...(loader ? [loader] : []), text);
 };
 
 const fadeOutSystemStatusReady = () => {
@@ -291,7 +293,10 @@ const handleCoachingMessage = (payload) => {
     const stream = payload.stream === "self" ? "self" : "prospect";
     const labelKey = stream === "self" ? "header.audio_warning_self_label" : "header.audio_warning_prospect_label";
     const msg = payload.message || window.t("header.audio_warning_message", { label: window.t(labelKey) });
-    showAudioWarning(stream, msg);
+    // lost and gave_up stay until a recovered or gave_up event for the stream (or the end of the call);
+    // recovered replaces them with the outcome on the normal timer, so the operator reads that the
+    // audio in between is missing from the transcript.
+    showAudioWarning(stream, msg, { sticky: payload.tap_event === "gave_up" || payload.tap_event === "lost" });
     return;
   }
   if (payload.type === "tap_status") {
@@ -529,7 +534,7 @@ const clearAudioWarnings = () => {
   clearAudioWarning("prospect");
 };
 
-const showAudioWarning = (stream, message) => {
+const showAudioWarning = (stream, message, { sticky = false } = {}) => {
   const el = _audioWarningElements[stream];
   if (!el) {
     return;
@@ -538,8 +543,12 @@ const showAudioWarning = (stream, message) => {
   el.classList.remove("hidden");
   if (_audioWarningTimers[stream]) {
     clearTimeout(_audioWarningTimers[stream]);
+    _audioWarningTimers[stream] = null;
   }
-  _audioWarningTimers[stream] = setTimeout(() => clearAudioWarning(stream), 30000);
+  // A lost or gave_up warning stays until the call ends or a later tap event for the stream replaces it.
+  if (!sticky) {
+    _audioWarningTimers[stream] = setTimeout(() => clearAudioWarning(stream), 30000);
+  }
 };
 
 const resetCallState = () => {

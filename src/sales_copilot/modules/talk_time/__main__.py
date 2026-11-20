@@ -18,7 +18,7 @@ from sales_copilot.audio.capture import (
     make_audio_warning_broadcaster,
     resolve_prospect_source,
 )
-from sales_copilot.core.config import TalkTimeConfig, WebSocketConfig, env, env_float, env_int, load_env
+from sales_copilot.core.config import TalkTimeConfig, WebSocketConfig, env, env_bool, env_float, env_int, load_env
 from sales_copilot.core.logging import configure_logging
 from sales_copilot.modules.talk_time.publisher import TalkTimePublisher
 from sales_copilot.modules.talk_time.tracker import TalkTimeTracker
@@ -55,6 +55,8 @@ def _load_audio_config() -> AudioConfig:
         replay_session_dir=env("REPLAY_SESSION_DIR"),
         replay_speed=env_float("REPLAY_SPEED", 1.0) or 1.0,
         wasapi_endpoint_name=env("AUDIO_WASAPI_ENDPOINT_NAME"),
+        windows_capture_route=env("WINDOWS_CAPTURE_ROUTE", "endpoint") or "endpoint",
+        windows_endpoint_follow=bool(env_bool("WINDOWS_ENDPOINT_FOLLOW", False)),
     )
 
 

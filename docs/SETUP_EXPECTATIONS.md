@@ -9,7 +9,7 @@ That's simple, but not magic.
 
 ### What you do get
 
-- A **one-line installer** you paste in Terminal (see [INSTALL.md](../INSTALL.md#one-line-for-everyone)), or an AI assistant that follows [INSTALL_WITH_AI.md](INSTALL_WITH_AI.md). It downloads OnCue into `~/OnCue` and ends with the app `~/Applications/OnCue.app`
+- A **one-line installer** you paste in Terminal (see [INSTALL.md](../INSTALL.md#one-line-in-terminal-the-second-route)), or an AI assistant that follows [INSTALL_WITH_AI.md](INSTALL_WITH_AI.md). It downloads OnCue into `~/OnCue` and ends with the app `~/Applications/OnCue.app`
 - On the release route (when a release carries prebuilt programs): no compiler, no Homebrew, no password. A private Python 3.11 (uv) and the Python packages go inside `~/OnCue`
 - On the build route (the fallback): Apple's command line tools, Homebrew, Python 3.11 and CMake, and a local build of whisper.cpp and AudioTee
 - Automatic checks on macOS version (14.2 or newer) and Apple Silicon
@@ -219,8 +219,8 @@ This is a powerful local setup that requires realistic manual steps; with the in
 
 ## Recommended flow (short)
 
-1. Paste the one-line install in Terminal (see [INSTALL.md](../INSTALL.md#one-line-for-everyone))
-2. Open `~/Applications/OnCue.app` and choose **Opnemen en uitschrijven**
+1. Paste the one-line install in Terminal (see [INSTALL.md](../INSTALL.md#one-line-in-terminal-the-second-route))
+2. Open `~/Applications/OnCue.app` and choose **Record and transcribe** (**Opnemen en uitschrijven** on a Dutch install)
 3. Click Allow on the macOS permission prompts
 4. Record 30 seconds, press Stop and check that `transcript.md` appears
 5. If something is broken: go to `docs/TROUBLESHOOTING.md`

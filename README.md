@@ -4,13 +4,26 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-orange)](docs/BETA_TESTER_GUIDE.md)
 
-OnCue is a local notetaker and a live copilot for conversations. It captures a call on your own computer, transcribes it there, and writes the full transcript to a file when the call ends. If you want more, it also coaches you while you talk: talk-time balance, and pain points, objections and buying signals as they come up.
+OnCue is a local notetaker for conversations, plus live coaching while you talk. It captures a call on your own computer, transcribes it there, and writes the full transcript to a file when the call ends. The live coaching shows talk-time balance, pain points, objections and buying signals as they come up. It is free and works without a key. English is the default language; Dutch is a setting ([Nederlands](#nederlands)).
 
 Sales calls are one use, not the definition. Interviews, intake and discovery calls, coaching sessions and internal meetings run through the same pipeline. OnCue captures system audio instead of joining the call, so Teams, Zoom, Meet, Webex or a phone bridge all look the same to it, and no bot joins the meeting.
 
 ## Install on a Mac, no technical knowledge needed
 
-**What you need:** a Mac with an Apple chip (M1 or newer), macOS 14.2 or newer and at least 5 GB of free disk space. The install downloads about 2.8 GB. On a fast connection that took 55 seconds in one measurement. On a normal home connection expect several minutes, up to about 15.
+**What you need:** a Mac with an Apple chip (M1 or newer), macOS 14.2 or newer and at least 5 GB of free disk space.
+
+### Route 1: download the app (.dmg)
+
+1. Download `OnCue-<version>-arm64.dmg` from the [latest release page](https://github.com/Vinix24/OnCue/releases/latest).
+2. Open the .dmg and drag **OnCue** to **Applications**.
+3. Open **OnCue** from Applications. macOS asks for the microphone and for system audio: click Allow.
+4. The speech model downloads the first time OnCue starts, so the first start takes a while. Then choose **Record and transcribe**.
+
+The release page also has a `.sha256` file next to the .dmg, for people who want to check the download.
+
+### Route 2: one line in Terminal
+
+Prefer Terminal? The install downloads about 2.8 GB. On a fast connection that took 55 seconds in one measurement. On a normal home connection expect several minutes, up to about 15.
 
 1. Press Cmd+Space, type `Terminal` and press Enter.
 2. Paste this line and press Enter:
@@ -19,7 +32,7 @@ Sales calls are one use, not the definition. Interviews, intake and discovery ca
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Vinix24/OnCue/main/scripts/bootstrap.sh)"
 ```
 
-3. Wait until it says `OnCue is installed.` Then open **OnCue** from Launchpad and choose **Opnemen en uitschrijven**.
+3. Wait until it says `OnCue is installed.` Then open **OnCue** from Launchpad and choose **Record and transcribe**.
 
 If your Mac has no Apple developer tools yet, the first install can open an Apple window with an Install button and ask for your Mac password (you do not see it while typing). The Terminal tells you when that happens.
 
@@ -31,7 +44,7 @@ Install OnCue on my Mac. First read https://raw.githubusercontent.com/Vinix24/On
 
 **Windows:** it works. The steps are in [INSTALL.md](INSTALL.md#windows), in English.
 
-**Nederlands:** je hebt een Mac met Apple-chip nodig, macOS 14.2 of nieuwer en 5 GB vrije ruimte. Open Terminal (Cmd+Spatie, typ `Terminal`, Enter), plak dezelfde regel als hierboven en wacht tot het klaar is. Of geef je AI-assistent de opdracht uit het [Nederlandse deel](#nederlands). Daar staat ook wat OnCue is, wat er op je computer blijft en hoe je het als notulist gebruikt.
+**Nederlands:** OnCue is standaard Engels. Zet `LANGUAGE=nl` en `CALL_LANGUAGE=nl` in `.env` voor het Nederlands (zie het [Nederlandse deel](#nederlands)). Je hebt een Mac met Apple-chip nodig, macOS 14.2 of nieuwer en 5 GB vrije ruimte. Open Terminal (Cmd+Spatie, typ `Terminal`, Enter), plak dezelfde regel als hierboven en wacht tot het klaar is. Of geef je AI-assistent de opdracht uit het [Nederlandse deel](#nederlands). Daar staat ook wat OnCue is, wat er op je computer blijft en hoe je het als notulist gebruikt.
 
 ---
 
@@ -43,7 +56,11 @@ OnCue is een notulist en een gesprekscoach die op je eigen computer draaien. Het
 
 **Wat je zelf kunt aanzetten.** Een samenvatting met actiepunten vraagt om een taalmodel. Met een taalmodel op je eigen computer blijft de tekst daar. Met de cloudomgeving van je eigen organisatie of een openbare AI-dienst gaat de tekst van het gesprek wel naar buiten. Die keuze maak je per gesprek. Twee andere instellingen halen het geluid van die lokale route af. De eerste stuurt het geluid naar de dienst Groq voor snellere transcriptie. De tweede zet de transcriptieserver open voor andere computers in je netwerk, zonder versleuteling. Beide staan standaard uit.
 
-**Zo probeer je het als notulist.** Je hebt een Mac nodig met een Apple-chip (M1 of nieuwer), macOS 14.2 of nieuwer en minstens 5 GB vrije ruimte. Er wordt ongeveer 2,8 GB gedownload. Op een snelle verbinding duurde het 55 seconden. Op een gewone thuisverbinding zijn het een paar minuten, tot ongeveer 15. Voor Windows staan de stappen in [INSTALL.md](INSTALL.md#windows), in het Engels.
+**Zo probeer je het als notulist.** Je hebt een Mac nodig met een Apple-chip (M1 of nieuwer), macOS 14.2 of nieuwer en minstens 5 GB vrije ruimte. Voor Windows staan de stappen in [INSTALL.md](INSTALL.md#windows), in het Engels.
+
+**Route 1: de app downloaden (.dmg).** Download `OnCue-<versie>-arm64.dmg` van de [nieuwste release](https://github.com/Vinix24/OnCue/releases/latest), open het bestand en sleep **OnCue** naar **Programma's**. Open OnCue, sta de microfoon en systeemaudio toe, en wacht: het spraakmodel wordt de eerste keer bij het starten gedownload. Kies daarna **Opnemen en uitschrijven**.
+
+**Route 2: één regel in Terminal.** Er wordt ongeveer 2,8 GB gedownload. Op een snelle verbinding duurde het 55 seconden. Op een gewone thuisverbinding zijn het een paar minuten, tot ongeveer 15.
 
 1. Open Terminal: druk op Cmd+Spatie, typ `Terminal` en druk op Enter. Plak deze regel en druk op Enter. Wacht tot er `OnCue is installed.` staat.
 
@@ -53,10 +70,12 @@ OnCue is een notulist en een gesprekscoach die op je eigen computer draaien. Het
 
    Heeft je Mac nog geen ontwikkelhulpmiddelen van Apple, dan kan de eerste installatie een Apple-venster openen met een knop Installeer en om je Mac-wachtwoord vragen. Dat wachtwoord zie je niet terwijl je typt. Terminal meldt het als dat gebeurt.
 2. Of laat je AI-assistent het doen met precies deze opdracht: `Installeer OnCue op mijn Mac. Lees eerst https://raw.githubusercontent.com/Vinix24/OnCue/main/docs/INSTALL_WITH_AI.md en volg die stappen precies. Zeg het me als ik iets moet aanklikken of mijn wachtwoord moet invullen.`
-3. Open OnCue vanuit Launchpad en kies **Opnemen en uitschrijven**. De eerste keer vraagt macOS toestemming voor de microfoon en voor systeemaudio. Klik op Sta toe.
-4. Druk op **REC** als het gesprek begint en op **Stop** als het klaar is. Daarna schrijft OnCue het gesprek uit naar `transcript.md`, met regels als `[00:12] Jij: ...` en `[00:15] Ander: ...`. De pagina toont **Open transcript** en **Toon in Finder**.
+3. Open OnCue vanuit Launchpad en kies **Opnemen en uitschrijven** (in het Nederlands zodra `LANGUAGE=nl` staat; anders heet de knop **Record and transcribe**). De eerste keer vraagt macOS toestemming voor de microfoon en voor systeemaudio. Klik op Sta toe.
+4. Druk op **REC** als het gesprek begint en op **Stop** als het klaar is. Daarna schrijft OnCue het gesprek uit naar `transcript.md`, met regels als `[00:12] Ik: ...` en `[00:15] Gesprekspartner: ...`. De pagina toont **Open transcript** en **Toon in Finder**.
 
-Vertel je gesprekspartners vooraf dat je het gesprek opneemt en laat uitwerken. Wil je ook een live dashboard met coaching? Kies dan **Live coach**.
+Vertel je gesprekspartners vooraf dat je het gesprek opneemt en laat uitwerken. Wil je ook een live dashboard met coaching? Kies dan **Live coach**. Live coaching is gratis en werkt zonder sleutel.
+
+**Nederlands instellen.** Nieuwe installaties zijn Engels. Zet in `.env` in de OnCue-map `LANGUAGE=nl` (scherm, rapport en coaching) en `CALL_LANGUAGE=nl` (gesproken taal voor de transcriptie en de detectie), en start OnCue opnieuw. Een bestaande installatie zonder die twee regels blijft Nederlands: de installatie voegt ze zelf toe. Terug naar Engels kan door beide op `en` te zetten.
 
 Een samenvatting erbij laten maken door een taalmodel op je eigen computer: zie [Notetaker](#notetaker). De privacy-uitleg met de AVG staat in [docs/PRIVACY.md](docs/PRIVACY.md), in het Engels.
 
@@ -66,9 +85,9 @@ Een samenvatting erbij laten maken door een taalmodel op je eigen computer: zie 
 
 | | Notetaker | Live copilot |
 |---|---|---|
-| How you start it | **Opnemen en uitschrijven**, the default choice when you open OnCue.app | **Live coach** in the same dialog, or `.venv/bin/sales-copilot start` |
-| During the call | Two level meters and a timer: both sides are recorded | Live transcript, talk-time coaching and detection cards on a second screen |
-| After the call | After **Stop**, a readable `transcript.md` (`Jij` / `Ander`, with timestamps) in the session folder `data/sessions/<time>/`, with **Open transcript** and **Toon in Finder** | A report with the transcript, detections and talk-time |
+| How you start it | **Record and transcribe** (Dutch install: **Opnemen en uitschrijven**), the default choice when you open OnCue.app | **Live coach** in the same dialog, or `.venv/bin/sales-copilot start` |
+| During the call | Two level meters and a timer: both sides are recorded | Live transcript, talk-time coaching and detection cards in the dashboard |
+| After the call | After **Stop**, a readable `transcript.md` (`Ik` / `Gesprekspartner`, or `Me` / `Other` in English, with timestamps) in the session folder `data/sessions/<time>/`, with **Open transcript** and **Show in Finder** | A report with the transcript, detections and talk-time |
 | Needs an LLM | No. An LLM adds a summary and action items | No. An LLM adds summaries and live suggestions |
 
 Both start from the same install.
@@ -102,13 +121,13 @@ bash scripts/install.sh         # .venv, dependencies, whisper.cpp and its model
 .venv/bin/sales-copilot start   # starts OnCue on localhost:8760 and opens the browser
 ```
 
-Open `~/Applications/OnCue.app` (or Launchpad) and choose **Opnemen en uitschrijven**: the recorder starts, and after **Stop** it writes `transcript.md`. **Live coach** opens the dashboard instead. No LLM key is needed for either. The dashboard is in Dutch by default (`LANGUAGE=nl`); set `LANGUAGE=en` in `.env` for English. Other install paths and troubleshooting: [INSTALL.md](INSTALL.md). Every setting: [docs/CONFIG.md](docs/CONFIG.md).
+Open `~/Applications/OnCue.app` (or Launchpad) and choose **Record and transcribe**: the recorder starts, and after **Stop** it writes `transcript.md`. **Live coach** opens the dashboard instead. No LLM key is needed for either. The dashboard and the call language are English by default. For Dutch set `LANGUAGE=nl` and `CALL_LANGUAGE=nl` in `.env`; an install that already had a `.env` without those keys stays Dutch. Other install paths and troubleshooting: [INSTALL.md](INSTALL.md). Every setting: [docs/CONFIG.md](docs/CONFIG.md).
 
 ---
 
 ## Notetaker
 
-The quickest route is **Opnemen en uitschrijven** in OnCue.app (see [Install](#install)): no dashboard, and `transcript.md` after Stop. The route below is the dashboard with the `notetaker` preset. It has a live transcript and writes a report file with more detail.
+The quickest route is **Record and transcribe** in OnCue.app (see [Install](#install)): no dashboard, and `transcript.md` after Stop. The route below is the dashboard with the `notetaker` preset. It has a live transcript and writes a report file with more detail.
 
 1. Open `http://localhost:8760/dashboard`.
 2. Under **Presets**, click `notetaker`. It turns detection and talk-time coaching off, keeps the live transcript and the post-call report on, and transcribes your own microphone as well as the other side.
@@ -148,7 +167,7 @@ The dashboard shows the report after the call. Its JSON and Markdown download bu
 
 ## Live copilot
 
-The coaching route: a live transcript, talk-time coaching on your second screen, and pain points, objections and buying signals as they come up. Detection runs through `semantic-router`, an embedding classifier that stays local, so it works without an LLM.
+The coaching route: a live transcript, talk-time coaching in the dashboard, and pain points, objections and buying signals as they come up. Detection runs through `semantic-router`, an embedding classifier that stays local, so it works without an LLM.
 
 1. Open `http://localhost:8760/dashboard`.
 2. Under **Modules**, check that **Talk Time**, **Live Transcript** and **AI detection** (Dutch UI: *AI detectie*) are on. The `discovery`, `coaching_only` and `notetaker` presets leave detection off on purpose.
@@ -177,11 +196,11 @@ Privacy is the default, not an option you opt into. Audio capture, transcription
 | **No LLM (default)** | `LLM_PROVIDER=none`. The live cues (embedding-based detection and talk-time coaching) run fully local. No transcript text is sent anywhere. | Default. Sensitive or regulated calls. |
 | **Local LLM of your choice** | For example `LLM_PROVIDER=ollama` with a model you run yourself. The text stays on the machine. | Calls where you want LLM-backed features without any outbound text. |
 | **Own cloud tenant** | Your own Azure OpenAI subscription or Vertex AI project. The text stays inside a cloud boundary your organization already governs. | Regulated B2B where a new processor is a procurement blocker. |
-| **Public provider with your own key** | A public API (OpenAI, OpenRouter, Groq, Gemini). | Internal meetings, sales training, or any call where the sensitivity allows it. |
+| **Public provider with your own key** | OpenRouter (`LLM_PROVIDER=openrouter`): one key gives access to many models. | Internal meetings, sales training, or any call where the sensitivity allows it. |
 
 **Text.** With an LLM configured, what is sent depends on the task: a sliding window of prospect speech for detection, a rolling summary input (every 60 seconds, up to 40 lines with speaker labels), live suggestions with your uploaded context documents, and the whole transcript for the post-call report. All of it passes one PII seam first. That redaction is pattern based (no name recognition beyond a fixed list of Dutch first names), so it is a safety net and not a guarantee. The first three tasks run inside detection, which the notetaker preset switches off. A notetaker call therefore sends text only in the post-call report step: the whole transcript, after the call.
 
-**Audio.** By default audio never touches a network call. One opt-in route sends audio off the machine: `WHISPER_BACKEND=groq` uploads every audio chunk to Groq. Binding the whisper.cpp server to a non-loopback `WHISPER_CPP_SERVER_HOST` is not local either: it opens an unencrypted listener on your network. Neither is on by default, no PII filter runs on audio, and a client's privacy ceiling refuses both.
+**Audio.** By default audio never touches a network call. One opt-in route sends audio off the machine: `WHISPER_BACKEND=groq` uploads every audio chunk to Groq. Binding the whisper.cpp server to a non-loopback `WHISPER_CPP_SERVER_HOST` is not local either: it opens an unencrypted listener on your network. Neither is on by default and no PII filter runs on audio. In the coaching route a client's privacy ceiling refuses both. The notetaker has no client choice and no ceiling check: it transcribes the recorded files on your machine, and a cloud transcription backend does not work there.
 
 **No calls to the maker.** Without a license key, the open source version makes no call to the maker: no license check, no central audit, and the measurement signals are off.
 

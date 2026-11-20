@@ -79,13 +79,33 @@ def merge_labeled_segments(channels: dict[str, list[dict]]) -> list[dict]:
     return merged
 
 
-def format_transcript(merged: list[dict], label_map: dict[str, str] | None = None) -> str:
-    """Render merged segments as ``[MM:SS] LABEL: text`` lines."""
+def format_transcript(
+    merged: list[dict],
+    label_map: dict[str, str] | None = None,
+    *,
+    markers: list[float] | None = None,
+    marker_label: str = "Marker",
+    notes: list[tuple[float, str]] | None = None,
+) -> str:
+    """Render merged segments as ``[MM:SS] LABEL: text`` lines.
+
+    ``markers`` (seconds of recording time) become their own ``"<label> MM:SS"``
+    line before the first segment starting at or after the marker; markers after
+    the last segment go at the end. ``notes`` (``(seconds, text)``) are placed the
+    same way and render as ``[MM:SS] (text)``. Without either the output is unchanged.
+    """
     label_map = label_map or {}
-    lines = [
-        f"[{_fmt_ts(m['start'])}] {label_map.get(m['label'], m['label'])}: {m['text']}"
-        for m in merged
-    ]
+    pending = sorted(
+        [(t, f"{marker_label} {_fmt_ts(t)}") for t in markers or []]
+        + [(t, f"[{_fmt_ts(t)}] ({text})") for t, text in notes or []],
+        key=lambda item: item[0],
+    )
+    lines: list[str] = []
+    for m in merged:
+        while pending and pending[0][0] <= m["start"]:
+            lines.append(pending.pop(0)[1])
+        lines.append(f"[{_fmt_ts(m['start'])}] {label_map.get(m['label'], m['label'])}: {m['text']}")
+    lines.extend(line for _t, line in pending)
     return "\n".join(lines) + ("\n" if lines else "")
 
 
@@ -99,6 +119,9 @@ async def transcribe_session(
     backend: _SegmentBackend,
     *,
     label_map: dict[str, str] | None = None,
+    markers: list[float] | None = None,
+    marker_label: str = "Marker",
+    notes: list[tuple[float, str]] | None = None,
 ) -> str:
     """Transcribe every WAV in a recorder session dir into one labeled transcript.
 
@@ -110,4 +133,6 @@ async def transcribe_session(
     for wav in sorted(session_dir.glob("*.wav")):
         channels[wav.stem] = await backend.transcribe_file_segments(wav)
     merged = merge_labeled_segments(channels)
-    return format_transcript(merged, label_map or DEFAULT_LABELS)
+    return format_transcript(
+        merged, label_map or DEFAULT_LABELS, markers=markers, marker_label=marker_label, notes=notes
+    )

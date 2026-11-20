@@ -18,8 +18,14 @@ import httpx
 import numpy as np
 
 from sales_copilot.core.config import TranscriberConfig
+from sales_copilot.core.paths import resolve_app_resource
+from sales_copilot.modules.transcriber.backends.model_names import (
+    GGML_DOWNLOAD_COMMAND,
+    download_hint,
+    get_spec,
+)
 from sales_copilot.modules.transcriber.orphans import stop_orphans
-from sales_copilot.modules.transcriber.vocabulary import load_vocabulary_config
+from sales_copilot.modules.transcriber.vocabulary import load_vocabulary_config, warn_if_over_budget
 from sales_copilot.modules.transcriber.wav_utils import encode_wav_bytes, write_wav
 
 logger = logging.getLogger(__name__)
@@ -35,6 +41,23 @@ _SEGMENT_LINE = re.compile(
 def _timestamp_to_seconds(stamp: str) -> float:
     hours, minutes, seconds = stamp.replace(",", ".").split(":")
     return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+
+def _missing_model_message(model: str, model_path: Path) -> str:
+    """Error text for a missing ggml file; names the real path and where the script writes."""
+    hint = download_hint(model)
+    message = f"whisper.cpp model not found: {model_path}"
+    if not hint:
+        return message
+    default_dir = resolve_app_resource("vendor/whisper.cpp/models")
+    default_file = default_dir / get_spec(model.strip()).ggml_filename
+    if model_path.resolve() == default_file.resolve():
+        return f"{message}. Download it with: {hint}"
+    return (
+        f"{message} (the file is missing at that path). {GGML_DOWNLOAD_COMMAND} saves to "
+        f"{default_file}, not to that path; download with: {hint}, then move the file "
+        f"to {model_path} or point WHISPER_CPP_MODEL_PATH at {default_file}."
+    )
 
 
 class WhisperCppBackend:
@@ -68,7 +91,7 @@ class WhisperCppBackend:
         if not os.access(self._binary, os.X_OK):
             raise PermissionError(f"whisper.cpp binary is not executable: {self._binary}")
         if not self._model_path.exists():
-            raise FileNotFoundError(f"whisper.cpp model not found: {self._model_path}")
+            raise FileNotFoundError(_missing_model_message(config.model, self._model_path))
 
         self._server_lock = threading.Lock()
         self._server_proc: subprocess.Popen[bytes] | None = None
@@ -84,6 +107,7 @@ class WhisperCppBackend:
         if self._config.vocabulary_initial_prompt is not None:
             return self._config.vocabulary_initial_prompt
         vocab = load_vocabulary_config(self._config.vocabulary_config)
+        warn_if_over_budget(vocab, str(self._config.vocabulary_config))
         return vocab.initial_prompt
 
     # ------------------------------------------------------------------ #

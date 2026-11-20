@@ -45,7 +45,7 @@ class _FakeDebouncer(PainPointDebouncer):
 
 @pytest.fixture(scope="session")
 def objection_router() -> ObjectionRouter:
-    config = DetectorConfig(enable_objection_detection=True)
+    config = DetectorConfig(enable_objection_detection=True, call_language="nl")
     return ObjectionRouter(config)
 
 
@@ -62,7 +62,7 @@ def test_objection_router_classifies_prijs(objection_router: ObjectionRouter) ->
 async def test_objection_detector_includes_response_suggestion(
     monkeypatch: pytest.MonkeyPatch, pro_feature_policy: FeaturePolicy
 ) -> None:
-    config = DetectorConfig(enable_objection_detection=True)
+    config = DetectorConfig(enable_objection_detection=True, call_language="nl")
     detector = ObjectionDetector(
         config,
         WebSocketConfig(),
@@ -95,7 +95,7 @@ async def test_objection_detector_skips_when_disabled(monkeypatch: pytest.Monkey
     detector = ObjectionDetector(
         config,
         WebSocketConfig(),
-        router=ObjectionRouter(DetectorConfig(enable_objection_detection=True)),
+        router=ObjectionRouter(DetectorConfig(enable_objection_detection=True, call_language="nl")),
         debouncer=_FakeDebouncer(True),
     )
     fake_ws = _FakeWebSocket()
@@ -116,7 +116,7 @@ async def test_objection_detector_no_regression_on_objection_channel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Opportunity matches must never be emitted on /ws/objections."""
-    config = DetectorConfig(include_opportunities=True)
+    config = DetectorConfig(include_opportunities=True, call_language="nl")
     detector = ObjectionDetector(
         config,
         WebSocketConfig(),

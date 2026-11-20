@@ -49,3 +49,45 @@ def test_monologue_alert_emits() -> None:
     assert alert is not None
     assert alert.alert_type == "monologue_warning"
     assert alert.severity == "red"
+
+
+def test_prospect_monologue_does_not_alert() -> None:
+    config = TalkTimeConfig(monologue_warning_seconds=1)
+    tracker = TalkTimeTracker(config)
+
+    tracker.record_speech("prospect", 0, 1500)
+    state = tracker.get_state(1500)
+    alert = tracker.check_alerts(1500)
+
+    assert state.monologue_speaker == "prospect"
+    # Status may still be red through the ratio rule; the monologue rule must not fire.
+    assert alert is None or alert.alert_type != "monologue_warning"
+
+
+def test_seller_monologue_after_prospect_monologue_alerts_once() -> None:
+    config = TalkTimeConfig(monologue_warning_seconds=1)
+    tracker = TalkTimeTracker(config)
+
+    tracker.record_speech("prospect", 0, 1500)
+    first = tracker.check_alerts(1500)
+    tracker.record_speech("self", 1500, 3000)
+    second = tracker.check_alerts(3000)
+    third = tracker.check_alerts(3100)
+
+    assert first is None or first.alert_type != "monologue_warning"
+    assert second is not None and second.alert_type == "monologue_warning"
+    assert third is None or third.alert_type != "monologue_warning"
+
+
+def test_seller_alert_rearms_after_prospect_turn() -> None:
+    config = TalkTimeConfig(monologue_warning_seconds=1)
+    tracker = TalkTimeTracker(config)
+
+    tracker.record_speech("self", 0, 1500)
+    assert tracker.check_alerts(1500) is not None
+    tracker.record_speech("prospect", 1600, 1700)
+    tracker.check_alerts(1700)
+    tracker.record_speech("self", 1800, 3300)
+    again = tracker.check_alerts(3300)
+
+    assert again is not None and again.alert_type == "monologue_warning"

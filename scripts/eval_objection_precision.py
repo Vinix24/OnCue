@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import Any
 
 from semantic_router import Route, SemanticRouter
-from semantic_router.encoders import HuggingFaceEncoder
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -45,7 +44,7 @@ from sales_copilot.modules.detector.eval_utils import (  # noqa: E402
     simulate_extra_route,
 )
 from sales_copilot.modules.detector.objection_detector import ObjectionRouter  # noqa: E402
-from sales_copilot.modules.detector.router import _normalize_model_name  # noqa: E402
+from sales_copilot.modules.detector.router import build_encoder  # noqa: E402
 
 _DEFAULT_EVAL_SET = REPO_ROOT / "data" / "objection_eval" / "mined.jsonl"
 
@@ -108,7 +107,7 @@ def _ensure_predictions(rows: list[EvalRow], router: ObjectionRouter) -> list[Ev
 
 def _build_single_route_router(name: str, utterances: list[str], embedding_model: str) -> SemanticRouter:
     """Build a temporary router with one simulated route."""
-    encoder = HuggingFaceEncoder(name=_normalize_model_name(embedding_model))
+    encoder = build_encoder(embedding_model)
     route = Route(name=name, utterances=utterances)
     router = SemanticRouter(encoder=encoder, routes=[], aggregation="max")
     router.add([route])

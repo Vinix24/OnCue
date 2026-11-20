@@ -22,6 +22,7 @@ def _make_backend(tmp_path, *, vocabulary_enabled: bool = False) -> WhisperCppBa
         whisper_cpp_model_path=str(model),
         whisper_cpp_threads=6,
         language="nl",
+        vocabulary_config="config/transcription_vocabulary.yaml",
         whisper_cpp_server_enabled=False,
         vocabulary_enabled=vocabulary_enabled,
     )

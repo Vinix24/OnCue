@@ -1,4 +1,4 @@
-# Junk-filter signals for the post-call report (belapp-junkfilter-rapportschema D2).
+# Junk-filter signals for the post-call report.
 #
 # The decision to treat a call as junk belongs to the report model (`gesprek_gevoerd`).
 # The word count below only confirms it and feeds the `junk_reason` category; it never

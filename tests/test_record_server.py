@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
+import os
 import sys
 import wave
 from pathlib import Path
@@ -49,11 +50,33 @@ class FakeEngine:
     """Stands in for RecorderEngine: no audio devices, writes a real session dir on stop."""
 
     session_dir: Path
+    auto_stop_s: int | None = None
 
     def __init__(self, **_kwargs) -> None:
         self.elapsed = 12.3
+        self.paused = False
+        self._markers: list[int] = []
+
+    @property
+    def markers(self) -> list[int]:
+        return list(self._markers)
+
+    def pause(self) -> bool:
+        changed = not self.paused
+        self.paused = True
+        return changed
+
+    def resume(self) -> bool:
+        changed = self.paused
+        self.paused = False
+        return changed
+
+    def add_marker(self) -> bool:
+        self._markers.append(int(self.elapsed * 1000))
+        return True
 
     def start(self) -> Path:
+        self.session_dir.mkdir(parents=True, exist_ok=True)
         return self.session_dir
 
     def snapshot(self) -> EngineSnapshot:
@@ -65,13 +88,18 @@ class FakeEngine:
                 StreamSnapshot("prospect", -30.0, -20.0, False, True),
                 StreamSnapshot("self", -40.0, -25.0, False, True),
             ],
+            paused=self.paused,
+            auto_stop_s=self.auto_stop_s,
         )
 
     def stop(self) -> Path:
         self.session_dir.mkdir(parents=True, exist_ok=True)
         _write_wav(self.session_dir / "self.wav")
         _write_wav(self.session_dir / "prospect.wav")
-        (self.session_dir / "metadata.json").write_text(json.dumps({"duration_ms": 754000}))
+        metadata: dict = {"duration_ms": 754000}
+        if self.auto_stop_s is not None:
+            metadata["auto_stop"] = {"reason": "silence", "silence_s": self.auto_stop_s, "offset_ms": 754000}
+        (self.session_dir / "metadata.json").write_text(json.dumps(metadata))
         return self.session_dir
 
 
@@ -102,6 +130,7 @@ def rs(tmp_path, monkeypatch):
     module._state.update({"engine": None, "starting": False, "broadcaster": None, "latest": None})
     module._clients.clear()
     monkeypatch.setattr(module, "_PORT", PORT)
+    monkeypatch.setattr(module.route_runtime, "resolve_app_support", lambda: tmp_path)
     return module
 
 
@@ -169,8 +198,8 @@ def test_stop_transcribes_and_writes_labeled_transcript(rs, client, monkeypatch)
     assert "Datum: 2026-11-08" in transcript
     assert "Starttijd: 14:03" in transcript
     assert "Duur: 12:34" in transcript
-    assert "[00:01] Jij: Goedemiddag, met Vincent." in transcript
-    assert "[01:05] Ander: Dag, ik heb een vraag over de prijs." in transcript
+    assert "[00:01] Ik: Goedemiddag, met Vincent." in transcript
+    assert "[01:05] Gesprekspartner: Dag, ik heb een vraag over de prijs." in transcript
     assert backend.stopped is True
     assert not (FakeEngine.session_dir / "transcript.md.tmp").exists()
 
@@ -194,7 +223,7 @@ def test_english_language_uses_you_and_other(rs, monkeypatch) -> None:
 
     transcript = (session / "transcript.md").read_text(encoding="utf-8")
     assert "Start time: 14:03" in transcript
-    assert "[00:00] You: Hello there." in transcript
+    assert "[00:00] Me: Hello there." in transcript
     assert "[00:05] Other: Hi, thanks for calling." in transcript
 
 
@@ -399,7 +428,7 @@ def test_websocket_allows_localhost_origin_and_no_origin(rs, client) -> None:
             assert ws.receive_json()["type"] == "state"
 
 
-@pytest.mark.parametrize("path", ["/", "/transcript?session=" + SESSION_ID])
+@pytest.mark.parametrize("path", ["/", "/bar", "/status", "/transcript?session=" + SESSION_ID])
 def test_foreign_host_is_refused_for_get_routes(rs, path) -> None:
     session = Path(rs.OUT_DIR) / SESSION_ID
     session.mkdir()
@@ -454,6 +483,122 @@ def test_reveal_without_origin_header_is_allowed(rs, client, monkeypatch) -> Non
     assert client.post("/reveal", json={"session": SESSION_ID}).status_code == 200
 
 
+def test_bar_page_is_served_locally_and_names_the_websocket(rs, client) -> None:
+    res = client.get("/bar")
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/html")
+    assert "/ws" in res.text
+
+
+def test_bar_is_refused_for_a_remote_client(rs) -> None:
+    with TestClient(rs.app, base_url=BASE, client=("203.0.113.9", 50000)) as remote:
+        assert remote.get("/bar").status_code == 403
+
+
+def test_status_reports_an_idle_server(rs, client) -> None:
+    res = client.get("/status")
+    assert res.status_code == 200
+    assert res.json() == {
+        "phase": "idle", "elapsed_s": 0.0, "paused": False, "session": None, "pid": os.getpid(),
+    }
+
+
+def test_status_reports_a_recording_in_progress(rs, client) -> None:
+    with client.websocket_connect("/ws", headers=WS_GOOD) as ws:
+        ws.receive_json()
+        ws.send_json({"action": "start", "mic": None})
+        _recv_until(ws, lambda m: m["type"] == "state" and m["phase"] == "recording")
+        body = client.get("/status").json()
+        assert body["phase"] == "recording"
+        assert body["elapsed_s"] == pytest.approx(12.3)
+        ws.send_json({"action": "stop"})
+        _recv_until(ws, lambda m: m["type"] == "stopped")
+    rs._jobs.join()
+
+
+def test_status_origin_rule_matches_reveal(rs, client) -> None:
+    assert client.get("/status", headers=EVIL_ORIGIN).status_code == 403
+    assert client.get("/status", headers=GOOD_ORIGIN).status_code == 200
+    assert client.get("/status").status_code == 200
+
+
+def test_status_is_refused_for_a_remote_client(rs) -> None:
+    with TestClient(rs.app, base_url=BASE, client=("203.0.113.9", 50000)) as remote:
+        assert remote.get("/status").status_code == 403
+        assert remote.get("/status", headers=GOOD_ORIGIN).status_code == 403
+
+
+def test_state_message_keys_are_unchanged(rs, client) -> None:
+    with client.websocket_connect("/ws", headers=WS_GOOD) as ws:
+        assert set(ws.receive_json()) == {
+            "type", "phase", "elapsed_s", "directory", "transcribing", "session", "reason", "can_reveal",
+            "paused", "markers", "tap", "auto_stop_s",
+        }
+
+
+def test_silence_stops_the_recording_like_the_stop_button(rs, client, monkeypatch) -> None:
+    _use_backend(rs, monkeypatch, FakeBackend({"self": [{"start": 1.0, "end": 3.0, "text": "Tot ziens."}]}))
+    monkeypatch.setattr(FakeEngine, "auto_stop_s", 120)
+    with client.websocket_connect("/ws", headers=WS_GOOD) as ws:
+        ws.receive_json()
+        ws.send_json({"action": "start", "mic": None})  # no stop is sent: silence ends it
+        stopped = _recv_until(ws, lambda m: m["type"] == "stopped")
+        final = _recv_until(ws, lambda m: m["type"] == "state" and m["phase"] in ("ready", "failed"))
+    assert stopped["auto_stop_s"] == 120
+    assert final["phase"] == "ready"
+    assert final["auto_stop_s"] == 120
+    transcript = (FakeEngine.session_dir / "transcript.md").read_text(encoding="utf-8")
+    assert transcript.rstrip().endswith("[12:34] (Opname automatisch gestopt na 120 s stilte)")
+
+
+def _state_after(ws, action: str) -> dict:
+    ws.send_json({"action": action})
+    return _recv_until(ws, lambda m: m["type"] == "state")
+
+
+def test_pause_mark_and_resume_change_the_state_message(rs, client) -> None:
+    with client.websocket_connect("/ws", headers=WS_GOOD) as ws:
+        ws.receive_json()
+        ws.send_json({"action": "start", "mic": None})
+        _recv_until(ws, lambda m: m["type"] == "state" and m["phase"] == "recording")
+        assert _state_after(ws, "pause")["paused"] is True
+        assert client.get("/status").json()["paused"] is True
+        marked = _state_after(ws, "mark")
+        assert marked["markers"] == [{"offset_ms": 12300}]
+        assert _state_after(ws, "resume")["paused"] is False
+        assert client.get("/status").json()["paused"] is False
+        ws.send_json({"action": "stop"})
+        _recv_until(ws, lambda m: m["type"] == "stopped")
+    rs._jobs.join()
+
+
+def test_actions_that_do_not_fit_are_ignored(rs, client) -> None:
+    with client.websocket_connect("/ws", headers=WS_GOOD) as ws:
+        ws.receive_json()
+        for action in ("pause", "resume", "mark"):
+            ws.send_json({"action": action})
+        ws.send_json({"action": "start", "mic": None})
+        state = _recv_until(ws, lambda m: m["type"] == "state" and m["phase"] == "recording")
+        assert state["paused"] is False
+        assert state["markers"] == []
+        ws.send_json({"action": "stop"})
+        _recv_until(ws, lambda m: m["type"] == "stopped")
+    rs._jobs.join()
+
+
+def test_repeated_pause_is_ignored_when_the_engine_refuses(rs, client) -> None:
+    with client.websocket_connect("/ws", headers=WS_GOOD) as ws:
+        ws.receive_json()
+        ws.send_json({"action": "start", "mic": None})
+        _recv_until(ws, lambda m: m["type"] == "state" and m["phase"] == "recording")
+        _state_after(ws, "pause")
+        ws.send_json({"action": "pause"})
+        assert _state_after(ws, "resume")["paused"] is False
+        ws.send_json({"action": "stop"})
+        _recv_until(ws, lambda m: m["type"] == "stopped")
+    rs._jobs.join()
+
+
 @pytest.mark.audio_fixture
 def test_real_whisper_cpp_transcribes_a_recorded_session(rs, tmp_path) -> None:
     """Needs a built whisper.cpp binary and a model from .env plus a real session."""
@@ -468,3 +613,225 @@ def test_real_whisper_cpp_transcribes_a_recorded_session(rs, tmp_path) -> None:
     path = rs.transcribe_session_dir(target)
 
     assert path.read_text(encoding="utf-8").startswith("# ")
+
+
+_MARKER_SEGMENTS = {
+    "self": [{"start": 1.0, "end": 3.0, "text": "Goedemiddag."}],
+    "prospect": [{"start": 65.0, "end": 68.0, "text": "Wat kost het?"}],
+}
+
+
+def _marker_session(rs, markers) -> Path:
+    session = Path(rs.OUT_DIR) / SESSION_ID
+    session.mkdir()
+    _write_wav(session / "self.wav")
+    _write_wav(session / "prospect.wav")
+    meta = {"duration_ms": 90000}
+    if markers is not None:
+        meta["markers"] = [{"offset_ms": ms} for ms in markers]
+    (session / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+    return session
+
+
+def test_markers_from_metadata_become_lines_in_the_transcript(rs, monkeypatch) -> None:
+    session = _marker_session(rs, [30000, 100000])
+    _use_backend(rs, monkeypatch, FakeBackend(_MARKER_SEGMENTS))
+
+    transcript = rs.transcribe_session_dir(session).read_text(encoding="utf-8")
+
+    body = transcript.splitlines()[-4:]
+    assert body == [
+        "[00:01] Ik: Goedemiddag.",
+        "Markering 00:30",
+        "[01:05] Gesprekspartner: Wat kost het?",
+        "Markering 01:40",
+    ]
+
+
+def test_session_without_markers_gives_the_same_transcript_as_before(rs, monkeypatch) -> None:
+    session = _marker_session(rs, None)
+    _use_backend(rs, monkeypatch, FakeBackend(_MARKER_SEGMENTS))
+
+    transcript = rs.transcribe_session_dir(session).read_text(encoding="utf-8")
+
+    assert "Markering" not in transcript
+    assert transcript.splitlines()[-2:] == ["[00:01] Ik: Goedemiddag.", "[01:05] Gesprekspartner: Wat kost het?"]
+
+
+def test_session_without_metadata_file_has_no_markers(rs, monkeypatch) -> None:
+    session = Path(rs.OUT_DIR) / SESSION_ID
+    session.mkdir()
+    _write_wav(session / "self.wav")
+    _use_backend(rs, monkeypatch, FakeBackend(_MARKER_SEGMENTS))
+
+    transcript = rs.transcribe_session_dir(session).read_text(encoding="utf-8")
+
+    assert "Markering" not in transcript
+
+
+def test_marker_label_is_english_for_english(rs, monkeypatch) -> None:
+    session = _marker_session(rs, [30000])
+    _use_backend(rs, monkeypatch, FakeBackend(_MARKER_SEGMENTS))
+    monkeypatch.setattr(rs, "_language", lambda: "en")
+
+    transcript = rs.transcribe_session_dir(session).read_text(encoding="utf-8")
+
+    assert "Marker 00:30" in transcript
+    assert "Markering" not in transcript
+
+
+def test_enqueue_writes_the_pending_marker_before_the_job_runs(rs, monkeypatch) -> None:
+    session = Path(rs.OUT_DIR) / SESSION_ID
+    session.mkdir()
+    monkeypatch.setattr(rs, "_ensure_worker", lambda: None)
+    rs._enqueue_transcription(session, None)
+    assert (session / ".transcribe-pending").exists()
+    assert rs._jobs.get_nowait()[0] == session
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_job_end_removes_the_marker_and_records_a_failure(rs, monkeypatch, fails) -> None:
+    session = Path(rs.OUT_DIR) / SESSION_ID
+    session.mkdir()
+    (session / ".transcribe-pending").touch()
+    monkeypatch.setattr(rs, "_publish_from_thread", lambda _loop: None)
+    def transcribe(d: Path) -> Path:
+        if fails:
+            raise RuntimeError("whisper binary not found")
+        return d / "transcript.md"
+    monkeypatch.setattr(rs, "transcribe_session_dir", transcribe)
+    rs._jobs.put((session, None))
+    rs._jobs.get_nowait()
+    rs._run_job(session, None)
+    assert not (session / ".transcribe-pending").exists()
+    failed = session / "transcription-failed.txt"
+    assert failed.exists() == fails
+    if fails:
+        assert failed.read_text(encoding="utf-8") == "RuntimeError: whisper binary not found\n"
+
+
+def test_port_default_follows_recorder_port_and_falls_back(rs, monkeypatch) -> None:
+    monkeypatch.setattr("sales_copilot.core.config.load_env", lambda *a, **k: False)
+    monkeypatch.setenv("RECORDER_PORT", "8791")
+    assert rs._default_port() == 8791
+    monkeypatch.setenv("RECORDER_PORT", "abc")
+    assert rs._default_port() == 8780
+    monkeypatch.setenv("RECORDER_PORT", "0")
+    assert rs._default_port() == 8780
+    monkeypatch.delenv("RECORDER_PORT")
+    assert rs._default_port() == 8780
+
+
+def test_lifespan_writes_and_removes_the_notetaker_runtime_file(rs, tmp_path) -> None:
+    runtime = tmp_path / "data" / "run" / "notetaker.json"
+    with TestClient(rs.app, base_url=BASE, client=("127.0.0.1", 50000)):
+        assert json.loads(runtime.read_text()) == {"pid": os.getpid(), "port": PORT}
+    assert not runtime.exists()
+
+
+def test_lifespan_removes_the_runtime_file_after_the_shutdown(rs, tmp_path, monkeypatch) -> None:
+    runtime = tmp_path / "data" / "run" / "notetaker.json"
+    seen: list[bool] = []
+
+    async def fake_shutdown() -> None:
+        seen.append(runtime.exists())
+
+    monkeypatch.setattr(rs, "_shutdown", fake_shutdown)
+    with TestClient(rs.app, base_url=BASE, client=("127.0.0.1", 50000)):
+        pass
+    assert seen == [True]
+    assert not runtime.exists()
+
+
+def test_lifespan_removes_the_runtime_file_when_the_shutdown_raises(rs, tmp_path, monkeypatch) -> None:
+    runtime = tmp_path / "data" / "run" / "notetaker.json"
+
+    async def failing_shutdown() -> None:
+        raise RuntimeError("finishing the recording failed")
+
+    monkeypatch.setattr(rs, "_shutdown", failing_shutdown)
+    with pytest.raises(RuntimeError):
+        with TestClient(rs.app, base_url=BASE, client=("127.0.0.1", 50000)):
+            pass
+    assert not runtime.exists()
+
+
+def test_notetaker_labels_are_the_reports_neutral_labels(rs):
+    from sales_copilot.core.i18n import NEUTRAL_SPEAKER_LABELS
+
+    assert set(rs.NOTETAKER_LABELS) == set(NEUTRAL_SPEAKER_LABELS)
+    for language, (own, other) in NEUTRAL_SPEAKER_LABELS.items():
+        labels = rs.NOTETAKER_LABELS[language]
+        assert labels["self"] == labels["mic"] == own
+        assert labels["prospect"] == labels["system"] == other
+
+
+def test_state_and_level_payloads_carry_the_tap_state(rs, client, monkeypatch) -> None:
+    real = FakeEngine.snapshot
+
+    def lost(self):
+        return real(self).__class__(**{**real(self).__dict__, "tap_state": "lost", "tap_attempts": 2})
+
+    monkeypatch.setattr(FakeEngine, "snapshot", lost)
+    with client.websocket_connect("/ws", headers=WS_GOOD) as ws:
+        assert ws.receive_json()["tap"] == {"state": "ok", "attempts": 0}
+        ws.send_json({"action": "start", "mic": None})
+        state = _recv_until(ws, lambda m: m["type"] == "state" and m["phase"] == "recording")
+        level = _recv_until(ws, lambda m: m["type"] == "level")
+        ws.send_json({"action": "stop"})
+        _recv_until(ws, lambda m: m["type"] == "stopped")
+    rs._jobs.join()
+    assert state["tap"] == {"state": "lost", "attempts": 2}
+    assert level["tap"] == {"state": "lost", "attempts": 2}
+
+
+def _tap_session(rs, tap_events) -> Path:
+    session = _marker_session(rs, None)
+    meta = {"duration_ms": 90000, "tap_events": tap_events}
+    (session / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+    return session
+
+
+def test_tap_events_become_lost_and_reattached_lines_in_the_transcript(rs, monkeypatch) -> None:
+    events = [
+        {"t": 30.0, "event": "lost"},
+        {"t": 31.0, "event": "reattach_attempt_1"},
+        {"t": 80.0, "event": "reattached"},
+        {"t": 85.0, "event": "no_system_audio"},
+    ]
+    session = _tap_session(rs, events)
+    _use_backend(rs, monkeypatch, FakeBackend(_MARKER_SEGMENTS))
+
+    body = rs.transcribe_session_dir(session).read_text(encoding="utf-8").splitlines()[-4:]
+
+    assert body == [
+        "[00:01] Ik: Goedemiddag.",
+        "[00:30] (Systeemgeluid weg, de ander is vanaf hier niet opgenomen)",
+        "[01:05] Gesprekspartner: Wat kost het?",
+        "[01:20] (Systeemgeluid weer opgenomen)",
+    ]
+
+
+def test_tap_note_text_follows_the_transcript_language(rs, monkeypatch) -> None:
+    session = _tap_session(rs, [{"t": 30.0, "event": "lost"}])
+    _use_backend(rs, monkeypatch, FakeBackend(_MARKER_SEGMENTS))
+    monkeypatch.setattr(rs, "_language", lambda: "en")
+
+    transcript = rs.transcribe_session_dir(session).read_text(encoding="utf-8")
+
+    assert "[00:30] (System audio lost, the other side is not recorded from here)" in transcript
+
+
+@pytest.mark.parametrize("bad", [None, "x", [{"event": "lost"}], [{"t": "soon", "event": "lost"}], [None]])
+def test_unreadable_tap_events_add_no_lines_and_do_not_break_the_transcript(rs, monkeypatch, bad) -> None:
+    session = _tap_session(rs, bad)
+    _use_backend(rs, monkeypatch, FakeBackend(_MARKER_SEGMENTS))
+
+    transcript = rs.transcribe_session_dir(session).read_text(encoding="utf-8")
+
+    assert "Systeemgeluid" not in transcript
+    assert "[00:01] Ik: Goedemiddag." in transcript
+
+
+def test_session_without_metadata_has_no_tap_notes(rs) -> None:
+    assert rs._session_tap_notes(Path(rs.OUT_DIR) / "missing", "en") == []

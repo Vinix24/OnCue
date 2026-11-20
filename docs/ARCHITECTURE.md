@@ -97,7 +97,7 @@ graph LR
     end
 
     subgraph browser["Browser Frontends"]
-        DASH["Coaching Dashboard\n(second screen)"]
+        DASH["Coaching Dashboard\n(dashboard)"]
         REVEAL["Reveal.js Presentation\n(screen-shared)"]
     end
 
@@ -167,7 +167,7 @@ rather than queued alongside prospect speech during the call.
 ### BYO-tenant differentiator
 
 Both modes support a bring-your-own-tenant LLM configuration: instead of routing
-LLM text to a third-party API (Gemini, Groq, OpenAI), the system
+LLM text to a public API (OpenRouter), the system
 can point at an Azure OpenAI endpoint within the customer's own Azure subscription,
 or a Vertex AI project in their own GCP account. Audio capture and transcription remain local; the LLM inference happens
 inside the customer's own cloud contract. This keeps the processed transcript text
@@ -363,8 +363,9 @@ each disabled flag, and warns explicitly when the detector is off. An absence
 in a list is not a signal a human notices.
 
 LLM provider is configurable via `LLM_PROVIDER` in `.env` (none is the shipped
-default; Gemini, OpenRouter, Groq, OpenAI, Ollama, Vertex AI, Azure OpenAI). All LLM
-calls go through `instructor` for structured output.
+default; Ollama locally, Azure OpenAI or Vertex AI in your own tenant, OpenRouter as the
+public tier). Older openai, groq and gemini values still work for existing configs
+(developer option). All LLM calls go through `instructor` for structured output.
 
 ### Coaching layer
 
@@ -412,7 +413,7 @@ Several coaching sub-systems run alongside the main detection loop:
   runs. See [MODULE4.md](MODULE4.md) ("Report Delivery") for the full contract.
 
 Offline batch analysis is available via `scripts/label_and_summarize.py` (PR-108),
-which runs a Gemini pipeline over a raw transcript to produce a structured summary
+which runs an LLM pipeline over a raw transcript to produce a structured summary
 with speaker labels, wishes, and module recommendations.
 
 ### WebSocket hub

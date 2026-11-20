@@ -67,6 +67,7 @@ from typing import Any
 import numpy as np
 
 from sales_copilot.core.config import env_float
+from sales_copilot.core.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,9 @@ DEFAULT_SILENT_WARN_SECONDS = 120.0
 # decides whether a pause counts as a fault. Override with
 # ``AUDIO_TAP_SIGNAL_LOST_WARN_SECONDS``.
 DEFAULT_SIGNAL_LOST_WARN_SECONDS = 30.0
+#: How long the system track may be exact zero from the very start while the mic
+#: carries signal before the notetaker warns (warning only, never a reattach).
+DEFAULT_NO_SYSTEM_AUDIO_WARN_SECONDS = 120.0
 
 SILENCE_FLOOR_DB = -120.0
 
@@ -171,6 +175,15 @@ def resolve_signal_lost_seconds() -> float:
     value = env_float("AUDIO_TAP_SIGNAL_LOST_WARN_SECONDS", DEFAULT_SIGNAL_LOST_WARN_SECONDS)
     if value is None or value <= 0.0:
         return DEFAULT_SIGNAL_LOST_WARN_SECONDS
+    return value
+
+
+def resolve_no_system_audio_seconds() -> float:
+    """Read how long the mic may carry signal over an all-zero system track before warning."""
+
+    value = env_float("AUDIO_TAP_NO_SYSTEM_AUDIO_WARN_SECONDS", DEFAULT_NO_SYSTEM_AUDIO_WARN_SECONDS)
+    if value is None or value <= 0.0:
+        return DEFAULT_NO_SYSTEM_AUDIO_WARN_SECONDS
     return value
 
 
@@ -409,60 +422,61 @@ class TapHealthTracker:
         )
 
 
+def _kind(health: TapHealth) -> str:
+    return t("audio.kind_mic" if health.is_microphone else "audio.kind_tap")
+
+
 def _no_frames_message(label: str, health: TapHealth) -> str:
-    if health.is_microphone:
-        return (
-            f"De {label}-microfoon is wel open ({health.target}) maar levert al "
-            f"{health.attached_seconds:.0f} seconden geen enkel audioframe. Dat is geen stilte: "
-            "een open microfoon blijft buffers doorgeven, ook als er niets gezegd wordt. Stop het "
-            "gesprek en start het opnieuw; blijft dit, controleer dan de microfoontoestemming "
-            "(Systeeminstellingen > Privacy en beveiliging > Microfoon)."
-        )
-    return (
-        f"De {label}-tap is wel open ({health.target}) maar levert al "
-        f"{health.attached_seconds:.0f} seconden geen enkel audioframe. Dat is geen stilte: "
-        "een open tap blijft buffers doorgeven, ook als er niets speelt. Stop het gesprek en "
-        "start het opnieuw; blijft dit, controleer dan de macOS-toestemming voor Core Audio "
-        "process-taps (Systeeminstellingen > Privacy en beveiliging)."
+    return t(
+        "audio.no_frames_mic" if health.is_microphone else "audio.no_frames_tap",
+        label=label,
+        target=health.target,
+        seconds=f"{health.attached_seconds:.0f}",
     )
 
 
 def _silent_message(label: str, health: TapHealth) -> str:
-    if health.is_microphone:
-        return (
-            f"De {label}-microfoon is open ({health.target}) en levert audio, maar er zit sinds het "
-            f"begin van het gesprek geen enkel signaal in ({health.chunks} frames, allemaal digitale "
-            f"stilte, piek {health.peak_dbfs:.0f} dBFS). Drie oorzaken zijn realistisch: de "
-            "microfoon staat gemute (hardware of in de app), er is een verkeerd invoerapparaat "
-            f"gekozen ({health.target}; bijvoorbeeld BlackHole of een ander virtueel apparaat in "
-            "plaats van je headset), of de app heeft geen microfoontoestemming (Systeeminstellingen "
-            "> Privacy en beveiliging > Microfoon)."
-        )
-    return (
-        f"De {label}-tap is open ({health.target}) en levert audio, maar er zit sinds het begin "
-        f"van het gesprek geen enkel signaal in ({health.chunks} frames, allemaal digitale stilte, "
-        f"piek {health.peak_dbfs:.0f} dBFS). Twee oorzaken zijn realistisch: de gespreksaudio speelt "
-        "op een ander apparaat (telefoon, tweede laptop) in plaats van op deze Mac, of de output "
-        "van deze Mac staat gemute. De tap zelf is in orde."
+    return t(
+        "audio.silent_mic" if health.is_microphone else "audio.silent_tap",
+        label=label,
+        target=health.target,
+        frames=health.chunks,
+        peak=f"{health.peak_dbfs:.0f}",
     )
 
 
 def _signal_lost_message(label: str, health: TapHealth, peer_label: str | None) -> str:
-    seconds = health.zero_run_seconds or 0.0
-    kind = "microfoon" if health.is_microphone else "tap"
-    peer = ""
-    if peer_label:
-        peer = (
-            f" Het {peer_label}-kanaal draagt in diezelfde periode wel signaal. "
-            f"Dit is dus geen stilte in het gesprek maar een defect in deze {kind}."
-        )
-    return (
-        f"De {label}-{kind} ({health.target}) droeg eerder in dit gesprek audio en levert nu al "
-        f"{seconds:.0f} seconden uitsluitend exacte nullen ({health.zero_run_chunks} frames). "
-        f"Een levende {kind} van een stille bron geeft altijd een ruisvloer. Exact nul betekent dat de "
-        f"bron niets meer aanlevert.{peer} Alles wat deze kant vanaf nu zegt gaat verloren. "
-        "Stop het gesprek en start het opnieuw."
+    kind = _kind(health)
+    peer = t("audio.peer_signal", peer=peer_label, kind=kind) if peer_label else ""
+    return t(
+        "audio.signal_lost",
+        label=label,
+        kind=kind,
+        target=health.target,
+        seconds=f"{health.zero_run_seconds or 0.0:.0f}",
+        frames=health.zero_run_chunks,
+        peer=peer,
     )
+
+
+def _tap_lost_reattaching_message(label: str, health: TapHealth, peer_label: str | None) -> str:
+    peer = t("audio.tap_lost_peer", peer=peer_label) if peer_label else ""
+    return t(
+        "audio.tap_lost_reattaching",
+        label=label,
+        kind=_kind(health),
+        target=health.target,
+        seconds=f"{health.zero_run_seconds or 0.0:.0f}",
+        peer=peer,
+    )
+
+
+def _tap_recovered_message(label: str, health: TapHealth, attempts: int) -> str:
+    return t("audio.tap_recovered", label=label, kind=_kind(health), attempts=attempts)
+
+
+def _tap_gave_up_message(label: str, health: TapHealth, attempts: int) -> str:
+    return t("audio.tap_gave_up", label=label, kind=_kind(health), target=health.target, attempts=attempts)
 
 
 def reattach_marker(label: str, health: TapHealth, *, attempt: int, max_attempts: int, at_ms: int) -> dict[str, Any]:
@@ -478,9 +492,8 @@ def reattach_marker(label: str, health: TapHealth, *, attempt: int, max_attempts
         "marker": REATTACH_MARKER,
         "stream": label,
         "speaker": "system",
-        "text": (
-            f"[de {label}-tap ({health.target}) leverde alleen digitale stilte en wordt opnieuw "
-            f"aangehaakt (poging {attempt}/{max_attempts}).]"
+        "text": t(
+            "audio.reattach_marker", label=label, target=health.target, attempt=attempt, max_attempts=max_attempts
         ),
         "start_ms": at_ms,
         "end_ms": at_ms,
@@ -489,10 +502,7 @@ def reattach_marker(label: str, health: TapHealth, *, attempt: int, max_attempts
 
 def _detached_message(label: str, health: TapHealth) -> str:
     detail = f" ({health.detail})" if health.detail else ""
-    return (
-        f"De {label}-tap is tijdens het gesprek weggevallen{detail} na {health.chunks} frames. "
-        "Er komt geen audio meer binnen. Stop het gesprek en start het opnieuw."
-    )
+    return t("audio.detached", label=label, detail=detail, frames=health.chunks)
 
 
 def evaluate_tap_health(
@@ -559,20 +569,13 @@ def describe_silent_stream(label: str, device_label: str, health: TapHealth | No
     """
 
     if health is None:
-        return f"Geen audio van {label}-stream (device={device_label}). Controleer je microfoon/audio-routing."
+        return t("audio.no_audio_stream", label=label, device=device_label)
     if health.state is TapSignalState.NO_TAP:
         detail = f": {health.detail}" if health.detail else ""
-        return (
-            f"De {label}-tap is niet geopend ({health.attach_state.value}{detail}). Er is geen bron "
-            "om naar te luisteren, dus dit is geen stilte. Controleer de audio-toestemming en start "
-            "het gesprek opnieuw."
-        )
+        return t("audio.no_tap", label=label, attach_state=health.attach_state.value, detail=detail)
     if health.state is TapSignalState.ATTACHED_NO_FRAMES:
-        return (
-            f"De {label}-tap is open ({health.target}) maar leverde nog geen enkel frame. "
-            "Blijft dat zo, dan hangt de tap; stop het gesprek en start het opnieuw."
-        )
-    return f"Geen audio van {label}-stream (device={device_label}). Controleer je microfoon/audio-routing."
+        return t("audio.no_frames_yet", label=label, target=health.target)
+    return t("audio.no_audio_stream", label=label, device=device_label)
 
 
 #: Event type for the transcript-channel marker. Deliberately not ``transcript``:
@@ -646,16 +649,13 @@ def signal_lost_marker(label: str, health: TapHealth, *, peer_label: str | None,
     is the moment the signal went, not the moment the monitor noticed.
     """
 
-    peer = f" Het {peer_label}-kanaal loopt wel door." if peer_label else ""
+    peer = t("audio.signal_lost_marker_peer", peer=peer_label) if peer_label else ""
     return {
         "type": TRANSCRIPT_MARKER_TYPE,
         "marker": SIGNAL_LOST_MARKER,
         "stream": label,
         "speaker": "system",
-        "text": (
-            f"[audio ontbreekt vanaf hier: de {label}-tap levert geen signaal meer."
-            f"{peer} Wat deze kant hierna zegt staat niet in dit transcript.]"
-        ),
+        "text": t("audio.signal_lost_marker", label=label, peer=peer),
         "start_ms": at_ms,
         "end_ms": at_ms,
     }
@@ -673,6 +673,82 @@ def stream_tap_health(stream: Any) -> TapHealth | None:
         logger.debug("tap_health() raised on stream %r", stream, exc_info=True)
         return None
     return health if isinstance(health, TapHealth) else None
+
+
+class ReattachAction(StrEnum):
+    """What one beat decides for a stream, see :func:`plan_reattach`."""
+
+    NONE = "none"
+    COOLDOWN = "cooldown"
+    REATTACH = "reattach"
+
+
+@dataclass(frozen=True, slots=True)
+class ReattachPlan:
+    action: ReattachAction
+    #: 1-based number of the attempt this plan starts (0 unless ``REATTACH``).
+    attempt: int = 0
+    #: The beat before which no further attempt may start.
+    next_beat: int = 0
+
+
+def carrying_signal_labels(snapshots: list[tuple[str, TapHealth | None]]) -> list[str]:
+    """Labels whose tap is currently carrying signal: the cross-channel evidence."""
+
+    return [
+        label for label, health in snapshots if health is not None and health.state is TapSignalState.ATTACHED_SIGNAL
+    ]
+
+
+def plan_reattach(
+    health: TapHealth,
+    *,
+    peer_label: str | None,
+    can_reattach: bool,
+    attempts: int,
+    beats: int,
+    next_beat: int,
+    max_attempts: int = DEFAULT_REATTACH_MAX_ATTEMPTS,
+) -> ReattachPlan:
+    """Decide, without I/O, whether a stream gets a reattach attempt now (live monitor and notetaker alike).
+
+    ``REATTACH``: lost, a peer carries signal, the stream can reattach, attempts are left, cool-down over.
+    ``COOLDOWN``: the same one beat too early. ``NONE``: no reattach possible; the caller warns.
+    """
+
+    if health.state is not TapSignalState.ATTACHED_SIGNAL_LOST or peer_label is None:
+        return ReattachPlan(ReattachAction.NONE)
+    if not can_reattach or attempts >= max_attempts:
+        return ReattachPlan(ReattachAction.NONE)
+    if beats < next_beat:
+        return ReattachPlan(ReattachAction.COOLDOWN, next_beat=next_beat)
+    attempt = attempts + 1
+    backoff = _REATTACH_BACKOFF_BEATS[min(attempt, len(_REATTACH_BACKOFF_BEATS)) - 1]
+    return ReattachPlan(ReattachAction.REATTACH, attempt=attempt, next_beat=beats + backoff)
+
+
+async def _publish_tap_event(
+    broadcast_warning: Callable[[dict[str, Any]], Awaitable[None]],
+    label: str,
+    health: TapHealth,
+    tap_event: str,
+    attempts: int,
+    message: str,
+) -> None:
+    """Publish one lost/recovered/gave_up audio_warning; a failing broadcast is logged, never raised."""
+
+    payload = {
+        "type": "audio_warning",
+        "stream": label,
+        "tap_state": health.state.value,
+        "tap_event": tap_event,
+        "attempts": attempts,
+        "message": message,
+    }
+    try:
+        await broadcast_warning(payload)
+    except Exception:
+        logger.warning("Failed to broadcast tap_health %s warning for stream=%s", tap_event, label, exc_info=True)
 
 
 async def monitor_tap_health(
@@ -740,6 +816,11 @@ async def monitor_tap_health(
     reported: set[str] = set(already_reported or ())
     reattach_attempts: dict[str, int] = {}
     next_reattach_beat: dict[str, int] = {}
+    # Per stream, the dropout this monitor already told the operator about:
+    # "lost" (warned, reattaching) or "gave_up" (attempts spent, warned). Absent
+    # means no open dropout, so a later independent one warns again.
+    dropout_state: dict[str, str] = {}
+    dropout_attempts: dict[str, int] = {}
     stream_by_label = {label: stream for stream, label in streams_and_labels}
     started_at = clock()
     beats = 0
@@ -752,11 +833,7 @@ async def monitor_tap_health(
 
         beats += 1
         snapshots = [(label, stream_tap_health(stream)) for stream, label in streams_and_labels]
-        carrying_signal = [
-            label
-            for label, health in snapshots
-            if health is not None and health.state is TapSignalState.ATTACHED_SIGNAL
-        ]
+        carrying_signal = carrying_signal_labels(snapshots)
         for label, health in snapshots:
             if health is None:
                 continue
@@ -766,21 +843,66 @@ async def monitor_tap_health(
                     await broadcast_status(tap_status_message(label, health))
                 except Exception:
                     logger.warning("Failed to broadcast tap_status for stream=%s", label, exc_info=True)
+            if label in dropout_state and health.state is TapSignalState.ATTACHED_SIGNAL:
+                attempts_used = dropout_attempts.pop(label, 0)
+                del dropout_state[label]
+                logger.info("Audio tap [%s]: signal back after %s reattach attempt(s).", label, attempts_used)
+                await _publish_tap_event(
+                    broadcast_warning,
+                    label,
+                    health,
+                    "recovered",
+                    attempts_used,
+                    _tap_recovered_message(label, health, attempts_used),
+                )
+                continue
             if label in reported:
                 continue
             peer_label = next((peer for peer in carrying_signal if peer != label), None)
 
-            if health.state is TapSignalState.ATTACHED_SIGNAL_LOST and peer_label is not None:
-                reattach_fn = getattr(stream_by_label.get(label), "reattach", None)
-                if reattach_fn is not None and reattach_attempts.get(label, 0) < DEFAULT_REATTACH_MAX_ATTEMPTS:
-                    if beats < next_reattach_beat.get(label, 0):
-                        # Cooling down from the previous attempt: say nothing
-                        # yet, this beat is not the one that decides.
-                        continue
-                    attempts = reattach_attempts.get(label, 0) + 1
+            reattach_fn = getattr(stream_by_label.get(label), "reattach", None)
+            if (
+                reattach_fn is not None
+                and health.state is TapSignalState.ATTACHED_SIGNAL_LOST
+                and peer_label is not None
+                and label not in dropout_state
+            ):
+                # First beat of this dropout: tell the operator before any
+                # reattach attempt, and put the marker where the audio went.
+                dropout_state[label] = "lost"
+                dropout_attempts[label] = 0
+                lost_message = _tap_lost_reattaching_message(label, health, peer_label)
+                logger.warning("Audio tap [%s]: %s", label, lost_message)
+                await _publish_tap_event(broadcast_warning, label, health, "lost", 0, lost_message)
+                if broadcast_marker is not None:
+                    elapsed = clock() - started_at - (health.zero_run_seconds or 0.0)
+                    lost_marker = signal_lost_marker(
+                        label, health, peer_label=peer_label, at_ms=max(0, int(elapsed * 1000))
+                    )
+                    try:
+                        await broadcast_marker(lost_marker)
+                    except Exception:
+                        logger.warning(
+                            "Failed to broadcast tap_health transcript marker for stream=%s", label, exc_info=True
+                        )
+            plan = plan_reattach(
+                health,
+                peer_label=peer_label,
+                can_reattach=reattach_fn is not None,
+                attempts=reattach_attempts.get(label, 0),
+                beats=beats,
+                next_beat=next_reattach_beat.get(label, 0),
+            )
+            if plan.action is ReattachAction.COOLDOWN:
+                # Cooling down from the previous attempt: say nothing yet, this
+                # beat is not the one that decides.
+                continue
+            if plan.action is ReattachAction.REATTACH:
+                if reattach_fn is not None:
+                    attempts = plan.attempt
                     reattach_attempts[label] = attempts
-                    backoff = _REATTACH_BACKOFF_BEATS[min(attempts, len(_REATTACH_BACKOFF_BEATS)) - 1]
-                    next_reattach_beat[label] = beats + backoff
+                    dropout_attempts[label] = dropout_attempts.get(label, 0) + 1
+                    next_reattach_beat[label] = plan.next_beat
                     logger.info(
                         "Audio tap [%s]: reattaching (attempt %s/%s) -- attached but delivering only "
                         "digital silence while %s carries signal.",
@@ -810,6 +932,18 @@ async def monitor_tap_health(
                                 label,
                                 exc_info=True,
                             )
+                    continue
+            if dropout_state.get(label) == "gave_up":
+                continue  # already told the operator; only a recovery speaks again
+            if dropout_state.get(label) == "lost" and health.state is TapSignalState.ATTACHED_SIGNAL_LOST:
+                if reattach_fn is not None and plan.action is ReattachAction.NONE:
+                    if peer_label is None:
+                        continue  # the peer went quiet too: a pause, not a verdict; keep waiting
+                    spent = dropout_attempts.get(label, 0)
+                    dropout_state[label] = "gave_up"
+                    gave_up_message = _tap_gave_up_message(label, health, spent)
+                    logger.warning("Audio tap [%s]: %s", label, gave_up_message)
+                    await _publish_tap_event(broadcast_warning, label, health, "gave_up", spent, gave_up_message)
                     continue
 
             message = evaluate_tap_health(

@@ -1,6 +1,6 @@
-"""belapp-junkfilter-rapportschema D1: ``enrich_report``, the LLM step after the call.
+"""``enrich_report``, the LLM step after the call.
 
-Covers the dispatch's required tests and the plan-gate acceptatiepunten that touch D1:
+Covers:
 
 - the ``report`` task in the resolver: 300 s default, fallback to the conversation's route,
   its own ``REPORT_LLM_*`` values, ``TaskModelMissingError``, the start-call poort and the
@@ -871,3 +871,34 @@ async def test_another_failure_is_not_reported_as_the_limit(sdk: _Sdk, caplog: p
     await enrich_report(_session(), _config())
 
     assert not any("output limit" in message for message in _warnings(caplog))
+
+
+def test_open_questions_are_cleaned_and_old_payloads_still_load() -> None:
+    cleaned = _enrichment(open_questions=["  Wat kost het? ", "", "   "]).cleaned()
+    assert cleaned.open_questions == ["Wat kost het?"]
+    # A payload from before the field existed loads with an empty list.
+    legacy = ReportEnrichment.model_validate(
+        {"gesprek_gevoerd": True, "short_summary": "", "overview": "", "keywords": [], "action_items": []}
+    )
+    assert legacy.open_questions == []
+    assert ReportEnrichment.fail_open().open_questions == []
+
+
+def test_open_questions_are_in_the_model_schema_and_prompts() -> None:
+    from sales_copilot.modules.reports import enrichment as module
+
+    assert "open_questions" in ReportEnrichment.model_json_schema()["properties"]
+    assert "open_questions" in module._SYSTEM_PROMPT
+    assert "open_questions" in module._neutral_report_prompt(module.SpeakerRoles("Me", "Other"), "en")
+
+
+def test_open_question_pii_is_redacted_on_disk(reports_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REPORT_REDACT_PII", "true")
+    written = generator.write_report(_session())
+    enrichment = _enrichment(open_questions=[f"Kan {_PHONE} terugbellen over de prijs?"]).cleaned()
+
+    generator.rewrite_with_enrichment(written, enrichment)
+
+    disk = written.path.read_text(encoding="utf-8")
+    assert _PHONE not in disk
+    assert json.loads(disk)["open_questions"] == ["Kan [TELEFOON] terugbellen over de prijs?"]

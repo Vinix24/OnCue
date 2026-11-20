@@ -34,6 +34,12 @@ COLD_CALL_CATEGORIES = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _dutch_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests assert on the Dutch base presets, which load for a Dutch call."""
+    monkeypatch.setenv("CALL_LANGUAGE", "nl")
+
+
 @_requires_acquisitie_pack
 def test_acquisitie_preset_registered_and_loads() -> None:
     assert "acquisitie" in _ALLOWED_PRESETS

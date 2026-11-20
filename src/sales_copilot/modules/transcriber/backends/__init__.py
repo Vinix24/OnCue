@@ -11,7 +11,7 @@ from sales_copilot.core.config import TranscriberConfig, env, with_overrides
 from sales_copilot.modules.transcriber.backends.base import TranscriptionBackend
 from sales_copilot.modules.transcriber.backends.mlx_backend import MlxWhisperBackend
 from sales_copilot.modules.transcriber.backends.parakeet_backend import ParakeetMlxBackend
-from sales_copilot.modules.transcriber.vocabulary import load_vocabulary_config
+from sales_copilot.modules.transcriber.vocabulary import load_vocabulary_config, warn_if_over_budget
 
 _whisper_cpp_import_error: Exception | None = None
 try:  # pragma: no cover - optional backend path
@@ -86,6 +86,7 @@ def _effective_initial_prompt(config: TranscriberConfig) -> str | None:
     if config.vocabulary_initial_prompt is not None:
         return config.vocabulary_initial_prompt
     vocab = load_vocabulary_config(config.vocabulary_config)
+    warn_if_over_budget(vocab, str(config.vocabulary_config))
     return vocab.initial_prompt or None
 
 

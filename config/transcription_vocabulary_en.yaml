@@ -1,0 +1,32 @@
+# English B2B / sales vocabulary biasing (same mechanism and 223-token budget as
+# the Dutch base file transcription_vocabulary.yaml). Disable or replace via
+# WHISPER_VOCABULARY_ENABLED / WHISPER_VOCABULARY_CONFIG.
+
+enabled: true
+language: en
+description: >
+  Compact English B2B / sales vocabulary used to bias local Whisper inference
+  without fine-tuning. Kept under Whisper's 223-token prompt budget.
+
+prompt_prefix: "English business conversation. Key terms:"
+
+terms:
+  - OnCue
+  - copilot
+  - Salesforce
+  - HubSpot
+  - Pipedrive
+  - CRM
+  - ERP
+  - ROI
+  - TCO
+  - MRR
+  - ARR
+  - GDPR
+  - upsell
+  - cross-sell
+  - churn
+  - onboarding
+  - proof of concept
+  - business case
+  - pain point

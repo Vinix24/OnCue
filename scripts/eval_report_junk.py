@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Meting van het junkfilter op echte opnames (objective belapp-junkfilter-rapportschema).
+"""Meting van het junkfilter op echte opnames.
 
 Leest sessies uit een SQLite-bestand met een ``call_sessions``-tabel en draait op de gekozen
 sessies de ECHTE keten: ``enrich_report`` (via de resolver, taak ``report``) en ``decide_junk``.

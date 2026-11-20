@@ -108,7 +108,7 @@ def test_transcribe_mlx_backend_skips_ggml_resolution_when_model_overridden(
     )
 
     assert captured_config["backend"] == "mlx-whisper"
-    assert captured_config["model_repo"] == "mlx-community/whisper-medium"
+    assert captured_config["model_repo"] == "mlx-community/whisper-medium-mlx"
     assert captured_config["whisper_cpp_model_path"] == cfg.whisper_cpp_model_path
 
 

@@ -215,6 +215,24 @@ class ScriptRouter:
                 self._router = _build_router(self.routes, self.config.embedding_model)
         return self._router
 
+    def warm_up(self) -> bool:
+        """Build the embedding model now; same contract as PainPointRouter.warm_up.
+
+        Blocking; run it in a worker thread. A ``classify`` during the build waits
+        on the same lock, and a failed build is logged once and returns False so
+        the next ``classify`` builds on first use.
+        """
+        if not self.routes:
+            return True
+        started = time.monotonic()
+        try:
+            self._ensure_router()
+            logger.info("Script router warm-up finished in %.1fs", time.monotonic() - started)
+        except Exception as exc:
+            logger.warning("Script router warm-up failed (%s); building on first use instead.", exc)
+            return False
+        return True
+
     def _keyword_match(self, text: str) -> RouteMatch | None:
         best_point_id: str | None = None
         best_score = 0

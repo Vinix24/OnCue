@@ -76,13 +76,14 @@ def _transcribe_to_segments(wav_path: Path) -> list[dict]:
 
     from sales_copilot.core.config import TranscriberConfig, load_env
     from sales_copilot.modules.transcriber.backends import create_backend
+    from sales_copilot.modules.transcriber.backends.model_names import resolve_mlx_repo
 
     load_env()
     cfg = TranscriberConfig.from_env()
     backend = create_backend({
         "backend": cfg.backend,
         "language": cfg.language,
-        "model_repo": f"mlx-community/whisper-{cfg.model}",
+        "model_repo": resolve_mlx_repo(cfg.model),
         "whisper_cpp_binary": cfg.whisper_cpp_binary,
         "whisper_cpp_model_path": cfg.whisper_cpp_model_path,
         "whisper_cpp_threads": cfg.whisper_cpp_threads,

@@ -26,7 +26,7 @@ from sales_copilot.core.config import (
 )
 from sales_copilot.core.context_docs import resolve_client_dir, write_dossier_transcript
 from sales_copilot.core.conversion import ConversionCounterStore
-from sales_copilot.core.i18n import configured_language
+from sales_copilot.core.i18n import NEUTRAL_SPEAKER_LABELS, configured_language
 from sales_copilot.core.logging import configure_logging
 from sales_copilot.core.preset import load_preset
 from sales_copilot.core.session_store import SessionStore
@@ -321,11 +321,6 @@ def _report_payload(report: CallReport, report_path: Path | None) -> dict[str, o
     }
 
 
-# Neutral speaker labels per LANGUAGE: ``(self, prospect)``. The transcript's channels are
-# the operator's microphone and everything else, not a seller and a prospect.
-_NEUTRAL_SPEAKER_LABELS = {"nl": ("Ik", "Gesprekspartner"), "en": ("Me", "Other")}
-
-
 def _speaker_labels(ui_labels: dict[str, str] | None, preset_name: str | None) -> dict[str, str]:
     """The label for each audio channel in the readable transcript.
 
@@ -341,8 +336,10 @@ def _speaker_labels(ui_labels: dict[str, str] | None, preset_name: str | None) -
         except Exception:
             logger.warning("Preset %r unreadable for the transcript labels; using neutral ones", preset_name)
             labels = {}
-    neutral_self, neutral_prospect = _NEUTRAL_SPEAKER_LABELS.get(
-        configured_language(), _NEUTRAL_SPEAKER_LABELS["nl"]
+    # The transcript's channels are the operator's microphone and everything else, not a
+    # seller and a prospect.
+    neutral_self, neutral_prospect = NEUTRAL_SPEAKER_LABELS.get(
+        configured_language(), NEUTRAL_SPEAKER_LABELS["nl"]
     )
     own = labels.get("self")
     other = labels.get("prospect")

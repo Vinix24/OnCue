@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Call Recorder</title>
+  <title data-i18n="recorder.page_title">Call Recorder</title>
   <style>
     :root {
       --bg: #0d0f14; --panel: #161a22; --line: #242a36;
@@ -34,6 +34,7 @@
       transition: transform .08s ease, box-shadow .2s ease;
     }
     .rec-btn:hover { transform: scale(1.04); }
+    .rec-btn.recording.paused { animation: none; background: var(--amber); color: #1a1405; }
     .rec-btn.recording { animation: pulse 1.3s ease-in-out infinite; }
     @keyframes pulse {
       0%,100% { box-shadow: 0 0 0 0 rgba(239,65,70,.55); }
@@ -52,6 +53,9 @@
     .fill.silent { background: var(--amber); }
     .fill.dead { background: var(--red); width: 100% !important; opacity: .35; }
     .db.dead { color: var(--red); font-weight: 600; }
+    .tap-note { margin: 10px 0 0; padding: 8px 10px; border-radius: 6px; font-size: 13px; border: 1px solid var(--amber); color: var(--amber); }
+    .tap-note.recovered { border-color: var(--green); color: var(--green); }
+    .tap-note.calm { border-color: var(--muted); color: var(--muted); }
     .badge { color: var(--amber); font-size: 11px; margin-left: 8px; }
     .saved { margin-top: 20px; font-size: 13px; color: var(--muted); word-break: break-all; }
     .saved code { color: var(--green); }
@@ -66,53 +70,89 @@
       border-radius: 9px; padding: 9px 14px; font-size: 14px; cursor: pointer;
     }
     .btn:hover { border-color: var(--green); }
+    .ctl {
+      width: 44px; height: 44px; border-radius: 50%; flex: 0 0 auto; cursor: pointer; font-size: 15px;
+      background: #0f1218; color: var(--text); border: 1px solid var(--line);
+    }
+    .ctl:hover:not(:disabled) { border-color: var(--green); }
+    .ctl:disabled { opacity: .5; cursor: default; }
+    .markers { color: var(--muted); font-size: 12px; }
     .rec-btn:disabled { opacity: .5; cursor: default; transform: none; }
   </style>
+  <link rel="icon" type="image/svg+xml" href="assets/oncue-mark.svg" />
+  <link rel="stylesheet" href="css/oncue-loader.css?v=1.0.0" />
 </head>
 <body>
+  <template id="oncue-loader-template">
+    <svg class="oncue-loader" viewBox="0 0 64 64" aria-hidden="true">
+      <rect class="oncue-loader-tile" x="2" y="2" width="60" height="60" rx="14" />
+      <circle class="oncue-loader-ring" cx="29" cy="36" r="14" />
+      <line class="oncue-loader-baton" x1="24" y1="41" x2="46" y2="19" />
+      <circle class="oncue-loader-dot" cx="48" cy="17" r="4.6" />
+    </svg>
+  </template>
   <div class="card">
-    <h1>Call Recorder</h1>
-    <div class="sub">Lokale opname en transcript. Alles blijft op deze computer, in <code>data/sessions/</code>.</div>
+    <h1 data-i18n="recorder.heading">Call Recorder</h1>
+    <div class="sub" data-i18n="recorder.subtitle">Local recording and transcript. Everything stays on this computer, in data/sessions/.</div>
 
-    <label for="mic">Microfoon (jouw stem)</label>
+    <label for="mic" data-i18n="recorder.mic_label">Microphone (your voice)</label>
     <select id="mic"></select>
 
     <div class="rec-row">
-      <button id="rec" class="rec-btn" title="Start opname">● REC</button>
+      <button id="rec" class="rec-btn" data-i18n="recorder.rec_button" data-i18n-attr="title:recorder.rec_title">● REC</button>
       <div class="status">
-        <div class="state" id="state">Klaar om op te nemen</div>
+        <div class="state" id="state" data-i18n="recorder.state_idle">Ready to record</div>
         <div class="timer" id="timer">00:00</div>
+        <div class="markers" id="markers" hidden></div>
       </div>
+      <button id="pause" class="ctl" data-i18n-attr="title:recorder.pause_title" hidden></button>
+      <button id="mark" class="ctl" data-i18n-attr="title:recorder.mark_title" hidden>&#9873;</button>
     </div>
-    <div class="consent">Vertel je gesprekspartners dat je het gesprek opneemt en uitschrijft.</div>
+    <div class="consent" data-i18n="recorder.consent">Tell the other participants that you are recording and transcribing the conversation.</div>
 
     <div class="meters">
       <div class="meter">
-        <div class="top"><span class="name">Prospect <span class="muted">(system-audio)</span></span><span class="db" id="db-prospect">--</span></div>
+        <div class="top"><span class="name"><span data-i18n="recorder.meter_prospect">Prospect</span> <span class="muted" data-i18n="recorder.meter_prospect_hint">(system audio)</span></span><span class="db" id="db-prospect">--</span></div>
         <div class="bar"><div class="fill" id="fill-prospect"></div></div>
       </div>
       <div class="meter">
-        <div class="top"><span class="name">Jij <span class="muted">(mic)</span></span><span class="db" id="db-self">--</span></div>
+        <div class="top"><span class="name"><span data-i18n="recorder.meter_self">You</span> <span class="muted" data-i18n="recorder.meter_self_hint">(mic)</span></span><span class="db" id="db-self">--</span></div>
         <div class="bar"><div class="fill" id="fill-self"></div></div>
       </div>
     </div>
 
+    <div class="tap-note" id="tap-note" role="alert" hidden></div>
+
     <div class="saved" id="saved"></div>
+    <div class="result show" id="model-box" hidden>
+      <div class="msg" id="model-msg"></div>
+      <div class="actions"><button class="btn" id="model-retry" data-i18n="recorder.model_retry" hidden>Try again</button></div>
+    </div>
 
     <div class="result" id="result">
       <div class="msg" id="result-msg"></div>
       <div class="actions">
-        <button class="btn" id="open-transcript">Open transcript</button>
-        <button class="btn" id="reveal" hidden>Toon in Finder</button>
+        <button class="btn" id="open-transcript" data-i18n="recorder.open_transcript">Open transcript</button>
+        <button class="btn" id="reveal" data-i18n="recorder.reveal" hidden>Show in Finder</button>
       </div>
     </div>
   </div>
 
+  <!-- Same i18n mechanism as the dashboard (js/i18n.js): the language comes from the
+       server's config, the strings from its catalog. -->
+  <script>
+    window.__configPromise = fetch("/api/config").then((r) => r.json()).catch(() => ({}));
+  </script>
+  <script src="/js/i18n.js"></script>
   <script>
     const recBtn = document.getElementById("rec");
     const micSel = document.getElementById("mic");
     const stateEl = document.getElementById("state");
     const timerEl = document.getElementById("timer");
+    const pauseBtn = document.getElementById("pause");
+    const markBtn = document.getElementById("mark");
+    const markersEl = document.getElementById("markers");
+    let paused = false;
     const savedEl = document.getElementById("saved");
     const resultEl = document.getElementById("result");
     const resultMsg = document.getElementById("result-msg");
@@ -123,6 +163,13 @@
     let latestSession = null;
     let canReveal = false;
     let ws = null;
+    const tr = (key, params) => window.t("recorder." + key, params);
+    const loaderTemplate = document.getElementById("oncue-loader-template");
+    const loader = () => (loaderTemplate ? loaderTemplate.content.firstElementChild.cloneNode(true) : null);
+    function setLoadingText(el, text, loading) {
+      const mark = loading ? loader() : null;
+      el.replaceChildren(...(mark ? [mark] : []), text);
+    }
 
     function fmt(sec) {
       const t = Math.floor(sec || 0);
@@ -139,19 +186,17 @@
         const data = await res.json();
         micSel.innerHTML = "";
         const def = document.createElement("option");
-        def.value = ""; def.textContent = "Systeemstandaard";
+        def.value = ""; def.textContent = tr("mic_default");
         micSel.appendChild(def);
         for (const m of data.mics) {
           const o = document.createElement("option");
           o.value = String(m.index);
           o.textContent = m.name;
-          if (m.index === data.default_index) o.textContent += " (standaard)";
+          if (m.index === data.default_index) o.textContent += " " + tr("mic_default_suffix");
           micSel.appendChild(o);
         }
-      } catch (e) { stateEl.textContent = "Kon devices niet laden"; }
+      } catch (e) { stateEl.textContent = tr("devices_failed"); }
     }
-
-    const DEAD_TEXT = { self: "Microfoon niet gestart", prospect: "Systeemgeluid niet gestart" };
 
     function setMeter(label, s) {
       const fill = document.getElementById("fill-" + label);
@@ -161,7 +206,7 @@
       db.classList.toggle("dead", !!dead);
       if (dead) {
         fill.classList.remove("silent");
-        db.textContent = DEAD_TEXT[label] + (s.error ? " (" + s.error + ")" : "") + " · opnieuw proberen";
+        db.textContent = tr("meter_dead_" + label) + (s.error ? " (" + s.error + ")" : "") + " · " + tr("meter_retry");
         db.title = s.error || "";
         return;
       }
@@ -170,17 +215,53 @@
       fill.style.width = dbPct(val) + "%";
       fill.classList.toggle("silent", silent);
       let txt = (val === null || val === undefined) ? "--" : (val.toFixed(0) + " dB");
-      if (silent && recording) txt += " · stil";
+      if (silent && recording) txt += " · " + tr("meter_silent");
       db.textContent = txt;
+    }
+
+    const tapNoteEl = document.getElementById("tap-note");
+    // A lost tap warns at once (not after the reattach attempts); a worked reattach shows a short note.
+    function renderTap(tap) {
+      const state = recording && tap ? tap.state : "ok";
+      const lost = state === "lost" || state === "gave_up";
+      const key = state === "gave_up" ? "tap_gave_up" : lost ? "tap_lost" : state === "recovered" ? "tap_reattached" : state === "no_system_audio" ? "tap_no_system_audio" : null;
+      tapNoteEl.hidden = key === null;
+      tapNoteEl.classList.toggle("recovered", state === "recovered");
+      tapNoteEl.classList.toggle("calm", state === "no_system_audio");
+      tapNoteEl.setAttribute("role", lost ? "alert" : "status");
+      tapNoteEl.textContent = key === null ? "" : tr(key);
     }
 
     function onLevel(msg) {
       if (!recording) return;
+      renderTap(msg.tap);
       timerEl.textContent = fmt(msg.elapsed_s);
       const byLabel = {};
       for (const s of msg.streams) byLabel[s.label] = s;
       setMeter("prospect", byLabel["prospect"]);
       setMeter("self", byLabel["self"]);
+    }
+
+    function sendCtl(action) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ action }));
+      pauseBtn.disabled = true;
+      markBtn.disabled = true;
+    }
+    pauseBtn.addEventListener("click", () => sendCtl(paused ? "resume" : "pause"));
+    markBtn.addEventListener("click", () => sendCtl("mark"));
+
+    function renderControls(msg) {
+      paused = recording && !!msg.paused;
+      const count = recording ? (msg.markers || []).length : 0;
+      pauseBtn.hidden = !recording;
+      markBtn.hidden = !recording;
+      pauseBtn.disabled = false;
+      markBtn.disabled = false;
+      pauseBtn.innerHTML = paused ? "&#9654;" : "&#10074;&#10074;";
+      pauseBtn.title = paused ? tr("resume_title") : tr("pause_title");
+      markersEl.hidden = count === 0;
+      markersEl.textContent = count === 1 ? tr("marker_one") : tr("marker_many", { count });
     }
 
     function showResult(text, failed, withButtons) {
@@ -197,34 +278,78 @@
       recording = phase === "recording";
       latestSession = msg.session;
       recBtn.classList.toggle("recording", recording);
-      recBtn.textContent = recording ? "■ Stop" : "● REC";
-      recBtn.disabled = false;
+      recBtn.textContent = recording ? tr("stop_button") : tr("rec_button");
+      recBtn.classList.toggle("paused", recording && !!msg.paused);
+      renderControls(msg);
+      recBtn.disabled = !modelReady && !recording;
+      renderTap(msg.tap);
       if (recording) savedEl.textContent = "";
       resultEl.classList.remove("show");
       if (recording) {
-        stateEl.innerHTML = '<span class="dot">●</span> Opname loopt';
+        if (paused) stateEl.textContent = tr("state_paused");
+        else {
+          stateEl.textContent = "";
+          const dot = document.createElement("span");
+          dot.className = "dot";
+          dot.textContent = "●";
+          stateEl.append(dot, " " + tr("state_recording"));
+        }
         timerEl.textContent = fmt(msg.elapsed_s);
         if (msg.transcribing) {
-          showResult("Een eerdere opname wordt nog uitgeschreven.", false, false);
+          showResult(tr("result_earlier_running"), false, false);
         }
         return;
       }
       setMeter("prospect", null); setMeter("self", null);
       if (phase === "transcribing") {
-        stateEl.textContent = "Bezig met uitschrijven";
-        showResult("Bezig met uitschrijven, dit duurt een paar minuten. Je kunt dit venster open laten.", false, false);
+        setLoadingText(stateEl, tr("state_transcribing"), true);
+        showResult(tr("result_transcribing"), false, false);
       } else if (phase === "ready") {
-        stateEl.textContent = "Transcript klaar";
-        showResult("Het transcript staat klaar.", false, true);
+        stateEl.textContent = tr("state_ready");
+        showResult(tr("result_ready"), false, true);
       } else if (phase === "failed") {
-        stateEl.textContent = "Uitschrijven mislukt";
-        showResult("Uitschrijven mislukt: " + (msg.reason || "onbekende fout"), true, !!msg.session);
+        stateEl.textContent = tr("state_failed");
+        showResult(tr("result_failed", { reason: msg.reason || tr("unknown_error") }), true, !!msg.session);
         openBtn.hidden = true;
       } else {
-        stateEl.textContent = "Klaar om op te nemen";
+        stateEl.textContent = tr("state_idle");
         timerEl.textContent = "00:00";
       }
     }
+
+    const modelBox = document.getElementById("model-box");
+    const modelMsg = document.getElementById("model-msg");
+    const modelRetry = document.getElementById("model-retry");
+    let modelReady = true;
+    function applyModel(m) {
+      modelReady = m.state === "ready";
+      modelBox.hidden = modelReady;
+      modelRetry.hidden = m.state !== "failed";
+      modelMsg.classList.toggle("failed", m.state === "failed");
+      if (m.state === "downloading") {
+        const mb = (n) => Math.round(n / 1048576);
+        const text = m.total
+          ? tr("model_progress", { percent: Math.floor(100 * m.done / m.total), done: mb(m.done), total: mb(m.total) })
+          : tr("model_progress_unknown", { done: mb(m.done) });
+        setLoadingText(modelMsg, text, true);
+      } else if (m.state === "failed") {
+        setLoadingText(modelMsg, m.error || tr("model_failed"), false);
+      } else if (!modelReady) {
+        setLoadingText(modelMsg, tr("model_preparing"), true);
+      }
+      if (!modelReady && !recording) recBtn.disabled = true;
+      else if (modelReady && !recording) recBtn.disabled = false;
+    }
+    async function pollModel() {
+      try {
+        applyModel(await (await fetch("/model")).json());
+      } catch (e) { /* server not reachable yet; the next poll retries */ }
+      setTimeout(pollModel, modelReady ? 5000 : 1000);
+    }
+    modelRetry.addEventListener("click", async () => {
+      applyModel(await (await fetch("/model/retry", { method: "POST" })).json());
+    });
+    pollModel();
 
     function connect() {
       ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
@@ -233,12 +358,15 @@
         if (msg.type === "level") onLevel(msg);
         else if (msg.type === "state") onState(msg);
         else if (msg.type === "error") {
-          stateEl.textContent = "Opname starten mislukt: " + msg.reason;
+          stateEl.textContent = tr("start_failed", { reason: msg.reason });
         } else if (msg.type === "stopped") {
-          if (msg.directory) savedEl.innerHTML = "Opgeslagen in <code>" + msg.directory + "</code>";
+          const parts = [];
+          if (msg.auto_stop_s) parts.push(tr("auto_stopped", { seconds: msg.auto_stop_s }));
+          if (msg.directory) parts.push(tr("saved", { directory: msg.directory }));
+          savedEl.textContent = parts.join(" ");
         }
       };
-      ws.onclose = () => { stateEl.textContent = "Verbinding gesloten"; };
+      ws.onclose = () => { stateEl.textContent = tr("state_connection_closed"); };
     }
 
     recBtn.addEventListener("click", () => {
@@ -249,7 +377,7 @@
       } else {
         ws.send(JSON.stringify({ action: "stop" }));
         recBtn.disabled = true;
-        stateEl.textContent = "Afronden...";
+        stateEl.textContent = tr("state_finishing");
       }
     });
 
@@ -268,13 +396,15 @@
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          showResult(body.detail || "Finder openen mislukt", true, true);
+          showResult(body.detail || tr("reveal_failed"), true, true);
         }
-      } catch (e) { showResult("Finder openen mislukt: " + e, true, true); }
+      } catch (e) { showResult(tr("reveal_failed_detail", { reason: e }), true, true); }
     });
 
-    loadDevices();
-    connect();
+    window.SalesCopilotI18n.ready.then(() => {
+      loadDevices();
+      connect();
+    });
   </script>
 </body>
 </html>

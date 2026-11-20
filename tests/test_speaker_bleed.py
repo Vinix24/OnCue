@@ -209,6 +209,7 @@ async def test_report_drops_echo_from_transcript_and_talk_time(tmp_path: Path, m
     reports_dir = tmp_path / "reports"
     monkeypatch.setattr(generator, "REPORTS_DIR", reports_dir)
     monkeypatch.setenv("LANGUAGE", "nl")
+    monkeypatch.setenv("CALL_LANGUAGE", "nl")
     monkeypatch.setenv("SHUTDOWN_TOKEN", "test-token")
     monkeypatch.delenv("TRANSCRIPT_ECHO_FILTER", raising=False)
     monkeypatch.setattr(reports_main, "load_env", lambda: None)

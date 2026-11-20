@@ -150,9 +150,7 @@ def test_pin_provider_merges_into_existing_extra_body() -> None:
     def create(**kwargs):
         seen.update(kwargs)
 
-    msl._pin_provider(create, ["DeepInfra"])(
-        model="m", extra_body={"chat_template_kwargs": {"enable_thinking": False}}
-    )
+    msl._pin_provider(create, ["DeepInfra"])(model="m", extra_body={"chat_template_kwargs": {"enable_thinking": False}})
     assert seen["extra_body"]["chat_template_kwargs"] == {"enable_thinking": False}
     assert seen["extra_body"]["provider"] == {"order": ["DeepInfra"], "allow_fallbacks": False}
 
@@ -161,3 +159,18 @@ def test_pin_provider_without_existing_extra_body() -> None:
     seen: dict = {}
     msl._pin_provider(lambda **kw: seen.update(kw), ["DeepInfra"])(model="m")
     assert seen["extra_body"] == {"provider": {"order": ["DeepInfra"], "allow_fallbacks": False}}
+
+
+def test_result_fragment_path_is_repo_relative_for_default_fragment() -> None:
+    import asyncio
+
+    args = msl.parse_args([])
+    lines = msl.load_fragment(args.fragment)
+    args.candidates = []  # no candidate means no API call
+    report = asyncio.run(msl.run_all(args, lines))
+    assert report["fragment"]["path"] == "tests/operator_scripts/scripted_sales_call_nl.md"
+
+
+def test_display_path_keeps_absolute_path_outside_repo(tmp_path: Path) -> None:
+    outside = tmp_path / "frag.md"
+    assert msl.display_path(outside) == str(outside.resolve())

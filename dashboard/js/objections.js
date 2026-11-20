@@ -5,7 +5,11 @@ const objectionsPanel = document.getElementById("objections-panel");
 const heroHeadline = document.getElementById("monologue-warning");
 const MAX_OBJECTIONS = 12;
 const HERO_SPOTLIGHT_MS = 12000;
-const RESPONSE_LOCKED_TEASER = "\u{1F512} Pro: bekijk de beste tegenreactie";
+// The server sends the teaser in the configured language (policy.response_locked_teaser).
+const RESPONSE_LOCKED_TEASERS = [
+  "\u{1F512} Pro: see the best counter-response",
+  "\u{1F512} Pro: bekijk de beste tegenreactie",
+];
 
 // True while the hero headline is owned by an objection/opportunity spotlight
 // (vs. the default calm line or a coaching/monologue message from app.js).
@@ -187,7 +191,7 @@ const addObjectionCard = (payload) => {
 
   const response = document.createElement("div");
   response.className = "pain-point-case";
-  if (payload.response_suggestion === RESPONSE_LOCKED_TEASER) {
+  if (RESPONSE_LOCKED_TEASERS.includes(payload.response_suggestion)) {
     response.classList.add("is-locked");
   }
   response.textContent = payload.response_suggestion || window.t("common.no_suggestion_available");

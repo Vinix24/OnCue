@@ -47,9 +47,9 @@ def test_i18n_config_from_env_defaults_to_i18n_default_language(
 ) -> None:
     """I18nConfig must never hardcode its own default -- it defers to
     sales_copilot.core.i18n.DEFAULT_LANGUAGE as the single source of truth
-    (nl is default for the Dutch-language pilot)."""
+    (English is the default; Dutch is the LANGUAGE=nl setting)."""
     monkeypatch.delenv("LANGUAGE", raising=False)
-    assert I18nConfig.from_env().language == i18n.DEFAULT_LANGUAGE == "nl"
+    assert I18nConfig.from_env().language == i18n.DEFAULT_LANGUAGE == "en"
     assert I18nConfig().language == i18n.DEFAULT_LANGUAGE
 
 
@@ -122,14 +122,12 @@ def test_transcriber_config_defaults_system_port_to_mic(monkeypatch: pytest.Monk
 def test_transcriber_config_reads_whisper_cpp_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WHISPER_CPP_BINARY", "/tmp/whisper-cli")
     monkeypatch.setenv("WHISPER_CPP_MODEL_PATH", "/tmp/ggml-large-v3.bin")
-    monkeypatch.setenv("WHISPER_CPP_CHUNK_MS", "4200")
     monkeypatch.setenv("WHISPER_CPP_THREADS", "8")
 
     config = TranscriberConfig.from_env()
 
     assert config.whisper_cpp_binary == "/tmp/whisper-cli"
     assert config.whisper_cpp_model_path == "/tmp/ggml-large-v3.bin"
-    assert config.whisper_cpp_chunk_ms == 4200
     assert config.whisper_cpp_threads == 8
 
 
@@ -158,7 +156,7 @@ def test_transcriber_config_vocabulary_defaults(monkeypatch: pytest.MonkeyPatch)
 
     config = TranscriberConfig.from_env()
 
-    assert config.vocabulary_config == "config/transcription_vocabulary.yaml"
+    assert config.vocabulary_config == "config/transcription_vocabulary_en.yaml"
     assert config.vocabulary_enabled is True
     assert config.vocabulary_initial_prompt is None
 

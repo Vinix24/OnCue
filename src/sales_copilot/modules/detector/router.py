@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -12,6 +13,7 @@ from semantic_router import Route, SemanticRouter
 from semantic_router.encoders import HuggingFaceEncoder
 
 from sales_copilot.core.config import DetectorConfig, load_yaml
+from sales_copilot.modules.detector.model_cache import embedding_model_cached, normalize_model_name
 
 logger = logging.getLogger(__name__)
 
@@ -75,14 +77,33 @@ def _load_routes(config_path: str, language: str = "nl") -> list[Route]:
     return routes_from_mapping(load_yaml(resolved_path), source=resolved_path)
 
 
-def _normalize_model_name(embedding_model: str) -> str:
-    if "/" in embedding_model:
-        return embedding_model
-    return f"sentence-transformers/{embedding_model}"
+_normalize_model_name = normalize_model_name
+
+
+def build_encoder(embedding_model: str) -> HuggingFaceEncoder:
+    """Build the embedding encoder; a model already on disk is loaded without any network call.
+
+    ``local_files_only`` is passed per load instead of setting ``HF_HUB_OFFLINE`` process-wide,
+    so a first download of another Hugging Face model in the same process still works."""
+    name = normalize_model_name(embedding_model)
+    if embedding_model_cached(embedding_model):
+        try:
+            return HuggingFaceEncoder(
+                name=name,
+                tokenizer_kwargs={"local_files_only": True},
+                model_kwargs={"local_files_only": True},
+            )
+        except OSError:
+            logger.warning(
+                "Cached snapshot of embedding model %s is incomplete; downloading it from Hugging Face.", name
+            )
+            return HuggingFaceEncoder(name=name)
+    logger.info("Embedding model %s is not in the local cache; downloading it from Hugging Face.", name)
+    return HuggingFaceEncoder(name=name)
 
 
 def _build_router(routes: list[Route], embedding_model: str) -> SemanticRouter:
-    encoder = HuggingFaceEncoder(name=_normalize_model_name(embedding_model))
+    encoder = build_encoder(embedding_model)
     router = SemanticRouter(encoder=encoder, routes=[], aggregation="max")
     router.add(routes)
     return router
@@ -129,9 +150,7 @@ class PainPointRouter:
         that resolves to this class is filtered out in ``classify()``. Shared
         by PainPointRouter and ObjectionRouter so both get the same fix.
         """
-        self._include_negatives = (
-            include_negatives if include_negatives is not None else self.config.include_negatives
-        )
+        self._include_negatives = include_negatives if include_negatives is not None else self.config.include_negatives
         self._negative_categories: frozenset[str] = frozenset()
         if not self._include_negatives:
             return
@@ -157,6 +176,24 @@ class PainPointRouter:
             if self._router is None:
                 self._router = _build_router(self.routes, self.config.embedding_model)
         return self._router
+
+    def warm_up(self) -> bool:
+        """Build the embedding router now instead of on the first classify call.
+
+        Blocking; run it in a worker thread. It goes through ``_ensure_router``,
+        so a ``classify`` that arrives during the build waits on the same lock
+        and reuses the result: one router, never two. A failed build is logged
+        once and returns False; ``_router`` stays ``None`` so the next
+        ``classify`` retries the build on first use, as before.
+        """
+        started = time.monotonic()
+        try:
+            self._ensure_router()
+            logger.info("Router warm-up finished in %.1fs", time.monotonic() - started)
+        except Exception as exc:
+            logger.warning("Router warm-up failed (%s); building on first use instead.", exc)
+            return False
+        return True
 
     def _tier_for_score(self, score: float) -> Literal["high", "uncertain"]:
         return "high" if score >= self.config.confidence_threshold_high else "uncertain"
